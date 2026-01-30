@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 
@@ -7,11 +7,25 @@ if (started) {
   app.quit();
 }
 
+let db: any;
+
+async function initDB() {
+  const { Low } = await import('lowdb');
+  const { JSONFile } = await import('lowdb/node');
+
+  const file = path.join(app.getPath('userData'), 'db.json');
+  const adapter = new JSONFile(file);
+  db = new Low(adapter, { tasks: [] });
+  await db.read();
+  db.data ||= { tasks: [] };
+  await db.write();
+}
+
 const createWindow = () => {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 1000,
+    height: 800,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
@@ -27,17 +41,40 @@ const createWindow = () => {
   }
 
   // Open the DevTools.
-  mainWindow.webContents.openDevTools();
+  // mainWindow.webContents.openDevTools();
 };
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-app.on('ready', createWindow);
+app.on('ready', async () => {
+  await initDB();
+  createWindow();
 
-// Quit when all windows are closed, except on macOS. There, it's common
-// for applications and their menu bar to stay active until the user quits
-// explicitly with Cmd + Q.
+  ipcMain.handle('get-tasks', () => db.data.tasks);
+
+  ipcMain.handle('add-task', async (event, task) => {
+    db.data.tasks.push(task);
+    await db.write();
+    return db.data.tasks;
+  });
+
+  ipcMain.handle('update-task', async (event, updatedTask) => {
+    const index = db.data.tasks.findIndex((t: any) => t.id === updatedTask.id);
+    if (index !== -1) {
+      db.data.tasks[index] = updatedTask;
+      await db.write();
+    }
+    return db.data.tasks;
+  });
+
+  ipcMain.handle('delete-task', async (event, id) => {
+    db.data.tasks = db.data.tasks.filter((t: any) => t.id !== id);
+    await db.write();
+    return db.data.tasks;
+  });
+});
+
+// Quit when all windows are closed, except on macOS.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
@@ -51,6 +88,3 @@ app.on('activate', () => {
     createWindow();
   }
 });
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and import them here.

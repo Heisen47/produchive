@@ -5,4 +5,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     addTask: (task: any) => ipcRenderer.invoke('add-task', task),
     updateTask: (task: any) => ipcRenderer.invoke('update-task', task),
     deleteTask: (id: string) => ipcRenderer.invoke('delete-task', id),
+    onActivityUpdate: (callback: (activity: any) => void) => ipcRenderer.on('activity-update', (_event, value) => callback(value)),
+
+    // Debug and system info
+    getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
+    openUserDataFolder: () => ipcRenderer.invoke('open-user-data-folder'),
+    openLogFile: () => ipcRenderer.invoke('open-log-file'),
+    getDbContents: () => ipcRenderer.invoke('get-db-contents'),
 });

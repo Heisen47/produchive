@@ -31,6 +31,7 @@
     "@typescript-eslint/eslint-plugin": "^5.62.0",
     "@typescript-eslint/parser": "^5.62.0",
     "@vitejs/plugin-react": "^5.1.2",
+    "@webgpu/types": "^0.1.69",
     "autoprefixer": "^10.4.23",
     "electron": "40.1.0",
     "eslint": "^8.57.1",
@@ -42,12 +43,16 @@
   },
   "dependencies": {
     "@mlc-ai/web-llm": "^0.2.80",
+    "active-win": "^8.2.1",
     "clsx": "^2.1.1",
+    "electron-log": "^5.4.3",
     "electron-squirrel-startup": "^1.0.1",
     "lowdb": "^7.0.1",
     "lucide-react": "^0.563.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.0",
+    "winston": "^3.19.0",
+    "zustand": "^5.0.10"
   }
 }

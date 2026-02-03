@@ -54,7 +54,6 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
              const duration = (act.duration ? act.duration / 1000 : 1); 
              const appName = act.owner.name;
              
-             // Actually, since backend aggregates, duplicates should be minimal but good to be safe
              appUsage[appName] = (appUsage[appName] || 0) + duration;
              appCounts[appName] = (appCounts[appName] || 0) + 1;
              totalDuration += duration;

@@ -155,6 +155,17 @@ const startMonitoring = async () => {
              });
            */
 
+          // Persist to DB if activity changed (Clutter-free: only store changes)
+          const isDistinct = !lastActivity || 
+                             lastActivity.owner.name !== activity.owner.name || 
+                             lastActivity.title !== activity.title;
+
+          if (isDistinct) {
+              db.data.activities.push(activity);
+              // Write asynchronously to avoid blocking the interval much
+              db.write().catch((e: any) => logger.error('Failed to write activity to DB:', e));
+          }
+
           lastActivity = activity;
           // logger.debug(`Activity detected: ${result.owner.name} - ${result.title}`); // Removed noisy debug log
           mainWindow.webContents.send('activity-update', activity);

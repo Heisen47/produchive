@@ -17,4 +17,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openUserDataFolder: () => ipcRenderer.invoke('open-user-data-folder'),
     openLogFile: () => ipcRenderer.invoke('open-log-file'),
     getDbContents: () => ipcRenderer.invoke('get-db-contents'),
+    saveGoals: (goals: string[]) => ipcRenderer.invoke('save-goals', goals),
 });

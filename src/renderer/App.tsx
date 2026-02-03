@@ -201,7 +201,7 @@ const App = () => {
                         )}
 
                         {/* Views */}
-                        {currentView === 'dashboard' && <Dashboard />}
+                        {currentView === 'dashboard' && <Dashboard onNavigate={setCurrentView} />}
                         
                         {currentView === 'monitor' && (
                             <div className="space-y-6">

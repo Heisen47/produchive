@@ -41,7 +41,7 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend }: any) => (
     </div>
 );
 
-export const Dashboard = () => {
+export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
     const { activities, isMonitoring, setMonitoring } = useStore();
 
     const stats = useMemo(() => {
@@ -54,7 +54,6 @@ export const Dashboard = () => {
              const duration = (act.duration ? act.duration / 1000 : 1); 
              const appName = act.owner.name;
              
-             // If we already have this app in our usage map, we should add to it?
              // Actually, since backend aggregates, duplicates should be minimal but good to be safe
              appUsage[appName] = (appUsage[appName] || 0) + duration;
              appCounts[appName] = (appCounts[appName] || 0) + 1;
@@ -114,8 +113,16 @@ export const Dashboard = () => {
                         <h3 className="text-lg font-bold text-gray-100">Activity Summary</h3>
                         <p className="text-sm text-gray-400">Aggregated usage by application</p>
                     </div>
-                    <button 
-                        onClick={handleToggleMonitoring}
+                    <div className="flex gap-3">
+                        <button
+                            onClick={() => onNavigate && onNavigate('ai')}
+                            className="px-4 py-2 bg-purple-600/10 text-purple-400 hover:bg-purple-600/20 border border-purple-600/50 rounded-lg text-sm font-medium transition-all flex items-center gap-2"
+                        >
+                            <Zap size={16} />
+                            Analyze with AI
+                        </button>
+                        <button 
+                            onClick={handleToggleMonitoring}
                         className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                             isMonitoring 
                                 ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/50' 
@@ -124,6 +131,7 @@ export const Dashboard = () => {
                     >
                         {isMonitoring ? 'Stop Monitoring' : 'Start Monitoring'}
                     </button>
+                    </div>
                 </div>
 
                 {/* Table Header */}

@@ -28,8 +28,12 @@ export const useStore = create<Store>((set, get) => ({
     goals: [],
     activities: [],
     loadTasks: async () => {
-        const { tasks, activities } = await window.electronAPI.getTasks() as any;
-        set({ tasks, activities: activities || [] });
+        const { tasks, activities, goals } = await window.electronAPI.getTasks() as any;
+        set({ 
+            tasks: tasks || [], 
+            activities: activities || [],
+            goals: goals || []
+        });
     },
     addTask: async (text: string) => {
         const newTask: Task = {
@@ -56,7 +60,9 @@ export const useStore = create<Store>((set, get) => ({
     addGoal: (goal: string) => {
         const { goals } = get();
         if (goals.length < 5) {
-            set({ goals: [...goals, goal] });
+            const newGoals = [...goals, goal];
+            set({ goals: newGoals });
+            window.electronAPI.saveGoals(newGoals);
         }
     },
     editGoal: (index: number, newGoal: string) => {
@@ -64,12 +70,18 @@ export const useStore = create<Store>((set, get) => ({
         const newGoals = [...goals];
         newGoals[index] = newGoal;
         set({ goals: newGoals });
+        window.electronAPI.saveGoals(newGoals);
     },
     removeGoal: (index: number) => {
         const { goals } = get();
-        set({ goals: goals.filter((_, i) => i !== index) });
+        const newGoals = goals.filter((_, i) => i !== index);
+        set({ goals: newGoals });
+        window.electronAPI.saveGoals(newGoals);
     },
-    setGoals: (goals: string[]) => set({ goals }),
+    setGoals: (goals: string[]) => {
+        set({ goals });
+        window.electronAPI.saveGoals(goals);
+    },
     addActivity: (activity: Activity) => {
         const { activities } = get();
         const existingActivityIndex = activities.findIndex(a => 

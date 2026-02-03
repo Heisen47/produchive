@@ -62,10 +62,15 @@ async function initDB() {
     logger.info(`Database file location: ${dbFilePath}`);
 
     const adapter = new JSONFile(dbFilePath);
-    // Main DB only needs tasks and goal now. 'activities' removed from main DB schema.
-    db = new Low(adapter, { tasks: [], goal: null });
+    // Main DB only needs tasks and goals now. 'activities' removed from main DB schema.
+    db = new Low(adapter, { tasks: [], goals: [] });
     await db.read();
-    db.data ||= { tasks: [], goal: null };
+    db.data ||= { tasks: [], goals: [] };
+    // Migration for old "goal" property if needed, but we start fresh or keep both for safety
+    if (!db.data.goals && (db.data as any).goal) {
+       db.data.goals = [(db.data as any).goal];
+    }
+    db.data.goals ||= [];
     await db.write();
 
     // Initialize Activity DB immediately to ensure folder structure
@@ -249,9 +254,15 @@ app.on('ready', async () => {
     createWindow();
 
     // Task management handlers
-    ipcMain.handle('get-tasks', () => {
+    ipcMain.handle('get-tasks', async () => {
       // logger.debug('IPC: get-tasks called');
-      return db.data.tasks;
+      // Return composite data to ensure everything load on start
+      const currentActivityDb = await getActivityDb();
+      return {
+          tasks: db.data.tasks,
+          goals: db.data.goals || [],
+          activities: currentActivityDb.data.activities || []
+      };
     });
 
     ipcMain.handle('add-task', async (event, task) => {
@@ -274,6 +285,14 @@ app.on('ready', async () => {
       db.data.tasks = db.data.tasks.filter((t: any) => t.id !== id);
       await db.write();
       return db.data.tasks;
+    });
+
+    ipcMain.handle('save-goals', async (event, goals) => {
+      if (Array.isArray(goals)) {
+        db.data.goals = goals;
+        await db.write();
+      }
+      return db.data.goals;
     });
 
     // Debug and system info handlers
@@ -312,13 +331,18 @@ app.on('ready', async () => {
       const currentActivityDb = await getActivityDb();
       return {
         tasks: db.data.tasks,
-        // Return today's activities. 
-        // NOTE: If user wants to see history, we'll need a different API. 
-        // Dashboard currently shows "stats" which implies today/current session.
         activities: currentActivityDb.data.activities || [],
-        goal: db.data.goal || null,
+        goals: db.data.goals || [],
       };
     });
+
+    // Helper to get everything at once (mapped to getTasks in frontend roughly)
+    // Actually, store calls getTasks() but backend has get-tasks. 
+    // Wait, the renderer calls `window.electronAPI.getTasks()`.
+    // I need to verify what `preload.ts` maps `getTasks` to.
+    // Assuming it maps to `get-tasks` channel (or `get-db-contents`? I will check preload).
+    // For now, I'll update `get-tasks` channel just in case.
+
 
     ipcMain.handle('start-monitoring', () => {
         // logger.info('IPC: start-monitoring called');

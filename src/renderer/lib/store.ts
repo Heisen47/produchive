@@ -25,8 +25,8 @@ export const useStore = create<Store>((set, get) => ({
     goal: null,
     activities: [],
     loadTasks: async () => {
-        const tasks = await window.electronAPI.getTasks();
-        set({ tasks });
+        const { tasks, activities } = await window.electronAPI.getTasks() as any;
+        set({ tasks, activities: activities || [] });
     },
     addTask: async (text: string) => {
         const newTask: Task = {

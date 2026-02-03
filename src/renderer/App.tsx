@@ -47,6 +47,12 @@ const App = () => {
         window.electronAPI.onActivityUpdate((activity) => {
             addActivity(activity);
         });
+        
+        // Load initial data (tasks + today's activities)
+        const init = async () => {
+            await useStore.getState().loadTasks();
+        };
+        init();
     }, [addActivity]);
 
     const [engine, setEngine] = useState<any>(null);

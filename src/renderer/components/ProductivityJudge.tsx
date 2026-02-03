@@ -1,11 +1,17 @@
 import React, { useState } from 'react';
-import { Brain, Loader2, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle } from 'lucide-react';
 import { useStore } from '../lib/store';
 
 interface ProductivityAnalysis {
     rating: number; // 1-10
     verdict: 'productive' | 'neutral' | 'unproductive';
     explanation: string;
+    tips: string[];
+    categorization: {
+        productive: string[];
+        neutral: string[];
+        distracting: string[];
+    }
 }
 
 export const ProductivityJudge = ({ engine }: { engine: any }) => {
@@ -13,86 +19,100 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
     const [analyzing, setAnalyzing] = useState(false);
     const [analysis, setAnalysis] = useState<ProductivityAnalysis | null>(null);
 
+    const formatDuration = (ms: number) => {
+        const seconds = Math.floor(ms / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const hours = Math.floor(minutes / 60);
+        
+        if (hours > 0) return `${hours}h ${minutes % 60}m`;
+        if (minutes > 0) return `${minutes}m`;
+        return `${seconds}s`;
+    };
+
     const analyzeProductivity = async () => {
         if (!engine || !goal || activities.length === 0) return;
 
         setAnalyzing(true);
         try {
-            const recentActivities = activities.slice(-20);
-            const activitySummary = recentActivities.map(a =>
-                `${a.owner.name}: ${a.title}`
-            ).join('\n');
+            // Group activities by title to sum duration
+            const activityMap = new Map<string, number>();
+            activities.forEach(a => {
+                const key = `${a.owner.name} - ${a.title}`;
+                const currentDuration = activityMap.get(key) || 0;
+                activityMap.set(key, currentDuration + (a.duration || 0));
+            });
+
+            const activitySummary = Array.from(activityMap.entries())
+                .map(([name, duration]) => `- ${name} (${formatDuration(duration)})`)
+                .join('\n');
 
             const prompt = `Goal: "${goal}"
 
-Recent activities:
+Activities Log (App - Title (Duration)):
 ${activitySummary}
 
-Analyze how productive these activities are relative to the goal. Rate productivity from 1-10 and provide a brief explanation (2-3 sentences max). Format your response EXACTLY as:
-RATING: [number]
-VERDICT: [productive/neutral/unproductive]
-EXPLANATION: [your explanation]`;
+Analyze the user's productivity for the day based on their goal.
+Provide the output in STRICT JSON format with the following structure:
+{
+  "rating": <number 1-10>,
+  "verdict": "<productive|neutral|unproductive>",
+  "explanation": "<2-3 sentence summary>",
+  "tips": ["<actionable advice 1>", "<actionable advice 2>", "<actionable advice 3>"],
+  "categorization": {
+    "productive": ["<app name 1>", ...],
+    "neutral": ["<app name 1>", ...],
+    "distracting": ["<app name 1>", ...]
+  }
+}
+Do not include any markdown formatting or text outside the JSON.`;
 
             const completion = await engine.chat.completions.create({
                 messages: [
-                    { role: "system", content: "You are a productivity analyst. Be honest but constructive." },
+                    { role: "system", content: "You are a strict but helpful productivity coach. Analyze the provided activity log against the user's goal." },
                     { role: "user", content: prompt }
                 ],
-                temperature: 0.7,
+                temperature: 0.5,
             });
 
-            const response = completion.choices[0]?.message?.content || "";
+            const responseText = completion.choices[0]?.message?.content || "";
+            // Sanitize response to ensure valid JSON (sometimes LLMs add markdown code blocks)
+            const jsonString = responseText.replace(/```json\n?|\n?```/g, '').trim();
+            
+            const result = JSON.parse(jsonString);
 
-            // Parse response
-            const ratingMatch = response.match(/RATING:\s*(\d+)/i);
-            const verdictMatch = response.match(/VERDICT:\s*(productive|neutral|unproductive)/i);
-            const explanationMatch = response.match(/EXPLANATION:\s*(.+)/is);
-
-            const rating = ratingMatch ? parseInt(ratingMatch[1]) : 5;
-            const verdict = (verdictMatch?.[1] || 'neutral') as ProductivityAnalysis['verdict'];
-            const explanation = explanationMatch?.[1]?.trim() || "Unable to analyze at this time.";
-
-            setAnalysis({ rating, verdict, explanation });
+            setAnalysis({
+                rating: result.rating || 5,
+                verdict: (result.verdict as any) || 'neutral',
+                explanation: result.explanation || "Analysis complete.",
+                tips: result.tips || [],
+                categorization: result.categorization || { productive: [], neutral: [], distracting: [] }
+            });
         } catch (error) {
             console.error("Analysis error:", error);
             setAnalysis({
                 rating: 5,
                 verdict: 'neutral',
-                explanation: "Error analyzing productivity. Please try again."
+                explanation: "Error analyzing productivity. Please try again.",
+                tips: ["Try again later."],
+                categorization: { productive: [], neutral: [], distracting: [] }
             });
         } finally {
             setAnalyzing(false);
         }
     };
 
-    const getVerdictIcon = (verdict: string) => {
-        switch (verdict) {
-            case 'productive':
-                return <TrendingUp size={24} className="text-green-400" />;
-            case 'unproductive':
-                return <TrendingDown size={24} className="text-red-400" />;
-            default:
-                return <Minus size={24} className="text-yellow-400" />;
-        }
-    };
-
     const getVerdictColor = (verdict: string) => {
         switch (verdict) {
-            case 'productive':
-                return 'from-green-900/40 to-emerald-900/40 border-green-700/50';
-            case 'unproductive':
-                return 'from-red-900/40 to-orange-900/40 border-red-700/50';
-            default:
-                return 'from-yellow-900/40 to-amber-900/40 border-yellow-700/50';
+            case 'productive': return 'from-green-900/40 to-emerald-900/40 border-green-700/50';
+            case 'unproductive': return 'from-red-900/40 to-orange-900/40 border-red-700/50';
+            default: return 'from-yellow-900/40 to-amber-900/40 border-yellow-700/50';
         }
     };
 
-    if (!goal) {
-        return null;
-    }
+    if (!goal) return null;
 
     return (
-        <div className="mt-6">
+        <div className="mt-6 space-y-6">
             <button
                 onClick={analyzeProductivity}
                 disabled={analyzing || !engine || activities.length === 0}
@@ -101,37 +121,92 @@ EXPLANATION: [your explanation]`;
                 {analyzing ? (
                     <>
                         <Loader2 size={24} className="animate-spin" />
-                        Analyzing...
+                        Analyzing Your Day...
                     </>
                 ) : (
                     <>
                         <Brain size={24} />
-                        Judge My Productivity
+                        Generate AI Report
                     </>
                 )}
             </button>
 
             {analysis && (
-                <div className={`mt-4 bg-gradient-to-r ${getVerdictColor(analysis.verdict)} border rounded-2xl p-6 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
-                    <div className="flex items-start gap-4">
-                        <div className="p-3 bg-black/20 rounded-full">
-                            {getVerdictIcon(analysis.verdict)}
-                        </div>
-                        <div className="flex-1">
-                            <div className="flex items-center gap-3 mb-2">
-                                <h4 className="text-lg font-bold text-white capitalize">
-                                    {analysis.verdict}
-                                </h4>
-                                <div className="px-3 py-1 bg-black/30 rounded-full">
-                                    <span className="text-sm font-bold text-white">
-                                        {analysis.rating}/10
-                                    </span>
-                                </div>
+                <div className={`bg-gradient-to-b ${getVerdictColor(analysis.verdict)} border rounded-2xl p-6 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
+                    {/* Header: Score & Verdict */}
+                    <div className="flex items-center justify-between mb-6 border-b border-white/10 pb-6">
+                        <div className="flex items-center gap-4">
+                             <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-3xl font-bold bg-black/40 text-white border border-white/10`}>
+                                {analysis.rating}
                             </div>
-                            <p className="text-gray-200 text-sm leading-relaxed">
-                                {analysis.explanation}
-                            </p>
+                            <div>
+                                <h3 className="text-xl font-bold text-white capitalize">{analysis.verdict} Day</h3>
+                                <p className="text-gray-300 text-sm mt-1">Based on your activity history</p>
+                            </div>
                         </div>
+                    </div>
+
+                    {/* Explanation */}
+                    <div className="mb-8">
+                        <p className="text-lg text-gray-100 leading-relaxed font-medium">
+                            "{analysis.explanation}"
+                        </p>
+                    </div>
+
+                    {/* Categorization Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                        <div className="bg-black/20 rounded-xl p-4 border border-green-500/20">
+                            <h5 className="text-green-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
+                                <CheckCircle2 size={14} /> Productive
+                            </h5>
+                            <ul className="space-y-1">
+                                {analysis.categorization.productive.length > 0 ? (
+                                    analysis.categorization.productive.map((app, i) => (
+                                        <li key={i} className="text-sm text-gray-300 truncate">• {app}</li>
+                                    ))
+                                ) : <li className="text-sm text-gray-500 italic">None detected</li>}
+                            </ul>
+                        </div>
+                        <div className="bg-black/20 rounded-xl p-4 border border-red-500/20">
+                            <h5 className="text-red-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
+                                <XCircle size={14} /> Distracting
+                            </h5>
+                             <ul className="space-y-1">
+                                {analysis.categorization.distracting.length > 0 ? (
+                                    analysis.categorization.distracting.map((app, i) => (
+                                        <li key={i} className="text-sm text-gray-300 truncate">• {app}</li>
+                                    ))
+                                ) : <li className="text-sm text-gray-500 italic">None detected</li>}
+                            </ul>
+                        </div>
+                        <div className="bg-black/20 rounded-xl p-4 border border-yellow-500/20">
+                            <h5 className="text-yellow-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
+                                <Minus size={14} /> Neutral
+                            </h5>
+                             <ul className="space-y-1">
+                                {analysis.categorization.neutral.length > 0 ? (
+                                    analysis.categorization.neutral.map((app, i) => (
+                                        <li key={i} className="text-sm text-gray-300 truncate">• {app}</li>
+                                    ))
+                                ) : <li className="text-sm text-gray-500 italic">None detected</li>}
+                            </ul>
+                        </div>
+                    </div>
+
+                    {/* Tips */}
+                    <div className="bg-blue-900/20 rounded-xl p-5 border border-blue-500/20">
+                        <h4 className="flex items-center gap-2 text-blue-300 font-bold mb-3">
+                            <Lightbulb size={18} />
+                            Productivity Tips
+                        </h4>
+                        <ul className="space-y-2">
+                            {analysis.tips.map((tip, i) => (
+                                <li key={i} className="text-sm text-blue-100 flex items-start gap-2">
+                                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
+                                    {tip}
+                                </li>
+                            ))}
+                        </ul>
                     </div>
                 </div>
             )}

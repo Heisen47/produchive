@@ -7,7 +7,7 @@ const logger = createLogger('Main');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
-  logger.info('Squirrel startup detected, quitting app');
+  // logger.info('Squirrel startup detected, quitting app');
   app.quit();
 }
 
@@ -29,7 +29,7 @@ async function initDB() {
     db.data ||= { tasks: [], activities: [], goal: null };
     await db.write();
 
-    logger.info('Database initialized successfully');
+    // logger.info('Database initialized successfully');
   } catch (error) {
     logger.error('Failed to initialize database:', error);
     throw error;
@@ -39,7 +39,7 @@ async function initDB() {
 let mainWindow: BrowserWindow | null = null;
 
 const createWindow = () => {
-  logger.info('Creating main window...');
+  // logger.info('Creating main window...');
 
   // Create the browser window.
   mainWindow = new BrowserWindow({
@@ -50,25 +50,25 @@ const createWindow = () => {
     },
   });
 
-  logger.info(`Window created with dimensions: 1200x900`);
+  // logger.info(`Window created with dimensions: 1200x900`);
 
   // and load the index.html of the app.
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    logger.info(`Loading dev server URL: ${MAIN_WINDOW_VITE_DEV_SERVER_URL}`);
+    // logger.info(`Loading dev server URL: ${MAIN_WINDOW_VITE_DEV_SERVER_URL}`);
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   } else {
     const indexPath = path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
-    logger.info(`Loading production file: ${indexPath}`);
+    // logger.info(`Loading production file: ${indexPath}`);
     mainWindow.loadFile(indexPath);
   }
 
   // Open the DevTools in development
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    logger.debug('Opening DevTools for development');
+    // logger.debug('Opening DevTools for development');
     mainWindow.webContents.openDevTools();
   }
 
-  logger.info('Main window setup complete');
+  // logger.info('Main window setup complete');
 };
 
 let monitoringInterval: NodeJS.Timeout | null = null;
@@ -98,7 +98,7 @@ const startMonitoring = async () => {
     const activeWinModule = await import('active-win');
     const activeWin = activeWinModule.default;
 
-    logger.info('Active-win module loaded successfully');
+    // logger.info('Active-win module loaded successfully');
 
     monitoringInterval = setInterval(async () => {
       if (!mainWindow || mainWindow.isDestroyed()) {
@@ -110,6 +110,12 @@ const startMonitoring = async () => {
       try {
         const result = await activeWin();
         if (result) {
+          // SKIP monitoring if the active window is this app (Produchive) or Electron wrapper
+          const appName = result.owner.name.toLowerCase();
+          if (appName.includes('produchive') || appName.includes('electron')) {
+             return;
+          }
+
           const timestamp = Date.now();
           const activity = {
             title: result.title,
@@ -128,6 +134,8 @@ const startMonitoring = async () => {
                timestamp,
                details: { pid: result.owner.processId, path: result.owner.path }
              });
+             // Log only when activity actually changes/switches app
+             console.log(`Activity detected: ${result.owner.name} - ${result.title}`);
           }
 
            if (!lastActivity || lastActivity.title !== activity.title) {
@@ -138,15 +146,17 @@ const startMonitoring = async () => {
              });
           }
           
-          // Always emit a "polling" event to show constant system activity
+          // REMOVED: Polling event "syscall: GetForegroundWindow()" as it is annoying and unnecessary
+           /*
            mainWindow.webContents.send('system-event', {
                type: 'SYS_CALL_POLL',
                content: `syscall: GetForegroundWindow() -> ${result.id}`,
                timestamp
              });
+           */
 
           lastActivity = activity;
-          logger.debug(`Activity detected: ${result.owner.name} - ${result.title}`);
+          // logger.debug(`Activity detected: ${result.owner.name} - ${result.title}`); // Removed noisy debug log
           mainWindow.webContents.send('activity-update', activity);
         }
       } catch (error) {
@@ -164,11 +174,11 @@ const startMonitoring = async () => {
 // initialization and is ready to create browser windows.
 app.on('ready', async () => {
   logger.info('=== Produchive Starting ===');
-  logger.info(`Electron version: ${process.versions.electron}`);
-  logger.info(`Chrome version: ${process.versions.chrome}`);
-  logger.info(`Node version: ${process.versions.node}`);
-  logger.info(`User data path: ${app.getPath('userData')}`);
-  logger.info(`App path: ${app.getAppPath()}`);
+  // logger.info(`Electron version: ${process.versions.electron}`);
+  // logger.info(`Chrome version: ${process.versions.chrome}`);
+  // logger.info(`Node version: ${process.versions.node}`);
+  // logger.info(`User data path: ${app.getPath('userData')}`);
+  // logger.info(`App path: ${app.getAppPath()}`);
 
   try {
     await initDB();
@@ -176,19 +186,19 @@ app.on('ready', async () => {
 
     // Task management handlers
     ipcMain.handle('get-tasks', () => {
-      logger.debug('IPC: get-tasks called');
+      // logger.debug('IPC: get-tasks called');
       return db.data.tasks;
     });
 
     ipcMain.handle('add-task', async (event, task) => {
-      logger.info(`IPC: add-task called - ${task.text}`);
+      // logger.info(`IPC: add-task called - ${task.text}`);
       db.data.tasks.push(task);
       await db.write();
       return db.data.tasks;
     });
 
     ipcMain.handle('update-task', async (event, updatedTask) => {
-      logger.info(`IPC: update-task called - ${updatedTask.id}`);
+      // logger.info(`IPC: update-task called - ${updatedTask.id}`);
       const index = db.data.tasks.findIndex((t: any) => t.id === updatedTask.id);
       if (index !== -1) {
         db.data.tasks[index] = updatedTask;
@@ -198,7 +208,7 @@ app.on('ready', async () => {
     });
 
     ipcMain.handle('delete-task', async (event, id) => {
-      logger.info(`IPC: delete-task called - ${id}`);
+      // logger.info(`IPC: delete-task called - ${id}`);
       db.data.tasks = db.data.tasks.filter((t: any) => t.id !== id);
       await db.write();
       return db.data.tasks;
@@ -206,7 +216,7 @@ app.on('ready', async () => {
 
     // Debug and system info handlers
     ipcMain.handle('get-system-info', () => {
-      logger.debug('IPC: get-system-info called');
+      // logger.debug('IPC: get-system-info called');
       return {
         userDataPath: app.getPath('userData'),
         appPath: app.getAppPath(),
@@ -223,21 +233,21 @@ app.on('ready', async () => {
     });
 
     ipcMain.handle('open-user-data-folder', () => {
-      logger.info('IPC: open-user-data-folder called');
+      // logger.info('IPC: open-user-data-folder called');
       const userDataPath = app.getPath('userData');
       shell.openPath(userDataPath);
       return userDataPath;
     });
 
     ipcMain.handle('open-log-file', () => {
-      logger.info('IPC: open-log-file called');
+      // logger.info('IPC: open-log-file called');
       const logPath = getLogPath();
       shell.openPath(path.dirname(logPath));
       return logPath;
     });
 
     ipcMain.handle('get-db-contents', () => {
-      logger.debug('IPC: get-db-contents called');
+      // logger.debug('IPC: get-db-contents called');
       return {
         tasks: db.data.tasks,
         activities: db.data.activities || [],
@@ -246,16 +256,16 @@ app.on('ready', async () => {
     });
 
     ipcMain.handle('start-monitoring', () => {
-        logger.info('IPC: start-monitoring called');
+        // logger.info('IPC: start-monitoring called');
         startMonitoring();
     });
 
     ipcMain.handle('stop-monitoring', () => {
-        logger.info('IPC: stop-monitoring called');
+        // logger.info('IPC: stop-monitoring called');
         stopMonitoring();
     });
 
-    logger.info('All IPC handlers registered successfully');
+    // logger.info('All IPC handlers registered successfully');
   } catch (error) {
     logger.error('Error during app initialization:', error);
   }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { GoalSetter } from './components/GoalSetter';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { ProductivityJudge } from './components/ProductivityJudge';
@@ -17,23 +17,26 @@ import {
     AlertTriangle,
     Menu,
     X,
-    LogOut
+    XCircle
 } from 'lucide-react';
 
+
 // Sidebar Link Component
-const SidebarLink = ({ icon: Icon, label, active, onClick }: any) => (
+const SidebarLink = ({ icon: Icon, label, active, onClick, collapsed }: any) => (
     <button
         onClick={onClick}
-        className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all text-sm font-medium ${
+        title={collapsed ? label : ''}
+        className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-4 py-2.5 rounded-lg transition-all text-sm font-medium ${
             active 
                 ? 'bg-blue-500/10 text-blue-400' 
                 : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'
         }`}
     >
         <Icon size={18} />
-        {label}
+        {!collapsed && <span>{label}</span>}
     </button>
 );
+
 
 const App = () => {
     const { addActivity } = useStore();
@@ -51,21 +54,34 @@ const App = () => {
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<string>('');
     const [error, setError] = useState<string>('');
+    const loadingRef = useRef(false);
 
     const startEngine = async () => {
+        loadingRef.current = true;
         setLoading(true);
         setError('');
         try {
             const eng = await initEngine((progress: any) => {
+                if (!loadingRef.current) return;
                 setProgress(progress.text);
             });
-            setEngine(eng);
-            setLoading(false);
+            if (loadingRef.current) {
+                setEngine(eng);
+                setLoading(false);
+            }
         } catch (err: any) {
-            console.error(err);
-            setError(err.message || "Failed to initialize AI");
-            setLoading(false);
+            if (loadingRef.current) {
+                console.error(err);
+                setError(err.message || "Failed to initialize AI");
+                setLoading(false);
+            }
         }
+    };
+
+    const cancelEngine = () => {
+        loadingRef.current = false;
+        setLoading(false);
+        setProgress('');
     };
 
     return (
@@ -90,26 +106,24 @@ const App = () => {
                         label="Dashboard" 
                         active={currentView === 'dashboard'} 
                         onClick={() => setCurrentView('dashboard')} 
+                        collapsed={!isSidebarOpen}
                     />
                     <SidebarLink 
                         icon={ActivityIcon} 
                         label="Live Monitor" 
                         active={currentView === 'monitor'} 
                         onClick={() => setCurrentView('monitor')} 
+                        collapsed={!isSidebarOpen}
                     />
                     <SidebarLink 
                         icon={Bot} 
                         label="AI Insights" 
                         active={currentView === 'ai'} 
                         onClick={() => setCurrentView('ai')} 
-                    />
-                     <SidebarLink 
-                        icon={Settings} 
-                        label="Settings" 
-                        active={currentView === 'settings'} 
-                        onClick={() => setCurrentView('settings')} 
+                        collapsed={!isSidebarOpen}
                     />
                 </nav>
+
 
                 <div className="p-4 border-t border-gray-800">
                      <button
@@ -135,14 +149,21 @@ const App = () => {
                         <h2 className="text-xl font-semibold capitalize">{currentView}</h2>
                     </div>
                     <div className="flex items-center gap-4">
-                        {!engine && (
+                        {loading ? (
+                            <button
+                                onClick={cancelEngine}
+                                className="text-sm bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-900/50 px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2"
+                            >
+                                <XCircle size={16} />
+                                Stop
+                            </button>
+                        ) : !engine && (
                             <button
                                 onClick={startEngine}
-                                disabled={loading}
                                 className="text-sm bg-gray-800 hover:bg-gray-700 text-gray-200 px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 disabled:opacity-50"
                             >
-                                {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                                {loading ? 'Loading AI...' : 'Activate AI'}
+                                <Sparkles size={16} />
+                                Activate AI
                             </button>
                         )}
                     </div>
@@ -184,11 +205,9 @@ const App = () => {
                             </div>
                         )}
                         
-                         {currentView === 'settings' && (
-                            <div className="space-y-6">
-                                <DebugPanel />
-                            </div>
-                        )}
+                        <div className="space-y-6 pt-8 border-t border-gray-800">
+                             <DebugPanel />
+                        </div>
                     </div>
                 </div>
             </main>

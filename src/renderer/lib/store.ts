@@ -53,9 +53,17 @@ export const useStore = create<Store>((set, get) => ({
     setGoal: (goal: string) => set({ goal }),
     addActivity: (activity: Activity) => {
         const { activities } = get();
-        const lastActivity = activities[activities.length - 1];
-        // Only add if different from last activity title/app
-        if (!lastActivity || lastActivity.title !== activity.title || lastActivity.owner.name !== activity.owner.name) {
+        const existingActivityIndex = activities.findIndex(a => 
+            a.title === activity.title && a.owner.name === activity.owner.name
+        );
+
+        if (existingActivityIndex !== -1) {
+            // Update existing activity (duration)
+            const updatedActivities = [...activities];
+            updatedActivities[existingActivityIndex] = activity;
+            set({ activities: updatedActivities });
+        } else {
+            // Add new activity
             set({ activities: [...activities, activity] });
         }
     },

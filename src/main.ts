@@ -11,11 +11,51 @@ if (started) {
   app.quit();
 }
 
+// Main DB for Tasks and Goals
 let db: any;
 let dbFilePath: string;
 
+// Daily Activity DB
+let activityDb: any;
+let currentActivityDate: string = '';
+
+async function getActivityDb() {
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  
+  // If we already have a DB for today, return it
+  if (activityDb && currentActivityDate === today) {
+    return activityDb;
+  }
+
+  // Initialize new daily DB
+  const { Low } = await import('lowdb');
+  const { JSONFile } = await import('lowdb/node');
+  const fs = await import('node:fs/promises');
+
+  const logsDir = path.join(app.getPath('userData'), 'activity_logs');
+  
+  // Ensure logs directory exists
+  try {
+    await fs.access(logsDir);
+  } catch {
+    await fs.mkdir(logsDir, { recursive: true });
+  }
+
+  const activityFilePath = path.join(logsDir, `activity-${today}.json`);
+  // logger.info(`Daily Activity DB: ${activityFilePath}`);
+
+  const adapter = new JSONFile(activityFilePath);
+  activityDb = new Low(adapter, { activities: [] });
+  await activityDb.read();
+  activityDb.data ||= { activities: [] };
+  await activityDb.write();
+
+  currentActivityDate = today;
+  return activityDb;
+}
+
 async function initDB() {
-  logger.info('Initializing database...');
+  logger.info('Initializing main database...');
   try {
     const { Low } = await import('lowdb');
     const { JSONFile } = await import('lowdb/node');
@@ -24,10 +64,14 @@ async function initDB() {
     logger.info(`Database file location: ${dbFilePath}`);
 
     const adapter = new JSONFile(dbFilePath);
-    db = new Low(adapter, { tasks: [], activities: [], goal: null });
+    // Main DB only needs tasks and goal now. 'activities' removed from main DB schema.
+    db = new Low(adapter, { tasks: [], goal: null });
     await db.read();
-    db.data ||= { tasks: [], activities: [], goal: null };
+    db.data ||= { tasks: [], goal: null };
     await db.write();
+
+    // Initialize Activity DB immediately to ensure folder structure
+    await getActivityDb();
 
     // logger.info('Database initialized successfully');
   } catch (error) {
@@ -116,6 +160,17 @@ const startMonitoring = async () => {
              return;
           }
 
+          // Normalize LeetCode Activity
+          // User Request: "inside chrome > leetcode . Show how long the user was in that website store it in the file."
+          // We will check for common browsers and "LeetCode" in title.
+          const browsers = ['Google Chrome', 'Chrome', 'Brave', 'Safari', 'Firefox', 'Microsoft Edge'];
+          if (browsers.some(b => result.owner.name.includes(b)) && result.title.toLowerCase().includes('leetcode')) {
+             // Keep owner as Browser (e.g. Google Chrome) or change to "Chrome" as user requested "chrome > leetcode"? 
+             // User said "inside chrome > leetcode". Let's keep owner as is (so it groups under Chrome in Dashboard) but set Title to "LeetCode".
+             // Actually, to make it really clean in the file as "Chrome > LeetCode", we can just normalize title.
+             result.title = 'LeetCode'; 
+          }
+
           const timestamp = Date.now();
           const activity = {
             title: result.title,
@@ -124,6 +179,7 @@ const startMonitoring = async () => {
               path: result.owner.path,
             },
             timestamp,
+            duration: 0
           };
 
           // Detect changes for system simulation
@@ -155,15 +211,37 @@ const startMonitoring = async () => {
              });
            */
 
-          // Persist to DB if activity changed (Clutter-free: only store changes)
-          const isDistinct = !lastActivity || 
-                             lastActivity.owner.name !== activity.owner.name || 
-                             lastActivity.title !== activity.title;
 
-          if (isDistinct) {
-              db.data.activities.push(activity);
-              // Write asynchronously to avoid blocking the interval much
-              db.write().catch((e: any) => logger.error('Failed to write activity to DB:', e));
+          // AGGREGATION LOGIC (User Request: "if i switch from youtube to google and switch back , don't make two entries")
+          const currentDb = await getActivityDb(); 
+          const existingActivity = currentDb.data.activities.find((a: any) => 
+              a.title === activity.title && a.owner.name === activity.owner.name
+          );
+
+          if (existingActivity) {
+              // Update existing activity duration
+              // Ensure duration is initialized
+              if (typeof existingActivity.duration !== 'number') existingActivity.duration = 0;
+              
+              existingActivity.duration += 1000; // Add 1s
+              
+              // Sync the current activity object with the aggregated duration so the UI updates correctly
+              activity.duration = existingActivity.duration;
+              // Keep the original timestamp (creation time) or update it? 
+              // Let's keep original timestamp to show when it was first started today.
+              activity.timestamp = existingActivity.timestamp; 
+
+              // Write periodically (e.g. every 10s) to prevent data loss but avoid disk thrashing
+              if (timestamp % 10000 < 1500) { 
+                  currentDb.write().catch((e: any) => {});
+              }
+          } else {
+              // New Activity for today
+              activity.duration = 1000; // Initialize with 1s
+              currentDb.data.activities.push(activity);
+              
+              // Write immediately for new entries to ensure they appear
+              currentDb.write().catch((e: any) => logger.error('Failed to write activity to DB:', e));
           }
 
           lastActivity = activity;
@@ -257,11 +335,15 @@ app.on('ready', async () => {
       return logPath;
     });
 
-    ipcMain.handle('get-db-contents', () => {
+    ipcMain.handle('get-db-contents', async () => {
       // logger.debug('IPC: get-db-contents called');
+      const currentActivityDb = await getActivityDb();
       return {
         tasks: db.data.tasks,
-        activities: db.data.activities || [],
+        // Return today's activities. 
+        // NOTE: If user wants to see history, we'll need a different API. 
+        // Dashboard currently shows "stats" which implies today/current session.
+        activities: currentActivityDb.data.activities || [],
         goal: db.data.goal || null,
       };
     });

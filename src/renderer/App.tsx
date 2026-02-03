@@ -7,11 +7,39 @@ import { Dashboard } from './components/Dashboard';
 import { SystemLog } from './components/SystemLog';
 import { initEngine } from './lib/ai';
 import { useStore } from './lib/store';
-import { Loader2, Sparkles, AlertTriangle, Bot } from 'lucide-react';
+import {
+    LayoutDashboard,
+    Activity as ActivityIcon,
+    Settings,
+    Bot,
+    Loader2,
+    Sparkles,
+    AlertTriangle,
+    Menu,
+    X,
+    LogOut
+} from 'lucide-react';
+
+// Sidebar Link Component
+const SidebarLink = ({ icon: Icon, label, active, onClick }: any) => (
+    <button
+        onClick={onClick}
+        className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all text-sm font-medium ${
+            active 
+                ? 'bg-blue-500/10 text-blue-400' 
+                : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/50'
+        }`}
+    >
+        <Icon size={18} />
+        {label}
+    </button>
+);
 
 const App = () => {
     const { addActivity } = useStore();
-    
+    const [currentView, setCurrentView] = useState('dashboard');
+    const [isSidebarOpen, setSidebarOpen] = useState(true);
+
     // Listen for activity updates
     useEffect(() => {
         window.electronAPI.onActivityUpdate((activity) => {
@@ -25,7 +53,6 @@ const App = () => {
     const [error, setError] = useState<string>('');
 
     const startEngine = async () => {
-        // ... (keep implementation)
         setLoading(true);
         setError('');
         try {
@@ -42,100 +69,129 @@ const App = () => {
     };
 
     return (
-        <div className="h-screen w-screen bg-gradient-to-br from-gray-950 via-gray-900 to-gray-950 text-white flex flex-col overflow-hidden font-sans">
-            {/* Header */}
-            <header className="p-6 border-b border-gray-800 bg-gray-900/50 backdrop-blur-sm">
-                <div className="max-w-7xl mx-auto flex items-center justify-between">
-                    <div>
-                        <h1 className="text-3xl font-extrabold bg-gradient-to-r from-blue-400 via-purple-400 to-teal-400 bg-clip-text text-transparent">
-                            Produchive
-                        </h1>
-                        <p className="text-gray-400 text-sm mt-1">AI-Powered Productivity Monitor</p>
+        <div className="h-screen w-screen bg-gray-950 text-gray-100 flex overflow-hidden font-sans selection:bg-blue-500/30">
+            {/* Sidebar */}
+            <aside 
+                className={`${isSidebarOpen ? 'w-64' : 'w-20'} 
+                bg-gray-900/50 border-r border-gray-800 transition-all duration-300 flex flex-col z-20`}
+            >
+                <div className="p-6 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-900/20 shrink-0">
+                        <ActivityIcon size={18} className="text-white" />
                     </div>
-                    {!engine ? (
-                        <button
-                            onClick={startEngine}
-                            disabled={loading}
-                            className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-6 py-3 rounded-xl font-semibold transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
-                        >
-                            {loading ? (
-                                <>
-                                    <Loader2 size={20} className="animate-spin" />
-                                    Loading AI...
-                                </>
-                            ) : (
-                                <>
-                                    <Sparkles size={20} />
-                                    Activate AI
-                                </>
-                            )}
-                        </button>
-                    ) : (
-                        <div className="flex items-center gap-2 text-green-400 bg-green-900/30 px-4 py-2 rounded-xl border border-green-700/50">
-                            <Bot size={20} />
-                            <span className="text-sm font-semibold">AI Active</span>
+                    {isSidebarOpen && (
+                        <h1 className="font-bold text-lg tracking-tight">Produchive</h1>
+                    )}
+                </div>
+
+                <nav className="flex-1 px-4 space-y-1">
+                    <SidebarLink 
+                        icon={LayoutDashboard} 
+                        label="Dashboard" 
+                        active={currentView === 'dashboard'} 
+                        onClick={() => setCurrentView('dashboard')} 
+                    />
+                    <SidebarLink 
+                        icon={ActivityIcon} 
+                        label="Live Monitor" 
+                        active={currentView === 'monitor'} 
+                        onClick={() => setCurrentView('monitor')} 
+                    />
+                    <SidebarLink 
+                        icon={Bot} 
+                        label="AI Insights" 
+                        active={currentView === 'ai'} 
+                        onClick={() => setCurrentView('ai')} 
+                    />
+                     <SidebarLink 
+                        icon={Settings} 
+                        label="Settings" 
+                        active={currentView === 'settings'} 
+                        onClick={() => setCurrentView('settings')} 
+                    />
+                </nav>
+
+                <div className="p-4 border-t border-gray-800">
+                     <button
+                        onClick={() => setSidebarOpen(!isSidebarOpen)} 
+                        className="w-full flex items-center justify-center p-2 text-gray-500 hover:text-gray-300 transition-colors"
+                    >
+                        {isSidebarOpen ? <X size={16} /> : <Menu size={16} />}
+                    </button>
+                    {isSidebarOpen && engine && (
+                         <div className="mt-4 flex items-center gap-2 text-xs text-green-400 bg-green-900/20 px-3 py-2 rounded-lg border border-green-900/50">
+                            <Bot size={14} />
+                            <span>AI Active</span>
                         </div>
                     )}
                 </div>
-            </header>
+            </aside>
 
             {/* Main Content */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
-                <div className="max-w-7xl mx-auto p-6 space-y-6">
-                    {/* Loading Progress */}
-                    {loading && (
-                        <div className="bg-blue-900/30 border border-blue-700/50 rounded-2xl p-4">
-                            <div className="flex items-center gap-3">
-                                <Loader2 size={20} className="animate-spin text-blue-400" />
-                                <div className="flex-1">
-                                    <p className="text-sm font-semibold text-blue-200">Initializing AI Model...</p>
-                                    <p className="text-xs text-gray-400 font-mono truncate mt-1">{progress}</p>
+            <main className="flex-1 flex flex-col min-w-0 bg-gray-950 relative">
+                {/* Header */}
+                <header className="h-16 border-b border-gray-800 flex items-center justify-between px-8 bg-gray-950/50 backdrop-blur-sm sticky top-0 z-10">
+                    <div>
+                        <h2 className="text-xl font-semibold capitalize">{currentView}</h2>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        {!engine && (
+                            <button
+                                onClick={startEngine}
+                                disabled={loading}
+                                className="text-sm bg-gray-800 hover:bg-gray-700 text-gray-200 px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {loading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                                {loading ? 'Loading AI...' : 'Activate AI'}
+                            </button>
+                        )}
+                    </div>
+                </header>
+
+                {/* Content Area */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+                    <div className="max-w-6xl mx-auto space-y-8">
+                         {/* Loading/Error States */}
+                         {loading && (
+                            <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4 flex items-center gap-3">
+                                <Loader2 size={18} className="animate-spin text-blue-400" />
+                                <span className="text-sm text-blue-200">{progress || 'Initializing AI...'}</span>
+                            </div>
+                        )}
+                        {error && (
+                            <div className="bg-red-900/20 border border-red-800/50 rounded-lg p-4 flex items-center gap-3">
+                                <AlertTriangle size={18} className="text-red-400" />
+                                <span className="text-sm text-red-200">{error}</span>
+                            </div>
+                        )}
+
+                        {/* Views */}
+                        {currentView === 'dashboard' && <Dashboard />}
+                        
+                        {currentView === 'monitor' && (
+                            <div className="space-y-6">
+                                <SystemLog />
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    <ActivityMonitor />
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )}
 
-                    {/* Error Display */}
-                    {error && (
-                        <div className="bg-red-900/30 border border-red-700/50 rounded-2xl p-4 flex items-center gap-3">
-                            <AlertTriangle size={20} className="text-red-400" />
-                            <p className="text-red-200 text-sm">{error}</p>
-                        </div>
-                    )}
-
-                    {/* Dashboard & Controls */}
-                    <Dashboard />
-                    
-                    {/* System Logs */}
-                    <SystemLog />
-
-                    {/* Goal Setter */}
-                    <GoalSetter />
-
-                    {/* Two Column Layout */}
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Activity Monitor */}
-                        <div>
-                            <ActivityMonitor />
-                        </div>
-
-                        {/* Productivity Judge */}
-                        <div className="bg-gray-900/50 border border-gray-800 rounded-2xl p-6">
-                            <div className="flex items-center gap-2 mb-4">
-                                <Bot size={20} className="text-purple-400" />
-                                <h3 className="font-bold text-white">AI Productivity Analysis</h3>
+                        {currentView === 'ai' && (
+                            <div className="space-y-6">
+                                <GoalSetter />
+                                <ProductivityJudge engine={engine} />
                             </div>
-                            <p className="text-gray-400 text-sm mb-4">
-                                Let the AI analyze your recent activities and provide insights on your productivity.
-                            </p>
-                            <ProductivityJudge engine={engine} />
-                        </div>
+                        )}
+                        
+                         {currentView === 'settings' && (
+                            <div className="space-y-6">
+                                <DebugPanel />
+                            </div>
+                        )}
                     </div>
                 </div>
-            </div>
-
-            {/* Debug Panel */}
-            <DebugPanel />
+            </main>
         </div>
     );
 };

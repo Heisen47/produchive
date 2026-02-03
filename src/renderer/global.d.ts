@@ -12,6 +12,7 @@ export interface Activity {
         path: string;
     };
     timestamp: number;
+    duration?: number;
 }
 
 export interface SystemInfo {

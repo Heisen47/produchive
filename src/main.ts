@@ -36,11 +36,13 @@ async function initDB() {
   }
 }
 
+let mainWindow: BrowserWindow | null = null;
+
 const createWindow = () => {
   logger.info('Creating main window...');
 
   // Create the browser window.
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 900,
     webPreferences: {
@@ -66,50 +68,96 @@ const createWindow = () => {
     mainWindow.webContents.openDevTools();
   }
 
-  const startMonitoring = async () => {
-    logger.info('Starting activity monitoring...');
-    try {
-      const activeWinModule = await import('active-win');
-      const activeWin = activeWinModule.default;
-
-      logger.info('Active-win module loaded successfully');
-
-      const interval = setInterval(async () => {
-        if (mainWindow.isDestroyed()) {
-          logger.warn('Main window destroyed, stopping monitoring');
-          clearInterval(interval);
-          return;
-        }
-
-        try {
-          const result = await activeWin();
-          if (result) {
-            const activity = {
-              title: result.title,
-              owner: {
-                name: result.owner.name,
-                path: result.owner.path,
-              },
-              timestamp: Date.now(),
-            };
-
-            logger.debug(`Activity detected: ${result.owner.name} - ${result.title}`);
-            mainWindow.webContents.send('activity-update', activity);
-          }
-        } catch (error) {
-          logger.error("Error getting active window:", error);
-        }
-      }, 3000);
-
-      logger.info('Activity monitoring started (interval: 3000ms)');
-    } catch (e) {
-      logger.error("Failed to load active-win:", e);
-    }
-  };
-
-  startMonitoring();
-
   logger.info('Main window setup complete');
+};
+
+let monitoringInterval: NodeJS.Timeout | null = null;
+let lastActivity: any = null;
+
+const stopMonitoring = () => {
+  if (monitoringInterval) {
+    clearInterval(monitoringInterval);
+    monitoringInterval = null;
+    logger.info('Monitoring stopped');
+  }
+};
+
+const startMonitoring = async () => {
+  if (monitoringInterval) {
+    logger.info('Monitoring already running');
+    return;
+  }
+
+  if (!mainWindow) {
+    logger.error('Cannot start monitoring: No main window');
+    return;
+  }
+
+  logger.info('Starting activity monitoring...');
+  try {
+    const activeWinModule = await import('active-win');
+    const activeWin = activeWinModule.default;
+
+    logger.info('Active-win module loaded successfully');
+
+    monitoringInterval = setInterval(async () => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        logger.warn('Main window destroyed, stopping monitoring');
+        stopMonitoring();
+        return;
+      }
+
+      try {
+        const result = await activeWin();
+        if (result) {
+          const timestamp = Date.now();
+          const activity = {
+            title: result.title,
+            owner: {
+              name: result.owner.name,
+              path: result.owner.path,
+            },
+            timestamp,
+          };
+
+          // Detect changes for system simulation
+          if (!lastActivity || lastActivity.owner.name !== activity.owner.name) {
+             mainWindow.webContents.send('system-event', {
+               type: 'SYS_PROCESS_SWITCH',
+               content: `Process Context Switch: ${lastActivity?.owner?.name || 'init'} -> ${activity.owner.name}`,
+               timestamp,
+               details: { pid: result.owner.processId, path: result.owner.path }
+             });
+          }
+
+           if (!lastActivity || lastActivity.title !== activity.title) {
+             mainWindow.webContents.send('system-event', {
+               type: 'SYS_WINDOW_FOCUS',
+               content: `Window Focus Change: "${activity.title}"`,
+               timestamp
+             });
+          }
+          
+          // Always emit a "polling" event to show constant system activity
+           mainWindow.webContents.send('system-event', {
+               type: 'SYS_CALL_POLL',
+               content: `syscall: GetForegroundWindow() -> ${result.id}`,
+               timestamp
+             });
+
+          lastActivity = activity;
+          logger.debug(`Activity detected: ${result.owner.name} - ${result.title}`);
+          mainWindow.webContents.send('activity-update', activity);
+        }
+      } catch (error) {
+        logger.error("Error getting active window:", error);
+      }
+    }, 1000); // Poll every 1 second for more "real-time" feel
+
+    logger.info('Activity monitoring started');
+  } catch (e) {
+    logger.error("Failed to load active-win:", e);
+  }
 };
 
 // This method will be called when Electron has finished
@@ -195,6 +243,16 @@ app.on('ready', async () => {
         activities: db.data.activities || [],
         goal: db.data.goal || null,
       };
+    });
+
+    ipcMain.handle('start-monitoring', () => {
+        logger.info('IPC: start-monitoring called');
+        startMonitoring();
+    });
+
+    ipcMain.handle('stop-monitoring', () => {
+        logger.info('IPC: stop-monitoring called');
+        stopMonitoring();
     });
 
     logger.info('All IPC handlers registered successfully');

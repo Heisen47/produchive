@@ -3,16 +3,20 @@ import { GoalSetter } from './components/GoalSetter';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { ProductivityJudge } from './components/ProductivityJudge';
 import { DebugPanel } from './components/DebugPanel';
+import { Dashboard } from './components/Dashboard';
+import { SystemLog } from './components/SystemLog';
 import { initEngine } from './lib/ai';
 import { Loader2, Sparkles, AlertTriangle, Bot } from 'lucide-react';
 
 const App = () => {
+    // ... (keep usage of hooks)
     const [engine, setEngine] = useState<any>(null);
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<string>('');
     const [error, setError] = useState<string>('');
 
     const startEngine = async () => {
+        // ... (keep implementation)
         setLoading(true);
         setError('');
         try {
@@ -67,7 +71,7 @@ const App = () => {
             </header>
 
             {/* Main Content */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
                 <div className="max-w-7xl mx-auto p-6 space-y-6">
                     {/* Loading Progress */}
                     {loading && (
@@ -89,6 +93,12 @@ const App = () => {
                             <p className="text-red-200 text-sm">{error}</p>
                         </div>
                     )}
+
+                    {/* Dashboard & Controls */}
+                    <Dashboard />
+                    
+                    {/* System Logs */}
+                    <SystemLog />
 
                     {/* Goal Setter */}
                     <GoalSetter />

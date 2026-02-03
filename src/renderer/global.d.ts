@@ -37,6 +37,10 @@ declare global {
             deleteTask: (id: string) => Promise<Task[]>;
             onActivityUpdate: (callback: (activity: Activity) => void) => void;
 
+            stopMonitoring: () => Promise<void>;
+            startMonitoring: () => Promise<void>;
+            onSystemEvent: (callback: (event: any) => void) => void;
+
             // Debug and system info
             getSystemInfo: () => Promise<SystemInfo>;
             openUserDataFolder: () => Promise<string>;

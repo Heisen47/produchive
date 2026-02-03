@@ -11,6 +11,13 @@ interface Store {
     deleteTask: (id: string) => Promise<void>;
     setGoal: (goal: string) => void;
     addActivity: (activity: Activity) => void;
+    
+    // Monitoring
+    isMonitoring: boolean;
+    systemEvents: any[]; // Using any to avoid circular dependency if SystemEvent not imported, but prefer SystemEvent
+    setMonitoring: (status: boolean) => void;
+    addSystemEvent: (event: any) => void;
+    clearSystemEvents: () => void;
 }
 
 export const useStore = create<Store>((set, get) => ({
@@ -52,4 +59,16 @@ export const useStore = create<Store>((set, get) => ({
             set({ activities: [...activities, activity] });
         }
     },
+    
+    // Monitoring State
+    isMonitoring: false,
+    systemEvents: [],
+    setMonitoring: (isMonitoring: boolean) => set({ isMonitoring }),
+    addSystemEvent: (event: any) => {
+        const { systemEvents } = get();
+        // Keep last 100 events
+        const newEvents = [...systemEvents, event].slice(-100);
+        set({ systemEvents: newEvents });
+    },
+    clearSystemEvents: () => set({ systemEvents: [] }),
 }));

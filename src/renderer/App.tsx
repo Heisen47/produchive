@@ -5,6 +5,7 @@ import { ProductivityJudge } from './components/ProductivityJudge';
 import { DebugPanel } from './components/DebugPanel';
 import { Dashboard } from './components/Dashboard';
 import { SystemLog } from './components/SystemLog';
+import { GoalOnboarding } from './components/GoalOnboarding';
 import { initEngine } from './lib/ai';
 import { useStore } from './lib/store';
 import {
@@ -43,12 +44,6 @@ const App = () => {
     const [isSidebarOpen, setSidebarOpen] = useState(true);
     // Show onboarding if no goals exist and user hasn't explicitly skipped in this session
     const [showOnboarding, setShowOnboarding] = useState(true); 
-
-    useEffect(() => {
-        if (goals.length > 0) {
-            setShowOnboarding(false);
-        }
-    }, [goals.length]);
 
     // Listen for activity updates
     useEffect(() => {
@@ -99,6 +94,7 @@ const App = () => {
 
     return (
         <div className="h-screen w-screen bg-gray-950 text-gray-100 flex overflow-hidden font-sans selection:bg-blue-500/30">
+            {showOnboarding && <GoalOnboarding onClose={() => setShowOnboarding(false)} />}
             {/* Sidebar */}
             <aside 
                 className={`${isSidebarOpen ? 'w-64' : 'w-20'} 
@@ -151,6 +147,11 @@ const App = () => {
                             <span>AI Active</span>
                         </div>
                     )}
+                    {!isSidebarOpen && engine && (
+                        <div className="mt-4 flex justify-center w-full">
+                           <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></div>
+                       </div>
+                   )}
                 </div>
             </aside>
 

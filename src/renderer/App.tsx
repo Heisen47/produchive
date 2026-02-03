@@ -10,7 +10,7 @@ import { useStore } from './lib/store';
 import {
     LayoutDashboard,
     Activity as ActivityIcon,
-    Bot,
+    Target,
     Loader2,
     Sparkles,
     AlertTriangle,
@@ -38,9 +38,17 @@ const SidebarLink = ({ icon: Icon, label, active, onClick, collapsed }: any) => 
 
 
 const App = () => {
-    const { addActivity } = useStore();
+    const { addActivity, goals } = useStore();
     const [currentView, setCurrentView] = useState('dashboard');
     const [isSidebarOpen, setSidebarOpen] = useState(true);
+    // Show onboarding if no goals exist and user hasn't explicitly skipped in this session
+    const [showOnboarding, setShowOnboarding] = useState(true); 
+
+    useEffect(() => {
+        if (goals.length > 0) {
+            setShowOnboarding(false);
+        }
+    }, [goals.length]);
 
     // Listen for activity updates
     useEffect(() => {
@@ -121,8 +129,8 @@ const App = () => {
                         collapsed={!isSidebarOpen}
                     />
                     <SidebarLink 
-                        icon={Bot} 
-                        label="AI Insights" 
+                        icon={Target} 
+                        label="Set your goals" 
                         active={currentView === 'ai'} 
                         onClick={() => setCurrentView('ai')} 
                         collapsed={!isSidebarOpen}
@@ -139,7 +147,7 @@ const App = () => {
                     </button>
                     {isSidebarOpen && engine && (
                          <div className="mt-4 flex items-center gap-2 text-xs text-green-400 bg-green-900/20 px-3 py-2 rounded-lg border border-green-900/50">
-                            <Bot size={14} />
+                            <Target size={14} />
                             <span>AI Active</span>
                         </div>
                     )}

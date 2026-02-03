@@ -1,67 +1,112 @@
 import React, { useState } from 'react';
-import { Target, Check } from 'lucide-react';
+import { Target, Check, Plus, X, Edit2, Save } from 'lucide-react';
 import { useStore } from '../lib/store';
 
 export const GoalSetter = () => {
     const [inputGoal, setInputGoal] = useState('');
-    const { goal, setGoal } = useStore();
+    const [editingIndex, setEditingIndex] = useState<number | null>(null);
+    const [editValue, setEditValue] = useState('');
+    
+    const { goals, addGoal, removeGoal, editGoal } = useStore();
 
-    const handleSetGoal = () => {
-        if (inputGoal.trim()) {
-            setGoal(inputGoal.trim());
+    const handleAddGoal = () => {
+        if (inputGoal.trim() && goals.length < 5) {
+            addGoal(inputGoal.trim());
             setInputGoal('');
         }
     };
 
-    if (goal) {
-        return (
-            <div className="bg-gradient-to-r from-purple-900/40 to-blue-900/40 border border-purple-700/50 rounded-2xl p-6 mb-6">
-                <div className="flex items-start gap-4">
-                    <div className="p-3 bg-purple-600/30 rounded-full">
-                        <Target size={24} className="text-purple-300" />
-                    </div>
-                    <div className="flex-1">
-                        <h3 className="text-lg font-bold text-purple-200 mb-1">Your Goal</h3>
-                        <p className="text-white text-base">{goal}</p>
-                        <button
-                            onClick={() => setGoal(null)}
-                            className="mt-3 text-sm text-purple-300 hover:text-purple-100 underline cursor-pointer"
-                        >
-                            Change goal
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
+    const startEditing = (index: number, currentGoal: string) => {
+        setEditingIndex(index);
+        setEditValue(currentGoal);
+    };
+
+    const saveEdit = (index: number) => {
+        if (editValue.trim()) {
+            editGoal(index, editValue.trim());
+        }
+        setEditingIndex(null);
+    };
 
     return (
-        <div className="bg-gradient-to-br from-purple-900/30 to-blue-900/30 border-2 border-dashed border-purple-700/50 rounded-2xl p-8 mb-6 text-center">
-            <div className="inline-flex p-4 bg-purple-600/20 rounded-full mb-4">
-                <Target size={32} className="text-purple-300" />
+        <div className="bg-gradient-to-br from-indigo-900/20 to-purple-900/20 border border-indigo-500/20 rounded-2xl p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-indigo-500/20 rounded-lg">
+                        <Target size={20} className="text-indigo-400" />
+                    </div>
+                    <h3 className="font-bold text-white">Your Targets ({goals.length}/5)</h3>
+                </div>
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">Set Your Goal</h3>
-            <p className="text-gray-400 mb-6 max-w-md mx-auto">
-                What do you want to achieve today? I'll monitor your activities and help you stay on track.
-            </p>
-            <div className="flex gap-2 max-w-lg mx-auto">
-                <input
-                    type="text"
-                    className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 placeholder:text-gray-500"
-                    placeholder="e.g., Complete my project proposal"
-                    value={inputGoal}
-                    onChange={(e) => setInputGoal(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSetGoal()}
-                />
-                <button
-                    onClick={handleSetGoal}
-                    disabled={!inputGoal.trim()}
-                    className="px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer font-semibold flex items-center gap-2 transition-all"
-                >
-                    <Check size={20} />
-                    Set Goal
-                </button>
+
+            <div className="space-y-3 mb-4">
+                {goals.map((goal, index) => (
+                    <div key={index} className="group flex items-center gap-3 bg-black/20 p-3 rounded-xl border border-white/5 hover:border-white/10 transition-all">
+                        <div className="w-6 h-6 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-400 text-xs font-bold shrink-0">
+                            {index + 1}
+                        </div>
+                        
+                        {editingIndex === index ? (
+                            <div className="flex-1 flex gap-2">
+                                <input
+                                    className="flex-1 bg-black/40 rounded px-2 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                    autoFocus
+                                    onKeyDown={(e) => e.key === 'Enter' && saveEdit(index)}
+                                />
+                                <button onClick={() => saveEdit(index)} className="text-green-400 hover:bg-green-400/10 p-1 rounded">
+                                    <Check size={16} />
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <span className="flex-1 text-gray-200 text-sm">{goal}</span>
+                                <div className="flex gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button 
+                                        onClick={() => startEditing(index, goal)}
+                                        className="p-1.5 text-gray-500 hover:text-blue-400 hover:bg-blue-400/10 rounded-lg transition-colors"
+                                    >
+                                        <Edit2 size={14} />
+                                    </button>
+                                    <button 
+                                        onClick={() => removeGoal(index)}
+                                        className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                ))}
+
+                {goals.length === 0 && (
+                     <div className="text-center py-6 border-2 border-dashed border-gray-800 rounded-xl">
+                        <p className="text-gray-500 text-sm">No goals set yet</p>
+                    </div>
+                )}
             </div>
+
+            {goals.length < 5 && (
+                <div className="flex gap-2">
+                    <input
+                        type="text"
+                        className="flex-1 bg-gray-950 border border-gray-800 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-indigo-500 placeholder:text-gray-600"
+                        placeholder="Add a goal..."
+                        value={inputGoal}
+                        onChange={(e) => setInputGoal(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddGoal()}
+                    />
+                    <button
+                        onClick={handleAddGoal}
+                        disabled={!inputGoal.trim()}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                        <Plus size={20} />
+                    </button>
+                </div>
+            )}
         </div>
     );
 };

@@ -15,7 +15,8 @@ interface ProductivityAnalysis {
 }
 
 export const ProductivityJudge = ({ engine }: { engine: any }) => {
-    const { goal, activities } = useStore();
+    const { goals, activities } = useStore();
+    const goal = goals.length > 0 ? goals[0] : null;
     const [analyzing, setAnalyzing] = useState(false);
     const [analysis, setAnalysis] = useState<ProductivityAnalysis | null>(null);
 
@@ -30,7 +31,7 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
     };
 
     const analyzeProductivity = async () => {
-        if (!engine || !goal || activities.length === 0) return;
+        if (!engine || goals.length === 0 || activities.length === 0) return;
 
         setAnalyzing(true);
         try {
@@ -46,7 +47,9 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
                 .map(([name, duration]) => `- ${name} (${formatDuration(duration)})`)
                 .join('\n');
 
-            const prompt = `Goal: "${goal}"
+            const goalsText = goals.map((g, i) => `Goal ${i + 1}: "${g}"`).join('\n');
+            const prompt = `User Goals:
+${goalsText}
 
 Activities Log (App - Title (Duration)):
 ${activitySummary}
@@ -68,7 +71,7 @@ Do not include any markdown formatting or text outside the JSON.`;
 
             const completion = await engine.chat.completions.create({
                 messages: [
-                    { role: "system", content: "You are a strict but helpful productivity coach. Analyze the provided activity log against the user's goal." },
+                    { role: "system", content: "You are a strict but helpful productivity coach. Analyze the provided activity log against the user's goals." },
                     { role: "user", content: prompt }
                 ],
                 temperature: 0.5,
@@ -109,7 +112,7 @@ Do not include any markdown formatting or text outside the JSON.`;
         }
     };
 
-    if (!goal) return null;
+    if (goals.length === 0) return null;
 
     return (
         <div className="mt-6 space-y-6">

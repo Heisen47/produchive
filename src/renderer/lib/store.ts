@@ -3,13 +3,16 @@ import { Task, Activity } from '../global';
 
 interface Store {
     tasks: Task[];
-    goal: string | null;
+    goals: string[];
     activities: Activity[];
     loadTasks: () => Promise<void>;
     addTask: (text: string) => Promise<void>;
     toggleTask: (id: string) => Promise<void>;
     deleteTask: (id: string) => Promise<void>;
-    setGoal: (goal: string) => void;
+    addGoal: (goal: string) => void;
+    editGoal: (index: number, goal: string) => void;
+    removeGoal: (index: number) => void;
+    setGoals: (goals: string[]) => void;
     addActivity: (activity: Activity) => void;
     
     // Monitoring
@@ -22,7 +25,7 @@ interface Store {
 
 export const useStore = create<Store>((set, get) => ({
     tasks: [],
-    goal: null,
+    goals: [],
     activities: [],
     loadTasks: async () => {
         const { tasks, activities } = await window.electronAPI.getTasks() as any;
@@ -50,7 +53,23 @@ export const useStore = create<Store>((set, get) => ({
         const tasks = await window.electronAPI.deleteTask(id);
         set({ tasks });
     },
-    setGoal: (goal: string) => set({ goal }),
+    addGoal: (goal: string) => {
+        const { goals } = get();
+        if (goals.length < 5) {
+            set({ goals: [...goals, goal] });
+        }
+    },
+    editGoal: (index: number, newGoal: string) => {
+        const { goals } = get();
+        const newGoals = [...goals];
+        newGoals[index] = newGoal;
+        set({ goals: newGoals });
+    },
+    removeGoal: (index: number) => {
+        const { goals } = get();
+        set({ goals: goals.filter((_, i) => i !== index) });
+    },
+    setGoals: (goals: string[]) => set({ goals }),
     addActivity: (activity: Activity) => {
         const { activities } = get();
         const existingActivityIndex = activities.findIndex(a => 

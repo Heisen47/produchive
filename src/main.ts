@@ -5,9 +5,7 @@ import { createLogger, getLogPath } from './lib/logger';
 
 const logger = createLogger('Main');
 
-// Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
-  // logger.info('Squirrel startup detected, quitting app');
   app.quit();
 }
 
@@ -160,14 +158,8 @@ const startMonitoring = async () => {
              return;
           }
 
-          // Normalize LeetCode Activity
-          // User Request: "inside chrome > leetcode . Show how long the user was in that website store it in the file."
-          // We will check for common browsers and "LeetCode" in title.
           const browsers = ['Google Chrome', 'Chrome', 'Brave', 'Safari', 'Firefox', 'Microsoft Edge'];
-          if (browsers.some(b => result.owner.name.includes(b)) && result.title.toLowerCase().includes('leetcode')) {
-             // Keep owner as Browser (e.g. Google Chrome) or change to "Chrome" as user requested "chrome > leetcode"? 
-             // User said "inside chrome > leetcode". Let's keep owner as is (so it groups under Chrome in Dashboard) but set Title to "LeetCode".
-             // Actually, to make it really clean in the file as "Chrome > LeetCode", we can just normalize title.
+          if (browsers.some(b => result.owner.name.includes(b)) && result.title.toLowerCase().includes('leetcode')) { 
              result.title = 'LeetCode'; 
           }
 
@@ -201,34 +193,20 @@ const startMonitoring = async () => {
                timestamp
              });
           }
-          
-          // REMOVED: Polling event "syscall: GetForegroundWindow()" as it is annoying and unnecessary
-           /*
-           mainWindow.webContents.send('system-event', {
-               type: 'SYS_CALL_POLL',
-               content: `syscall: GetForegroundWindow() -> ${result.id}`,
-               timestamp
-             });
-           */
 
-
-          // AGGREGATION LOGIC (User Request: "if i switch from youtube to google and switch back , don't make two entries")
+         
           const currentDb = await getActivityDb(); 
           const existingActivity = currentDb.data.activities.find((a: any) => 
               a.title === activity.title && a.owner.name === activity.owner.name
           );
 
           if (existingActivity) {
-              // Update existing activity duration
-              // Ensure duration is initialized
+             
               if (typeof existingActivity.duration !== 'number') existingActivity.duration = 0;
               
               existingActivity.duration += 1000; // Add 1s
               
-              // Sync the current activity object with the aggregated duration so the UI updates correctly
               activity.duration = existingActivity.duration;
-              // Keep the original timestamp (creation time) or update it? 
-              // Let's keep original timestamp to show when it was first started today.
               activity.timestamp = existingActivity.timestamp; 
 
               // Write periodically (e.g. every 10s) to prevent data loss but avoid disk thrashing
@@ -239,8 +217,7 @@ const startMonitoring = async () => {
               // New Activity for today
               activity.duration = 1000; // Initialize with 1s
               currentDb.data.activities.push(activity);
-              
-              // Write immediately for new entries to ensure they appear
+     
               currentDb.write().catch((e: any) => logger.error('Failed to write activity to DB:', e));
           }
 
@@ -259,8 +236,6 @@ const startMonitoring = async () => {
   }
 };
 
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
 app.on('ready', async () => {
   logger.info('=== Produchive Starting ===');
   // logger.info(`Electron version: ${process.versions.electron}`);
@@ -287,7 +262,6 @@ app.on('ready', async () => {
     });
 
     ipcMain.handle('update-task', async (event, updatedTask) => {
-      // logger.info(`IPC: update-task called - ${updatedTask.id}`);
       const index = db.data.tasks.findIndex((t: any) => t.id === updatedTask.id);
       if (index !== -1) {
         db.data.tasks[index] = updatedTask;
@@ -297,7 +271,6 @@ app.on('ready', async () => {
     });
 
     ipcMain.handle('delete-task', async (event, id) => {
-      // logger.info(`IPC: delete-task called - ${id}`);
       db.data.tasks = db.data.tasks.filter((t: any) => t.id !== id);
       await db.write();
       return db.data.tasks;
@@ -305,7 +278,6 @@ app.on('ready', async () => {
 
     // Debug and system info handlers
     ipcMain.handle('get-system-info', () => {
-      // logger.debug('IPC: get-system-info called');
       return {
         userDataPath: app.getPath('userData'),
         appPath: app.getAppPath(),

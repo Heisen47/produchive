@@ -10,7 +10,6 @@ import { useStore } from './lib/store';
 import {
     LayoutDashboard,
     Activity as ActivityIcon,
-    Settings,
     Bot,
     Loader2,
     Sparkles,

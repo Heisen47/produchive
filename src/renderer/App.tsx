@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GoalSetter } from './components/GoalSetter';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { ProductivityJudge } from './components/ProductivityJudge';
@@ -6,10 +6,19 @@ import { DebugPanel } from './components/DebugPanel';
 import { Dashboard } from './components/Dashboard';
 import { SystemLog } from './components/SystemLog';
 import { initEngine } from './lib/ai';
+import { useStore } from './lib/store';
 import { Loader2, Sparkles, AlertTriangle, Bot } from 'lucide-react';
 
 const App = () => {
-    // ... (keep usage of hooks)
+    const { addActivity } = useStore();
+    
+    // Listen for activity updates
+    useEffect(() => {
+        window.electronAPI.onActivityUpdate((activity) => {
+            addActivity(activity);
+        });
+    }, [addActivity]);
+
     const [engine, setEngine] = useState<any>(null);
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<string>('');

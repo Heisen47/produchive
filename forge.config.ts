@@ -15,7 +15,7 @@ const config: ForgeConfig = {
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({}),
-    new MakerZIP({}, ['darwin', 'linux']),
+    new MakerZIP({}, ['darwin']),
     new MakerRpm({
       options: {
         icon: './resources/icon.png'

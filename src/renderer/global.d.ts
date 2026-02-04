@@ -27,6 +27,7 @@ export interface SystemInfo {
     };
     platform: string;
     arch: string;
+    distro?: string;
 }
 
 declare global {

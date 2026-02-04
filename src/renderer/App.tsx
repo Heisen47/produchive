@@ -56,6 +56,12 @@ const App = () => {
         // Load initial data (tasks + today's activities)
         const init = async () => {
             try {
+                // Check for Arch Linux
+                const sysInfo = await window.electronAPI.getSystemInfo();
+                if (sysInfo.platform === 'linux' && (sysInfo.distro === 'arch' || sysInfo.distro?.includes('arch'))) {
+                    setError("Arch Linux is not currently supported. Please use Windows or macOS. We haven't tested it on other Linux distributions yet.");
+                }
+
                 await useStore.getState().loadTasks();
             } catch (e: any) {
                 setError("Failed to load initial data: " + e.message);

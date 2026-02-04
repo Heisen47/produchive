@@ -7,19 +7,13 @@ export const SystemLog = () => {
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        // Subscribe to system events
         const unsubscribe = window.electronAPI.onSystemEvent((event: any) => {
             addSystemEvent(event);
         });
-        
-        // Cleanup not really possible with current preload exposure (on is persistent), 
-        // but typically you'd return a cleanup function. 
-        // For now, onSystemEvent likely adds a listener that persists.
-        // If we want cleanup, we'd need to expose removeListener.
-        // Given the app structure, this is acceptable for now.
+    
         
         return () => {
-             // ideally remove listener
+            
         };
     }, [addSystemEvent]);
 

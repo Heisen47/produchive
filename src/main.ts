@@ -3,6 +3,7 @@ import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { createLogger, getLogPath } from './lib/logger';
 import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
 
 const logger = createLogger('Main');
 
@@ -308,7 +309,27 @@ function registerIpcHandlers() {
     });
 
     // Debug and system info handlers
-    ipcMain.handle('get-system-info', () => {
+    ipcMain.handle('get-system-info', async () => {
+      let distro = 'unknown';
+      if (process.platform === 'linux') {
+          try {
+              const osRelease = await fs.readFile('/etc/os-release', 'utf-8');
+              const lines = osRelease.split('\n');
+              const idLine = lines.find(line => line.startsWith('ID='));
+              const idLikeLine = lines.find(line => line.startsWith('ID_LIKE='));
+              
+              if (idLine) {
+                  distro = idLine.split('=')[1].replace(/"/g, '').toLowerCase();
+              }
+              // Fallback or addition checks could be here, but ID usually suffices for Arch (ID=arch)
+              if (distro === 'unknown' && idLikeLine) {
+                   distro = idLikeLine.split('=')[1].replace(/"/g, '').toLowerCase();
+              }
+          } catch (e) {
+              logger.error('Failed to read os-release', e);
+          }
+      }
+
       return {
         userDataPath: app.getPath('userData'),
         appPath: app.getAppPath(),
@@ -321,6 +342,7 @@ function registerIpcHandlers() {
         },
         platform: process.platform,
         arch: process.arch,
+        distro
       };
     });
 

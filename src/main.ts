@@ -245,11 +245,7 @@ const startMonitoring = async (): Promise<boolean> => {
   }
 };
 
-// ... in registerIpcHandlers ...
 
-    ipcMain.handle('start-monitoring', async () => {
-        return await startMonitoring();
-    });
 function registerIpcHandlers() {
     // Task management handlers
     ipcMain.handle('get-tasks', async () => {
@@ -367,8 +363,8 @@ function registerIpcHandlers() {
       };
     });
 
-    ipcMain.handle('start-monitoring', () => {
-        startMonitoring();
+    ipcMain.handle('start-monitoring', async () => {
+        return await startMonitoring();
     });
 
     ipcMain.handle('stop-monitoring', () => {

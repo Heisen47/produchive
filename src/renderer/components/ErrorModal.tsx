@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { XCircle, X, AlertTriangle, Copy, RefreshCw } from 'lucide-react';
+import { X, AlertTriangle, Copy, RefreshCw } from 'lucide-react';
 import { useStore } from '../lib/store';
 
 export const ErrorModal = () => {

@@ -6,6 +6,7 @@ import { DebugPanel } from './components/DebugPanel';
 import { Dashboard } from './components/Dashboard';
 import { SystemLog } from './components/SystemLog';
 import { GoalOnboarding } from './components/GoalOnboarding';
+import { ErrorModal } from './components/ErrorModal';
 import { initEngine } from './lib/ai';
 import { useStore } from './lib/store';
 import {
@@ -39,7 +40,7 @@ const SidebarLink = ({ icon: Icon, label, active, onClick, collapsed }: any) => 
 
 
 const App = () => {
-    const { addActivity, goals } = useStore();
+    const { addActivity, goals, setError, error } = useStore();
     const [currentView, setCurrentView] = useState('dashboard');
     const [isSidebarOpen, setSidebarOpen] = useState(true);
     // Show onboarding if no goals exist and user hasn't explicitly skipped in this session
@@ -54,22 +55,25 @@ const App = () => {
         
         // Load initial data (tasks + today's activities)
         const init = async () => {
-            await useStore.getState().loadTasks();
+            try {
+                await useStore.getState().loadTasks();
+            } catch (e: any) {
+                setError("Failed to load initial data: " + e.message);
+            }
             setDataLoaded(true);
         };
         init();
-    }, [addActivity]);
+    }, [addActivity, setError]);
 
     const [engine, setEngine] = useState<any>(null);
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<string>('');
-    const [error, setError] = useState<string>('');
     const loadingRef = useRef(false);
 
     const startEngine = async () => {
         loadingRef.current = true;
         setLoading(true);
-        setError('');
+
         try {
             const eng = await initEngine((progress: any) => {
                 if (!loadingRef.current) return;
@@ -81,7 +85,6 @@ const App = () => {
             }
         } catch (err: any) {
             if (loadingRef.current) {
-                console.error(err);
                 setError(err.message || "Failed to initialize AI");
                 setLoading(false);
             }
@@ -107,7 +110,9 @@ const App = () => {
 
     return (
         <div className="h-screen w-screen bg-gray-950 text-gray-100 flex overflow-hidden font-sans selection:bg-blue-500/30">
+            <ErrorModal />
             {showOnboarding && <GoalOnboarding onClose={() => setShowOnboarding(false)} />}
+
             {/* Sidebar */}
             <aside 
                 className={`${isSidebarOpen ? 'w-64' : 'w-20'} 
@@ -199,20 +204,14 @@ const App = () => {
                 {/* Content Area */}
                 <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
                     <div className="max-w-6xl mx-auto space-y-8">
-                         {/* Loading/Error States */}
+                         {/* Loading State */}
                          {loading && (
                             <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4 flex items-center gap-3">
                                 <Loader2 size={18} className="animate-spin text-blue-400" />
                                 <span className="text-sm text-blue-200">{progress || 'Initializing AI...'}</span>
                             </div>
                         )}
-                        {error && (
-                            <div className="bg-red-900/20 border border-red-800/50 rounded-lg p-4 flex items-center gap-3">
-                                <AlertTriangle size={18} className="text-red-400" />
-                                <span className="text-sm text-red-200">{error}</span>
-                            </div>
-                        )}
-
+                        
                         {/* Views */}
                         {currentView === 'dashboard' && <Dashboard onNavigate={setCurrentView} />}
                         
@@ -241,4 +240,3 @@ const App = () => {
 };
 
 export default App;
-

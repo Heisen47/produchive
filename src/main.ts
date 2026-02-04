@@ -42,7 +42,6 @@ async function getActivityDb() {
   }
 
   const activityFilePath = path.join(logsDir, `activity-${today}.json`);
-  // logger.info(`Daily Activity DB: ${activityFilePath}`);
 
   const adapter = new JSONFile(activityFilePath);
   activityDb = new Low(adapter, { activities: [] });
@@ -64,7 +63,6 @@ async function initDB() {
     logger.info(`Database file location: ${dbFilePath}`);
 
     const adapter = new JSONFile(dbFilePath);
-    // Main DB only needs tasks and goals now. 'activities' removed from main DB schema.
     db = new Low(adapter, { tasks: [], goals: [], ratings: [] });
     await db.read();
     db.data ||= { tasks: [], goals: [], ratings: [] };
@@ -90,8 +88,6 @@ async function initDB() {
 let mainWindow: BrowserWindow | null = null;
 
 const createWindow = () => {
-  // logger.info('Creating main window...');
-
   // Create the browser window.
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -104,11 +100,9 @@ const createWindow = () => {
 
   // and load the index.html of the app.
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    // logger.info(`Loading dev server URL: ${MAIN_WINDOW_VITE_DEV_SERVER_URL}`);
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   } else {
     const indexPath = path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
-    // logger.info(`Loading production file: ${indexPath}`);
     mainWindow.loadFile(indexPath);
   }
 
@@ -133,21 +127,28 @@ const stopMonitoring = () => {
   }
 };
 
-const startMonitoring = async () => {
+const startMonitoring = async (): Promise<boolean> => {
   if (monitoringInterval) {
     logger.info('Monitoring already running');
-    return;
+    return true;
   }
 
   if (!mainWindow) {
     logger.error('Cannot start monitoring: No main window');
-    return;
+    return false;
   }
 
   logger.info('Starting activity monitoring...');
   try {
     const activeWinModule = await import('active-win');
     const activeWin = activeWinModule.default;
+
+    // Test run to ensure it works immediately
+    try {
+        await activeWin();
+    } catch (initialError) {
+         throw initialError; // Throw so we land in the outer catch block
+    }
 
     monitoringInterval = setInterval(async () => {
       if (!mainWindow || mainWindow.isDestroyed()) {
@@ -159,7 +160,7 @@ const startMonitoring = async () => {
       try {
         const result = await activeWin();
         if (result) {
-          // SKIP monitoring if the active window is this app (Produchive) or Electron wrapper
+          // ... (same logic as before)
           const appName = result.owner.name.toLowerCase();
           if (appName.includes('produchive') || appName.includes('electron')) {
              return;
@@ -181,7 +182,6 @@ const startMonitoring = async () => {
             duration: 0
           };
 
-          // Detect changes for system simulation
           if (!lastActivity || lastActivity.owner.name !== activity.owner.name) {
              mainWindow.webContents.send('system-event', {
                type: 'SYS_PROCESS_SWITCH',
@@ -189,8 +189,6 @@ const startMonitoring = async () => {
                timestamp,
                details: { pid: result.owner.processId, path: result.owner.path }
              });
-             // Log only when activity actually changes/switches app
-             console.log(`Activity detected: ${result.owner.name} - ${result.title}`);
           }
 
            if (!lastActivity || lastActivity.title !== activity.title) {
@@ -201,39 +199,31 @@ const startMonitoring = async () => {
              });
           }
 
-         
           const currentDb = await getActivityDb(); 
           const existingActivity = currentDb.data.activities.find((a: any) => 
               a.title === activity.title && a.owner.name === activity.owner.name
           );
 
           if (existingActivity) {
-             
               if (typeof existingActivity.duration !== 'number') existingActivity.duration = 0;
-              
-              existingActivity.duration += 1000; // Add 1s
+              existingActivity.duration += 1000; 
               
               activity.duration = existingActivity.duration;
               activity.timestamp = existingActivity.timestamp; 
 
-              // Write periodically (e.g. every 10s) to prevent data loss but avoid disk thrashing
               if (timestamp % 10000 < 1500) { 
                   currentDb.write().catch((e: any) => {});
               }
           } else {
-              // New Activity for today
-              activity.duration = 1000; // Initialize with 1s
+              activity.duration = 1000; 
               currentDb.data.activities.push(activity);
-     
               currentDb.write().catch((e: any) => logger.error('Failed to write activity to DB:', e));
           }
 
           lastActivity = activity;
-          // logger.debug(`Activity detected: ${result.owner.name} - ${result.title}`); // Removed noisy debug log
           mainWindow.webContents.send('activity-update', activity);
         }
       } catch (error) {
-        // If error occurs, we MUST stop monitoring to avoid spamming alerts/logs in a loop
         logger.error("Error getting active window:", error);
         stopMonitoring();
         
@@ -243,20 +233,25 @@ const startMonitoring = async () => {
         }
         dialog.showErrorBox("Activity Monitoring Failed", errorMessage + "\n\nDetails: " + String(error));
       }
-    }, 1000); // Poll every 1 second for more "real-time" feel
+    }, 1000); 
 
     logger.info('Activity monitoring started');
+    return true;
   } catch (e) {
     logger.error("Failed to load active-win:", e);
     dialog.showErrorBox("Monitoring Error", "Failed to load monitoring module. " + String(e));
+    return false;
   }
 };
 
+// ... in registerIpcHandlers ...
+
+    ipcMain.handle('start-monitoring', async () => {
+        return await startMonitoring();
+    });
 function registerIpcHandlers() {
     // Task management handlers
     ipcMain.handle('get-tasks', async () => {
-      // logger.debug('IPC: get-tasks called');
-      // Return composite data to ensure everything load on start
       try {
         const currentActivityDb = await getActivityDb();
         return {
@@ -267,12 +262,12 @@ function registerIpcHandlers() {
         };
       } catch (e) {
           logger.error('Failed in get-tasks', e);
+          dialog.showErrorBox('Data Loading Error', 'Failed to retrieve tasks and activities. ' + String(e));
           return { tasks: [], goals: [], activities: [], ratings: [] };
       }
     });
 
     ipcMain.handle('add-task', async (event, task) => {
-      // logger.info(`IPC: add-task called - ${task.text}`);
       db.data.tasks.push(task);
       await db.write();
       return db.data.tasks;
@@ -330,21 +325,18 @@ function registerIpcHandlers() {
     });
 
     ipcMain.handle('open-user-data-folder', () => {
-      // logger.info('IPC: open-user-data-folder called');
       const userDataPath = app.getPath('userData');
       shell.openPath(userDataPath);
       return userDataPath;
     });
 
     ipcMain.handle('open-log-file', () => {
-      // logger.info('IPC: open-log-file called');
       const logPath = getLogPath();
       shell.openPath(path.dirname(logPath));
       return logPath;
     });
 
     ipcMain.handle('get-db-contents', async () => {
-      // logger.debug('IPC: get-db-contents called');
       const currentActivityDb = await getActivityDb();
       return {
         tasks: db.data.tasks,
@@ -354,12 +346,10 @@ function registerIpcHandlers() {
     });
 
     ipcMain.handle('start-monitoring', () => {
-        // logger.info('IPC: start-monitoring called');
         startMonitoring();
     });
 
     ipcMain.handle('stop-monitoring', () => {
-        // logger.info('IPC: stop-monitoring called');
         stopMonitoring();
     });
 
@@ -381,7 +371,7 @@ app.on('ready', async () => {
 
   } catch (error) {
     logger.error('Error during app initialization:', error);
-    // Dialog is already shown in initDB catch if it fails there
+    dialog.showErrorBox('Startup Error', 'Critical error during starting up: ' + String(error));
   }
 });
 
@@ -389,7 +379,6 @@ app.on('ready', async () => {
 app.on('window-all-closed', () => {
   logger.info('All windows closed');
   if (process.platform !== 'darwin') {
-    logger.info('Quitting app (non-macOS platform)');
     app.quit();
   }
 });
@@ -402,21 +391,18 @@ app.on('activate', () => {
     createWindow();
   } else if (!isAppReady) {
       logger.info('App activated but not yet ready/initialized. Waiting...');
-      // Optionally could store a "shouldOpenWindow" flag here if needed, but 'ready' will handle the initial open.
   }
 });
 
 app.on('will-quit', () => {
-  // logger.info('=== Produchive Shutting Down ===');
+  // No logger call here as per instruction
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  // logger.error('Uncaught exception:', error);
   dialog.showErrorBox('Uncaught Exception', error.message + '\n' + error.stack);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  // logger.error('Unhandled rejection:', reason);
   dialog.showErrorBox('Unhandled Rejection', String(reason));
 });

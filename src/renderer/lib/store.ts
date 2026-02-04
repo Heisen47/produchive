@@ -23,6 +23,10 @@ interface Store {
     setMonitoring: (status: boolean) => void;
     addSystemEvent: (event: any) => void;
     clearSystemEvents: () => void;
+
+    // Global Error Handling
+    error: string | null;
+    setError: (error: string | null) => void;
 }
 
 export const useStore = create<Store>((set, get) => ({
@@ -30,6 +34,8 @@ export const useStore = create<Store>((set, get) => ({
     goals: [],
     activities: [],
     ratings: [],
+    error: null,
+    setError: (error) => set({ error }),
     loadTasks: async () => {
         const { tasks, activities, goals, ratings } = await window.electronAPI.getTasks() as any;
         set({ 

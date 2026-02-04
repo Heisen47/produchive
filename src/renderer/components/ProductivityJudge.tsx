@@ -117,13 +117,13 @@ Do not include any markdown formatting or text outside the JSON.`;
             };
 
             setAnalysis(analysisResult);
+            setAnalysis(analysisResult);
             addRating(analysisResult);
         } catch (error) {
-            console.error("Analysis error:", error);
             setAnalysis({
                 rating: 5,
                 verdict: 'neutral',
-                explanation: "Error analyzing productivity. Please try again.",
+                explanation: "Error analyzing productivity. Please ensure the AI model is loaded and try again.",
                 tips: ["Try again later."],
                 categorization: { productive: [], neutral: [], distracting: [] }
             });

@@ -76,8 +76,10 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
             await window.electronAPI.stopMonitoring();
             setMonitoring(false);
         } else {
-            await window.electronAPI.startMonitoring();
-            setMonitoring(true);
+            const success = await window.electronAPI.startMonitoring();
+            if (success) {
+                setMonitoring(true);
+            }
         }
     };
 

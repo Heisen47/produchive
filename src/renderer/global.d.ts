@@ -39,7 +39,7 @@ declare global {
             onActivityUpdate: (callback: (activity: Activity) => void) => void;
 
             stopMonitoring: () => Promise<void>;
-            startMonitoring: () => Promise<void>;
+            startMonitoring: () => Promise<boolean>;
             onSystemEvent: (callback: (event: any) => void) => void;
 
             // Debug and system info

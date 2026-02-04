@@ -5,8 +5,11 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
-  release:
+  build:
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -15,29 +18,39 @@ jobs:
 
     steps:
       - name: Check out Git repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Install Dependencies
         run: npm install
 
-      - name: Build/Make/Publish
-        uses: samuelmeuli/action-electron-builder@v1
-        with:
-          # GitHub token, automatically provided by the Actions runner
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+      # Linux-specific dependencies for rpm/deb makers if needed (usually handled by actions/setup-node or pre-installed, but harmless to add if specific libs are missing. For now standard ubuntu-latest is usually fine for basic Electron apps)
+      - name: Install Linux Dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
 
-          # If the commit is tagged with a version (e.g. "v1.0.0"),
-          # release the app after building
-          release: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      - name: Build and Make
+        run: npm run make
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          # Check the out directory for the artifacts. 
+          # Forge usually outputs to "out/make/..."
+          files: |
+            out/**/*.deb
+            out/**/*.rpm
+            out/**/*.zip
+            out/**/*.exe
+            out/**/*.nupkg
+            out/**/*.dmg
         env:
-          # macOS signing (optional, leave empty if not ready)
-          # MAC_CERTS: ${{ secrets.MAC_CERTS }}
-          # MAC_CERTS_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
-          # Windows signing (optional)
-          # WINDOWS_CERT: ${{ secrets.WINDOWS_CERT }}
-          # WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

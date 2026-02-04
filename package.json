@@ -2,7 +2,7 @@
   "name": "produchive",
   "productName": "produchive",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "Produchive - A self-hosted productivity app",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {

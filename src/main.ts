@@ -95,9 +95,8 @@ const createWindow = () => {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
+    icon: path.join(__dirname, '../../resources/icon.png'),
   });
-
-  // logger.info(`Window created with dimensions: 1200x900`);
 
   // and load the index.html of the app.
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
@@ -115,7 +114,10 @@ const createWindow = () => {
     mainWindow.webContents.openDevTools();
   }
 
-  // logger.info('Main window setup complete');
+  if (process.platform === 'darwin') {
+    app.dock.setIcon(path.join(__dirname, '../../resources/icon.png'));
+  }
+
 };
 
 let monitoringInterval: NodeJS.Timeout | null = null;

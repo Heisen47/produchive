@@ -233,13 +233,22 @@ const startMonitoring = async () => {
           mainWindow.webContents.send('activity-update', activity);
         }
       } catch (error) {
+        // If error occurs, we MUST stop monitoring to avoid spamming alerts/logs in a loop
         logger.error("Error getting active window:", error);
+        stopMonitoring();
+        
+        let errorMessage = "Failed to access active window.";
+        if (process.platform === 'linux') {
+            errorMessage += "\n\nLinux Note: Ensure you have 'xprop' installed. If you are on Wayland, switch to X11/Xorg as Wayland blocks activity monitoring by design.";
+        }
+        dialog.showErrorBox("Activity Monitoring Failed", errorMessage + "\n\nDetails: " + String(error));
       }
     }, 1000); // Poll every 1 second for more "real-time" feel
 
     logger.info('Activity monitoring started');
   } catch (e) {
     logger.error("Failed to load active-win:", e);
+    dialog.showErrorBox("Monitoring Error", "Failed to load monitoring module. " + String(e));
   }
 };
 

@@ -7,7 +7,7 @@ export const GoalOnboarding = ({ onClose }: { onClose: () => void }) => {
     const [input, setInput] = useState('');
 
     const handleAdd = () => {
-        if (input.trim() && goals.length < 5) {
+        if (input.trim().length > 2 && goals.length < 5) {
             addGoal(input.trim());
             setInput('');
         }

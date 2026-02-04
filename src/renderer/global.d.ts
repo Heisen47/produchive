@@ -48,6 +48,7 @@ declare global {
             openLogFile: () => Promise<string>;
             getDbContents: () => Promise<{ tasks: Task[]; activities: Activity[]; goal: string | null }>;
             saveGoals: (goals: string[]) => Promise<string[]>;
+            saveRating: (rating: any) => Promise<any>;
         }
     }
 }

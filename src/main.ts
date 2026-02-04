@@ -63,14 +63,15 @@ async function initDB() {
 
     const adapter = new JSONFile(dbFilePath);
     // Main DB only needs tasks and goals now. 'activities' removed from main DB schema.
-    db = new Low(adapter, { tasks: [], goals: [] });
+    db = new Low(adapter, { tasks: [], goals: [], ratings: [] });
     await db.read();
-    db.data ||= { tasks: [], goals: [] };
+    db.data ||= { tasks: [], goals: [], ratings: [] };
     // Migration for old "goal" property if needed, but we start fresh or keep both for safety
     if (!db.data.goals && (db.data as any).goal) {
        db.data.goals = [(db.data as any).goal];
     }
     db.data.goals ||= [];
+    db.data.ratings ||= [];
     await db.write();
 
     // Initialize Activity DB immediately to ensure folder structure
@@ -263,7 +264,8 @@ app.on('ready', async () => {
       return {
           tasks: db.data.tasks,
           goals: db.data.goals || [],
-          activities: currentActivityDb.data.activities || []
+          activities: currentActivityDb.data.activities || [],
+          ratings: db.data.ratings || []
       };
     });
 
@@ -295,6 +297,17 @@ app.on('ready', async () => {
         await db.write();
       }
       return db.data.goals;
+    });
+
+    ipcMain.handle('save-rating', async (event, rating) => {
+        const newRating = { 
+            ...rating, 
+            timestamp: Date.now(),
+            id: crypto.randomUUID()
+        };
+        db.data.ratings.push(newRating);
+        await db.write();
+        return newRating;
     });
 
     // Debug and system info handlers

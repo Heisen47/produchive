@@ -3,8 +3,8 @@ import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle } from 'lucide-
 import { useStore } from '../lib/store';
 
 interface ProductivityAnalysis {
-    rating: number; // 1-10
-    verdict: 'productive' | 'neutral' | 'unproductive';
+    rating: number | string; // 1-10 or "NA"
+    verdict: 'productive' | 'neutral' | 'unproductive' | 'NA';
     explanation: string;
     tips: string[];
     categorization: {
@@ -15,10 +15,25 @@ interface ProductivityAnalysis {
 }
 
 export const ProductivityJudge = ({ engine }: { engine: any }) => {
-    const { goals, activities } = useStore();
+    const { goals, activities, addRating, ratings } = useStore();
     const goal = goals.length > 0 ? goals[0] : null;
     const [analyzing, setAnalyzing] = useState(false);
     const [analysis, setAnalysis] = useState<ProductivityAnalysis | null>(null);
+
+    // Load latest analysis on mount if available
+    React.useEffect(() => {
+        if (ratings && ratings.length > 0 && !analysis) {
+            // Get the most recent rating (assuming they are pushed in order)
+            const latest = ratings[ratings.length - 1];
+            setAnalysis({
+                rating: latest.rating,
+                verdict: latest.verdict,
+                explanation: latest.explanation,
+                tips: latest.tips,
+                categorization: latest.categorization
+            });
+        }
+    }, [ratings]);
 
     const formatDuration = (ms: number) => {
         const seconds = Math.floor(ms / 1000);
@@ -54,11 +69,21 @@ ${goalsText}
 Activities Log (App - Title (Duration)):
 ${activitySummary}
 
-Analyze the user's productivity for the day based on their goal.
+Analyze harshly the user's productivity for the day based on their goal.
+
+CRITICAL INSTRUCTION:
+First, evaluate the "User Goals". If the goals are gibberish, random characters, or clearly just testing inputs (e.g. "asdf", "hello", "123", "blah"), you MUST:
+1. Set "rating" to "NA".
+2. Set "verdict" to "NA".
+3. Set "explanation" to "The provided goals appear to be invalid or nonsense. Please set clear, actionable goals for a proper analysis."
+4. Ignore the activity log.
+
+Otherwise, proceed with the analysis of the activity log against the goals.
+
 Provide the output in STRICT JSON format with the following structure:
 {
-  "rating": <number 1-10>,
-  "verdict": "<productive|neutral|unproductive>",
+  "rating": <number 1-10> (use string "NA" if invalid),
+  "verdict": "<productive|neutral|unproductive|NA>",
   "explanation": "<2-3 sentence summary>",
   "tips": ["<actionable advice 1>", "<actionable advice 2>", "<actionable advice 3>"],
   "categorization": {
@@ -83,13 +108,16 @@ Do not include any markdown formatting or text outside the JSON.`;
             
             const result = JSON.parse(jsonString);
 
-            setAnalysis({
+            const analysisResult = {
                 rating: result.rating || 5,
                 verdict: (result.verdict as any) || 'neutral',
                 explanation: result.explanation || "Analysis complete.",
                 tips: result.tips || [],
                 categorization: result.categorization || { productive: [], neutral: [], distracting: [] }
-            });
+            };
+
+            setAnalysis(analysisResult);
+            addRating(analysisResult);
         } catch (error) {
             console.error("Analysis error:", error);
             setAnalysis({
@@ -108,6 +136,7 @@ Do not include any markdown formatting or text outside the JSON.`;
         switch (verdict) {
             case 'productive': return 'from-green-900/40 to-emerald-900/40 border-green-700/50';
             case 'unproductive': return 'from-red-900/40 to-orange-900/40 border-red-700/50';
+            case 'NA': return 'from-gray-900/40 to-slate-900/40 border-gray-700/50';
             default: return 'from-yellow-900/40 to-amber-900/40 border-yellow-700/50';
         }
     };
@@ -139,8 +168,8 @@ Do not include any markdown formatting or text outside the JSON.`;
                     {/* Header: Score & Verdict */}
                     <div className="flex items-center justify-between mb-6 border-b border-white/10 pb-6">
                         <div className="flex items-center gap-4">
-                             <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-3xl font-bold bg-black/40 text-white border border-white/10`}>
-                                {analysis.rating}
+                             <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold bg-black/40 text-white border border-white/10`}>
+                                {typeof analysis.rating === 'number' ? `${analysis.rating}/10` : analysis.rating}
                             </div>
                             <div>
                                 <h3 className="text-xl font-bold text-white capitalize">{analysis.verdict} Day</h3>

@@ -10,7 +10,7 @@ export const GoalSetter = () => {
     const { goals, addGoal, removeGoal, editGoal } = useStore();
 
     const handleAddGoal = () => {
-        if (inputGoal.trim() && goals.length < 5) {
+        if (inputGoal.trim().length > 2 && goals.length < 5) {
             addGoal(inputGoal.trim());
             setInputGoal('');
         }

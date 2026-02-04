@@ -18,4 +18,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openLogFile: () => ipcRenderer.invoke('open-log-file'),
     getDbContents: () => ipcRenderer.invoke('get-db-contents'),
     saveGoals: (goals: string[]) => ipcRenderer.invoke('save-goals', goals),
+    saveRating: (rating: any) => ipcRenderer.invoke('save-rating', rating),
 });

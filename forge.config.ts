@@ -16,8 +16,16 @@ const config: ForgeConfig = {
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),
-    new MakerRpm({}),
-    new MakerDeb({}),
+    new MakerRpm({
+      options: {
+        icon: './resources/icon.png'
+      }
+    }),
+    new MakerDeb({
+      options: {
+        icon: './resources/icon.png'
+      }
+    }),
   ],
   plugins: [
     new VitePlugin({

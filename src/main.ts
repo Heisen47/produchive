@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { createLogger, getLogPath } from './lib/logger';
+import crypto from 'node:crypto';
 
 const logger = createLogger('Main');
 
@@ -10,12 +11,13 @@ if (started) {
 }
 
 // Main DB for Tasks and Goals
-let db: any;
+let db: any = { data: { tasks: [], goals: [], ratings: [] } }; 
 let dbFilePath: string;
 
 // Daily Activity DB
 let activityDb: any;
 let currentActivityDate: string = '';
+let isAppReady = false; 
 
 async function getActivityDb() {
   const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
@@ -66,7 +68,7 @@ async function initDB() {
     db = new Low(adapter, { tasks: [], goals: [], ratings: [] });
     await db.read();
     db.data ||= { tasks: [], goals: [], ratings: [] };
-    // Migration for old "goal" property if needed, but we start fresh or keep both for safety
+    // Migration for old "goal" property if needed
     if (!db.data.goals && (db.data as any).goal) {
        db.data.goals = [(db.data as any).goal];
     }
@@ -77,9 +79,10 @@ async function initDB() {
     // Initialize Activity DB immediately to ensure folder structure
     await getActivityDb();
 
-    // logger.info('Database initialized successfully');
+    logger.info('Database initialized successfully');
   } catch (error) {
     logger.error('Failed to initialize database:', error);
+    dialog.showErrorBox('Database Initialization Error', `Failed to load database: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
   }
 }
@@ -111,14 +114,12 @@ const createWindow = () => {
 
   // Open the DevTools in development
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    // logger.debug('Opening DevTools for development');
     mainWindow.webContents.openDevTools();
   }
 
   if (process.platform === 'darwin') {
     app.dock.setIcon(path.join(__dirname, '../../resources/icon.png'));
   }
-
 };
 
 let monitoringInterval: NodeJS.Timeout | null = null;
@@ -147,8 +148,6 @@ const startMonitoring = async () => {
   try {
     const activeWinModule = await import('active-win');
     const activeWin = activeWinModule.default;
-
-    // logger.info('Active-win module loaded successfully');
 
     monitoringInterval = setInterval(async () => {
       if (!mainWindow || mainWindow.isDestroyed()) {
@@ -244,29 +243,23 @@ const startMonitoring = async () => {
   }
 };
 
-app.on('ready', async () => {
-  logger.info('=== Produchive Starting ===');
-  // logger.info(`Electron version: ${process.versions.electron}`);
-  // logger.info(`Chrome version: ${process.versions.chrome}`);
-  // logger.info(`Node version: ${process.versions.node}`);
-  // logger.info(`User data path: ${app.getPath('userData')}`);
-  // logger.info(`App path: ${app.getAppPath()}`);
-
-  try {
-    await initDB();
-    createWindow();
-
+function registerIpcHandlers() {
     // Task management handlers
     ipcMain.handle('get-tasks', async () => {
       // logger.debug('IPC: get-tasks called');
       // Return composite data to ensure everything load on start
-      const currentActivityDb = await getActivityDb();
-      return {
-          tasks: db.data.tasks,
-          goals: db.data.goals || [],
-          activities: currentActivityDb.data.activities || [],
-          ratings: db.data.ratings || []
-      };
+      try {
+        const currentActivityDb = await getActivityDb();
+        return {
+            tasks: db.data.tasks,
+            goals: db.data.goals || [],
+            activities: currentActivityDb?.data?.activities || [],
+            ratings: db.data.ratings || []
+        };
+      } catch (e) {
+          logger.error('Failed in get-tasks', e);
+          return { tasks: [], goals: [], activities: [], ratings: [] };
+      }
     });
 
     ipcMain.handle('add-task', async (event, task) => {
@@ -346,18 +339,10 @@ app.on('ready', async () => {
       const currentActivityDb = await getActivityDb();
       return {
         tasks: db.data.tasks,
-        activities: currentActivityDb.data.activities || [],
+        activities: currentActivityDb?.data?.activities || [],
         goals: db.data.goals || [],
       };
     });
-
-    // Helper to get everything at once (mapped to getTasks in frontend roughly)
-    // Actually, store calls getTasks() but backend has get-tasks. 
-    // Wait, the renderer calls `window.electronAPI.getTasks()`.
-    // I need to verify what `preload.ts` maps `getTasks` to.
-    // Assuming it maps to `get-tasks` channel (or `get-db-contents`? I will check preload).
-    // For now, I'll update `get-tasks` channel just in case.
-
 
     ipcMain.handle('start-monitoring', () => {
         // logger.info('IPC: start-monitoring called');
@@ -369,9 +354,25 @@ app.on('ready', async () => {
         stopMonitoring();
     });
 
-    // logger.info('All IPC handlers registered successfully');
+    logger.info('All IPC handlers registered successfully');
+}
+
+app.on('ready', async () => {
+  logger.info('=== Produchive Starting ===');
+  try {
+    // 1. Register IPC handlers IMMEDIATELY (they will safely wait or error if db is missing, but "No handler" error will be gone)
+    registerIpcHandlers();
+    
+    // 2. Initialize DB
+    await initDB();
+    
+    // 3. Mark app as ready and create window
+    isAppReady = true;
+    createWindow();
+
   } catch (error) {
     logger.error('Error during app initialization:', error);
+    // Dialog is already shown in initDB catch if it fails there
   }
 });
 
@@ -386,23 +387,27 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   logger.info('App activated');
-  // On OS X it's common to re-create a window in the app when the
-  // dock icon is clicked and there are no other windows open.
-  if (BrowserWindow.getAllWindows().length === 0) {
+  // Only create window if the app is fully ready and initialized
+  if (isAppReady && BrowserWindow.getAllWindows().length === 0) {
     logger.info('No windows open, creating new window');
     createWindow();
+  } else if (!isAppReady) {
+      logger.info('App activated but not yet ready/initialized. Waiting...');
+      // Optionally could store a "shouldOpenWindow" flag here if needed, but 'ready' will handle the initial open.
   }
 });
 
 app.on('will-quit', () => {
-  logger.info('=== Produchive Shutting Down ===');
+  // logger.info('=== Produchive Shutting Down ===');
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught exception:', error);
+  // logger.error('Uncaught exception:', error);
+  dialog.showErrorBox('Uncaught Exception', error.message + '\n' + error.stack);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled rejection at:', promise, 'reason:', reason);
+  // logger.error('Unhandled rejection:', reason);
+  dialog.showErrorBox('Unhandled Rejection', String(reason));
 });

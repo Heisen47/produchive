@@ -44,6 +44,7 @@ const App = () => {
     const [isSidebarOpen, setSidebarOpen] = useState(true);
     // Show onboarding if no goals exist and user hasn't explicitly skipped in this session
     const [showOnboarding, setShowOnboarding] = useState(true); 
+    const [isDataLoaded, setDataLoaded] = useState(false); 
 
     // Listen for activity updates
     useEffect(() => {
@@ -54,6 +55,7 @@ const App = () => {
         // Load initial data (tasks + today's activities)
         const init = async () => {
             await useStore.getState().loadTasks();
+            setDataLoaded(true);
         };
         init();
     }, [addActivity]);
@@ -91,6 +93,17 @@ const App = () => {
         setLoading(false);
         setProgress('');
     };
+
+    if (!isDataLoaded) {
+        return (
+            <div className="h-screen w-screen bg-gray-950 flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <Loader2 size={32} className="animate-spin text-blue-500" />
+                    <p className="text-gray-400 font-medium">Loading your workspace...</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="h-screen w-screen bg-gray-950 text-gray-100 flex overflow-hidden font-sans selection:bg-blue-500/30">
@@ -204,11 +217,9 @@ const App = () => {
                         {currentView === 'dashboard' && <Dashboard onNavigate={setCurrentView} />}
                         
                         {currentView === 'monitor' && (
-                            <div className="space-y-6">
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                 <SystemLog />
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                    <ActivityMonitor />
-                                </div>
+                                <ActivityMonitor />
                             </div>
                         )}
 

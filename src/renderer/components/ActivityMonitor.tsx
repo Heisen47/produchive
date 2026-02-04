@@ -26,7 +26,7 @@ export const ActivityMonitor = () => {
 
     if (activities.length === 0) {
         return (
-            <div className="bg-gray-900/50 border border-gray-800 rounded-2xl p-6 text-center">
+            <div className="bg-gray-900/50 border border-gray-800 rounded-2xl p-6 text-center h-[300px] flex flex-col items-center justify-center">
                 <div className="inline-flex p-3 bg-gray-800 rounded-full mb-3">
                     <Activity size={24} className="text-gray-500" />
                 </div>
@@ -36,13 +36,13 @@ export const ActivityMonitor = () => {
     }
 
     return (
-        <div className="bg-gray-900/50 border border-gray-800 rounded-2xl p-4">
-            <div className="flex items-center gap-2 mb-4">
+        <div className="bg-gray-900/50 border border-gray-800 rounded-2xl p-4 h-[300px] flex flex-col">
+            <div className="flex items-center gap-2 mb-4 shrink-0">
                 <Activity size={20} className="text-teal-400" />
                 <h3 className="font-bold text-white">Recent Activities</h3>
                 <span className="ml-auto text-xs text-gray-500">{activities.length} tracked</span>
             </div>
-            <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar">
+            <div className="space-y-2 flex-1 overflow-y-auto custom-scrollbar">
                 {activities.slice(-10).reverse().map((activity, idx) => (
                     <div
                         key={idx}

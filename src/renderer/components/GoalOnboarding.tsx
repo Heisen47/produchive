@@ -17,6 +17,13 @@ export const GoalOnboarding = ({ onClose }: { onClose: () => void }) => {
         if (e.key === 'Enter') handleAdd();
     };
 
+    const handleStart = () => {
+        if (input.trim() && goals.length < 5) {
+            addGoal(input.trim());
+        }
+        onClose();
+    };
+
     return (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-200">
@@ -77,7 +84,7 @@ export const GoalOnboarding = ({ onClose }: { onClose: () => void }) => {
                         Skip for now
                     </button>
                     <button
-                        onClick={onClose}
+                        onClick={handleStart}
                         className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2"
                     >
                         Start Productivity

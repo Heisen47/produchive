@@ -22,6 +22,16 @@ If you download the app from the GitHub Releases page:
 3.  Open the app.
 4.  **Grant Permission**: You must allow the app to monitor your screen/activity when prompted (System Settings > Privacy & Security > Screen Recording / Accessibility).
 
+## 🐧 Installation for Linux (Arch/Ubuntu/etc)
+
+1.  Download the **.zip** file (for Arch) or **.deb/.rpm** (for others) from Releases.
+2.  Extract the zip.
+3.  Run the executable:
+    ```bash
+    ./produchive
+    ```
+    *(If it fails to start, ensure you have basic dependencies like `nss` and `gtk3` installed, which are standard on most desktops).*
+
 ## Running from Source
 
 1.  Clone the repo & install dependencies:

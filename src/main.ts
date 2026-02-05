@@ -5,6 +5,7 @@ import { createLogger, getLogPath } from './lib/logger';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 
+
 const logger = createLogger('Main');
 
 if (started) {
@@ -96,7 +97,9 @@ const createWindow = () => {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
-    icon: path.join(__dirname, '../../resources/icon.png'),
+    icon: app.isPackaged 
+        ? path.join(process.resourcesPath, 'icon.png')
+        : path.join(__dirname, '../../resources/icon.png'), 
   });
 
   // and load the index.html of the app.
@@ -113,7 +116,10 @@ const createWindow = () => {
   }
 
   if (process.platform === 'darwin') {
-    app.dock.setIcon(path.join(__dirname, '../../resources/icon.png'));
+    app.dock.setIcon(app.isPackaged 
+        ? path.join(process.resourcesPath, 'icon.png')
+        : path.join(__dirname, '../../resources/icon.png')
+    );
   }
 };
 

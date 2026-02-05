@@ -33,7 +33,7 @@
     "@vitejs/plugin-react": "^5.1.2",
     "@webgpu/types": "^0.1.69",
     "autoprefixer": "^10.4.23",
-    "electron": "40.1.0",
+    "electron": "34.0.0",
     "eslint": "^8.57.1",
     "eslint-plugin-import": "^2.32.0",
     "postcss": "^8.5.6",

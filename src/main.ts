@@ -137,8 +137,11 @@ const stopMonitoring = () => {
 const checkMacPermissions = () => {
   if (process.platform !== 'darwin') return true;
 
-  const isTrusted = systemPreferences.isTrustedAccessibilityClient(true);
+  // Check accessibility WITHOUT prompting system dialog (false = don't prompt)
+  const isTrusted = systemPreferences.isTrustedAccessibilityClient(false);
   if (!isTrusted) {
+    // Now prompt the system dialog by calling with true
+    systemPreferences.isTrustedAccessibilityClient(true);
     dialog.showErrorBox(
       'Accessibility Permission Required',
       'Produchive needs Accessibility permissions to monitor active windows.\n\n' +
@@ -149,14 +152,10 @@ const checkMacPermissions = () => {
   }
 
   const screenAccess = systemPreferences.getMediaAccessStatus('screen');
-  if (screenAccess === 'denied') {
-     dialog.showMessageBox(mainWindow!, {
-      type: 'warning',
-      title: 'Screen Recording Permission Recommended',
-      message: 'Produchive needs Screen Recording permissions to accurately capture window titles.',
-      detail: 'Please enable it in System Settings > Privacy & Security > Screen Recording.\nWithout this, some activity details may be missing.',
-      buttons: ['OK']
-    });
+  // Only show dialog if explicitly denied, not if already granted
+  if (screenAccess === 'denied' || screenAccess === 'not-determined') {
+    // Log but don't block - screen recording is optional for basic functionality
+    logger.info(`Screen Recording permission status: ${screenAccess}`);
   }
   
   return true;
@@ -294,12 +293,20 @@ const startMonitoring = async (): Promise<boolean> => {
     const stderr = e?.stderr || '';
     
     // Only show permission error if stderr explicitly mentions it
-    if (process.platform === 'darwin' && stderr.includes('screen recording')) {
+    const isScreenRecordingError = process.platform === 'darwin' && (
+      stderr.includes('screen recording') || 
+      errorMessage.includes('active-win/main')  // Binary failed = likely permission issue
+    );
+    
+    if (isScreenRecordingError) {
       dialog.showErrorBox(
         "Screen Recording Permission Required",
         "Produchive needs Screen Recording permission to monitor active windows.\n\n" +
-        "Please enable it in:\nSystem Settings → Privacy & Security → Screen Recording\n\n" +
-        "After enabling, restart the app."
+        "Please:\n" +
+        "1. Open System Settings → Privacy & Security → Screen Recording\n" +
+        "2. Enable the toggle for 'produchive'\n" +
+        "3. Quit and restart this app (Cmd+Q, then reopen)\n\n" +
+        "The permission won't take effect until you restart."
       );
     } else {
       // Show the actual error for debugging

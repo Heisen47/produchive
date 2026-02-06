@@ -9,13 +9,35 @@ import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    asar: {
+      unpack: '**/node_modules/active-win/**', 
+    },
     icon: './resources/icon',
     extraResource: [
       './resources/icon.png',
+      './node_modules/active-win',
     ],
   },
   rebuildConfig: {},
+  hooks: {
+    postPackage: async (forgeConfig, options) => {
+      if (process.platform === 'darwin') {
+        const { execSync } = require('child_process');
+        const fs = require('fs');
+        const path = require('path');
+        const outputDir = options.outputPaths[0];
+        // Find the .app bundle in the output directory
+        const files = fs.readdirSync(outputDir);
+        const appBundle = files.find((f: string) => f.endsWith('.app'));
+        if (appBundle) {
+          const appPath = path.join(outputDir, appBundle);
+          console.log(`Re-signing app bundle: ${appPath}`);
+          execSync(`codesign --force --deep --sign - "${appPath}"`, { stdio: 'inherit' });
+          console.log('App bundle re-signed successfully');
+        }
+      }
+    },
+  },
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),

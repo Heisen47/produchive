@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, systemPreferences } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { createLogger, getLogPath } from './lib/logger';
@@ -134,10 +134,42 @@ const stopMonitoring = () => {
   }
 };
 
+const checkMacPermissions = () => {
+  if (process.platform !== 'darwin') return true;
+
+  const isTrusted = systemPreferences.isTrustedAccessibilityClient(true);
+  if (!isTrusted) {
+    dialog.showErrorBox(
+      'Accessibility Permission Required',
+      'Produchive needs Accessibility permissions to monitor active windows.\n\n' +
+      'Please enable it in System Settings > Privacy & Security > Accessibility.\n\n' +
+      'After enabling, you may need to restart the app.'
+    );
+    return false;
+  }
+
+  const screenAccess = systemPreferences.getMediaAccessStatus('screen');
+  if (screenAccess === 'denied') {
+     dialog.showMessageBox(mainWindow!, {
+      type: 'warning',
+      title: 'Screen Recording Permission Recommended',
+      message: 'Produchive needs Screen Recording permissions to accurately capture window titles.',
+      detail: 'Please enable it in System Settings > Privacy & Security > Screen Recording.\nWithout this, some activity details may be missing.',
+      buttons: ['OK']
+    });
+  }
+  
+  return true;
+};
+
 const startMonitoring = async (): Promise<boolean> => {
   if (monitoringInterval) {
     logger.info('Monitoring already running');
     return true;
+  }
+
+  if (!checkMacPermissions()) {
+     return false;
   }
 
   if (!mainWindow) {
@@ -147,14 +179,26 @@ const startMonitoring = async (): Promise<boolean> => {
 
   logger.info('Starting activity monitoring...');
   try {
-    const activeWinModule = await import('active-win');
-    const activeWin = activeWinModule.default;
+    // In packaged app, active-win is in Resources folder (via extraResource)
+    let activeWin;
+    if (app.isPackaged) {
+      activeWin = require(path.join(process.resourcesPath, 'active-win'));
+    } else {
+      activeWin = require('active-win');
+    }
 
     // Test run to ensure it works immediately
     try {
-        await activeWin();
-    } catch (initialError) {
-         throw initialError; // Throw so we land in the outer catch block
+        const testResult = await activeWin();
+        logger.info('Active-win test successful:', testResult ? 'got window data' : 'null result');
+    } catch (initialError: any) {
+        logger.error('Active-win test failed:', {
+          message: initialError?.message,
+          stderr: initialError?.stderr,
+          stdout: initialError?.stdout,
+          code: initialError?.code,
+        });
+        throw initialError; // Throw so we land in the outer catch block
     }
 
     monitoringInterval = setInterval(async () => {
@@ -244,9 +288,28 @@ const startMonitoring = async (): Promise<boolean> => {
 
     logger.info('Activity monitoring started');
     return true;
-  } catch (e) {
-    logger.error("Failed to load active-win:", e);
-    dialog.showErrorBox("Monitoring Error", "Failed to load monitoring module. " + String(e));
+  } catch (e: any) {
+    logger.error("Failed to start monitoring:", e);
+    const errorMessage = e?.message || String(e);
+    const stderr = e?.stderr || '';
+    
+    // Only show permission error if stderr explicitly mentions it
+    if (process.platform === 'darwin' && stderr.includes('screen recording')) {
+      dialog.showErrorBox(
+        "Screen Recording Permission Required",
+        "Produchive needs Screen Recording permission to monitor active windows.\n\n" +
+        "Please enable it in:\nSystem Settings → Privacy & Security → Screen Recording\n\n" +
+        "After enabling, restart the app."
+      );
+    } else {
+      // Show the actual error for debugging
+      dialog.showErrorBox(
+        "Monitoring Error", 
+        "Failed to start monitoring.\n\n" +
+        "Error: " + errorMessage + "\n\n" +
+        (stderr ? "Details: " + stderr : "")
+      );
+    }
     return false;
   }
 };

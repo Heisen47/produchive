@@ -3,6 +3,7 @@ export interface Task {
     text: string;
     completed: boolean;
     createdAt: number;
+    createdAtReadable?: string;
 }
 
 export interface Activity {
@@ -12,6 +13,7 @@ export interface Activity {
         path: string;
     };
     timestamp: number;
+    timestampReadable?: string;
     duration?: number;
 }
 

@@ -13,17 +13,17 @@ if (started) {
 }
 
 // Main DB for Tasks and Goals
-let db: any = { data: { tasks: [], goals: [], ratings: [] } }; 
+let db: any = { data: { tasks: [], goals: [], ratings: [] } };
 let dbFilePath: string;
 
 // Daily Activity DB
 let activityDb: any;
 let currentActivityDate: string = '';
-let isAppReady = false; 
+let isAppReady = false;
 
 async function getActivityDb() {
   const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-  
+
   // If we already have a DB for today, return it
   if (activityDb && currentActivityDate === today) {
     return activityDb;
@@ -35,7 +35,7 @@ async function getActivityDb() {
   const fs = await import('node:fs/promises');
 
   const logsDir = path.join(app.getPath('userData'), 'activity_logs');
-  
+
   // Ensure logs directory exists
   try {
     await fs.access(logsDir);
@@ -70,7 +70,7 @@ async function initDB() {
     db.data ||= { tasks: [], goals: [], ratings: [] };
     // Migration for old "goal" property if needed
     if (!db.data.goals && (db.data as any).goal) {
-       db.data.goals = [(db.data as any).goal];
+      db.data.goals = [(db.data as any).goal];
     }
     db.data.goals ||= [];
     db.data.ratings ||= [];
@@ -97,9 +97,9 @@ const createWindow = () => {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
-    icon: app.isPackaged 
-        ? path.join(process.resourcesPath, 'icon.png')
-        : path.join(__dirname, '../../resources/icon.png'), 
+    icon: app.isPackaged
+      ? path.join(process.resourcesPath, 'icon.png')
+      : path.join(__dirname, '../../resources/icon.png'),
   });
 
   // and load the index.html of the app.
@@ -116,9 +116,9 @@ const createWindow = () => {
   }
 
   if (process.platform === 'darwin') {
-    app.dock.setIcon(app.isPackaged 
-        ? path.join(process.resourcesPath, 'icon.png')
-        : path.join(__dirname, '../../resources/icon.png')
+    app.dock.setIcon(app.isPackaged
+      ? path.join(process.resourcesPath, 'icon.png')
+      : path.join(__dirname, '../../resources/icon.png')
     );
   }
 };
@@ -157,7 +157,7 @@ const checkMacPermissions = () => {
     // Log but don't block - screen recording is optional for basic functionality
     logger.info(`Screen Recording permission status: ${screenAccess}`);
   }
-  
+
   return true;
 };
 
@@ -168,7 +168,7 @@ const startMonitoring = async (): Promise<boolean> => {
   }
 
   if (!checkMacPermissions()) {
-     return false;
+    return false;
   }
 
   if (!mainWindow) {
@@ -188,16 +188,16 @@ const startMonitoring = async (): Promise<boolean> => {
 
     // Test run to ensure it works immediately
     try {
-        const testResult = await activeWin();
-        logger.info('Active-win test successful:', testResult ? 'got window data' : 'null result');
+      const testResult = await activeWin();
+      logger.info('Active-win test successful:', testResult ? 'got window data' : 'null result');
     } catch (initialError: any) {
-        logger.error('Active-win test failed:', {
-          message: initialError?.message,
-          stderr: initialError?.stderr,
-          stdout: initialError?.stdout,
-          code: initialError?.code,
-        });
-        throw initialError; // Throw so we land in the outer catch block
+      logger.error('Active-win test failed:', {
+        message: initialError?.message,
+        stderr: initialError?.stderr,
+        stdout: initialError?.stdout,
+        code: initialError?.code,
+      });
+      throw initialError; // Throw so we land in the outer catch block
     }
 
     monitoringInterval = setInterval(async () => {
@@ -213,12 +213,12 @@ const startMonitoring = async (): Promise<boolean> => {
           // ... (same logic as before)
           const appName = result.owner.name.toLowerCase();
           if (appName.includes('produchive') || appName.includes('electron')) {
-             return;
+            return;
           }
 
           const browsers = ['Google Chrome', 'Chrome', 'Brave', 'Safari', 'Firefox', 'Microsoft Edge'];
-          if (browsers.some(b => result.owner.name.includes(b)) && result.title.toLowerCase().includes('leetcode')) { 
-             result.title = 'LeetCode'; 
+          if (browsers.some(b => result.owner.name.includes(b)) && result.title.toLowerCase().includes('leetcode')) {
+            result.title = 'LeetCode';
           }
 
           const timestamp = Date.now();
@@ -229,45 +229,52 @@ const startMonitoring = async (): Promise<boolean> => {
               path: result.owner.path,
             },
             timestamp,
+            timestampReadable: new Date(timestamp).toLocaleString(),
             duration: 0
           };
 
           if (!lastActivity || lastActivity.owner.name !== activity.owner.name) {
-             mainWindow.webContents.send('system-event', {
-               type: 'SYS_PROCESS_SWITCH',
-               content: `Process Context Switch: ${lastActivity?.owner?.name || 'init'} -> ${activity.owner.name}`,
-               timestamp,
-               details: { pid: result.owner.processId, path: result.owner.path }
-             });
+            mainWindow.webContents.send('system-event', {
+              type: 'SYS_PROCESS_SWITCH',
+              content: `Process Context Switch: ${lastActivity?.owner?.name || 'init'} -> ${activity.owner.name}`,
+              timestamp,
+              details: { pid: result.owner.processId, path: result.owner.path }
+            });
           }
 
-           if (!lastActivity || lastActivity.title !== activity.title) {
-             mainWindow.webContents.send('system-event', {
-               type: 'SYS_WINDOW_FOCUS',
-               content: `Window Focus Change: "${activity.title}"`,
-               timestamp
-             });
+          if (!lastActivity || lastActivity.title !== activity.title) {
+            mainWindow.webContents.send('system-event', {
+              type: 'SYS_WINDOW_FOCUS',
+              content: `Window Focus Change: "${activity.title}"`,
+              timestamp
+            });
           }
 
-          const currentDb = await getActivityDb(); 
-          const existingActivity = currentDb.data.activities.find((a: any) => 
-              a.title === activity.title && a.owner.name === activity.owner.name
+          const currentDb = await getActivityDb();
+          const existingActivity = currentDb.data.activities.find((a: any) =>
+            a.title === activity.title && a.owner.name === activity.owner.name
           );
 
           if (existingActivity) {
-              if (typeof existingActivity.duration !== 'number') existingActivity.duration = 0;
-              existingActivity.duration += 1000; 
-              
-              activity.duration = existingActivity.duration;
-              activity.timestamp = existingActivity.timestamp; 
+            if (typeof existingActivity.duration !== 'number') existingActivity.duration = 0;
+            existingActivity.duration += 1000;
 
-              if (timestamp % 10000 < 1500) { 
-                  currentDb.write().catch((e: any) => {});
-              }
+            activity.duration = existingActivity.duration;
+            activity.timestamp = existingActivity.timestamp;
+
+            // Backfill readable timestamp if missing
+            if (!existingActivity.timestampReadable) {
+              existingActivity.timestampReadable = new Date(existingActivity.timestamp).toLocaleString();
+            }
+            activity.timestampReadable = existingActivity.timestampReadable;
+
+            if (timestamp % 10000 < 1500) {
+              currentDb.write().catch((e: any) => { });
+            }
           } else {
-              activity.duration = 1000; 
-              currentDb.data.activities.push(activity);
-              currentDb.write().catch((e: any) => logger.error('Failed to write activity to DB:', e));
+            activity.duration = 1000;
+            currentDb.data.activities.push(activity);
+            currentDb.write().catch((e: any) => logger.error('Failed to write activity to DB:', e));
           }
 
           lastActivity = activity;
@@ -276,14 +283,14 @@ const startMonitoring = async (): Promise<boolean> => {
       } catch (error) {
         logger.error("Error getting active window:", error);
         stopMonitoring();
-        
+
         let errorMessage = "Failed to access active window.";
         if (process.platform === 'linux') {
-            errorMessage += "\n\nLinux Note: Ensure you have 'xprop' installed. If you are on Wayland, switch to X11/Xorg as Wayland blocks activity monitoring by design.";
+          errorMessage += "\n\nLinux Note: Ensure you have 'xprop' installed. If you are on Wayland, switch to X11/Xorg as Wayland blocks activity monitoring by design.";
         }
         dialog.showErrorBox("Activity Monitoring Failed", errorMessage + "\n\nDetails: " + String(error));
       }
-    }, 1000); 
+    }, 1000);
 
     logger.info('Activity monitoring started');
     return true;
@@ -291,13 +298,13 @@ const startMonitoring = async (): Promise<boolean> => {
     logger.error("Failed to start monitoring:", e);
     const errorMessage = e?.message || String(e);
     const stderr = e?.stderr || '';
-    
+
     // Only show permission error if stderr explicitly mentions it
     const isScreenRecordingError = process.platform === 'darwin' && (
-      stderr.includes('screen recording') || 
+      stderr.includes('screen recording') ||
       errorMessage.includes('active-win/main')  // Binary failed = likely permission issue
     );
-    
+
     if (isScreenRecordingError) {
       dialog.showErrorBox(
         "Screen Recording Permission Required",
@@ -311,7 +318,7 @@ const startMonitoring = async (): Promise<boolean> => {
     } else {
       // Show the actual error for debugging
       dialog.showErrorBox(
-        "Monitoring Error", 
+        "Monitoring Error",
         "Failed to start monitoring.\n\n" +
         "Error: " + errorMessage + "\n\n" +
         (stderr ? "Details: " + stderr : "")
@@ -323,131 +330,132 @@ const startMonitoring = async (): Promise<boolean> => {
 
 
 function registerIpcHandlers() {
-    // Task management handlers
-    ipcMain.handle('get-tasks', async () => {
-      try {
-        const currentActivityDb = await getActivityDb();
-        return {
-            tasks: db.data.tasks,
-            goals: db.data.goals || [],
-            activities: currentActivityDb?.data?.activities || [],
-            ratings: db.data.ratings || []
-        };
-      } catch (e) {
-          logger.error('Failed in get-tasks', e);
-          dialog.showErrorBox('Data Loading Error', 'Failed to retrieve tasks and activities. ' + String(e));
-          return { tasks: [], goals: [], activities: [], ratings: [] };
-      }
-    });
-
-    ipcMain.handle('add-task', async (event, task) => {
-      db.data.tasks.push(task);
-      await db.write();
-      return db.data.tasks;
-    });
-
-    ipcMain.handle('update-task', async (event, updatedTask) => {
-      const index = db.data.tasks.findIndex((t: any) => t.id === updatedTask.id);
-      if (index !== -1) {
-        db.data.tasks[index] = updatedTask;
-        await db.write();
-      }
-      return db.data.tasks;
-    });
-
-    ipcMain.handle('delete-task', async (event, id) => {
-      db.data.tasks = db.data.tasks.filter((t: any) => t.id !== id);
-      await db.write();
-      return db.data.tasks;
-    });
-
-    ipcMain.handle('save-goals', async (event, goals) => {
-      if (Array.isArray(goals)) {
-        db.data.goals = goals;
-        await db.write();
-      }
-      return db.data.goals;
-    });
-
-    ipcMain.handle('save-rating', async (event, rating) => {
-        const newRating = { 
-            ...rating, 
-            timestamp: Date.now(),
-            id: crypto.randomUUID()
-        };
-        db.data.ratings.push(newRating);
-        await db.write();
-        return newRating;
-    });
-
-    // Debug and system info handlers
-    ipcMain.handle('get-system-info', async () => {
-      let distro = 'unknown';
-      if (process.platform === 'linux') {
-          try {
-              const osRelease = await fs.readFile('/etc/os-release', 'utf-8');
-              const lines = osRelease.split('\n');
-              const idLine = lines.find(line => line.startsWith('ID='));
-              const idLikeLine = lines.find(line => line.startsWith('ID_LIKE='));
-              
-              if (idLine) {
-                  distro = idLine.split('=')[1].replace(/"/g, '').toLowerCase();
-              }
-              // Fallback or addition checks could be here, but ID usually suffices for Arch (ID=arch)
-              if (distro === 'unknown' && idLikeLine) {
-                   distro = idLikeLine.split('=')[1].replace(/"/g, '').toLowerCase();
-              }
-          } catch (e) {
-              logger.error('Failed to read os-release', e);
-          }
-      }
-
-      return {
-        userDataPath: app.getPath('userData'),
-        appPath: app.getAppPath(),
-        dbPath: dbFilePath,
-        logPath: getLogPath(),
-        versions: {
-          electron: process.versions.electron,
-          chrome: process.versions.chrome,
-          node: process.versions.node,
-        },
-        platform: process.platform,
-        arch: process.arch,
-        distro
-      };
-    });
-
-    ipcMain.handle('open-user-data-folder', () => {
-      const userDataPath = app.getPath('userData');
-      shell.openPath(userDataPath);
-      return userDataPath;
-    });
-
-    ipcMain.handle('open-log-file', () => {
-      const logPath = getLogPath();
-      shell.openPath(path.dirname(logPath));
-      return logPath;
-    });
-
-    ipcMain.handle('get-db-contents', async () => {
+  // Task management handlers
+  ipcMain.handle('get-tasks', async () => {
+    try {
       const currentActivityDb = await getActivityDb();
       return {
         tasks: db.data.tasks,
-        activities: currentActivityDb?.data?.activities || [],
         goals: db.data.goals || [],
+        activities: currentActivityDb?.data?.activities || [],
+        ratings: db.data.ratings || []
       };
-    });
+    } catch (e) {
+      logger.error('Failed in get-tasks', e);
+      dialog.showErrorBox('Data Loading Error', 'Failed to retrieve tasks and activities. ' + String(e));
+      return { tasks: [], goals: [], activities: [], ratings: [] };
+    }
+  });
 
-    ipcMain.handle('start-monitoring', async () => {
-        return await startMonitoring();
-    });
+  ipcMain.handle('add-task', async (event, task) => {
+    db.data.tasks.push(task);
+    await db.write();
+    return db.data.tasks;
+  });
 
-    ipcMain.handle('stop-monitoring', () => {
-        stopMonitoring();
-    });
+  ipcMain.handle('update-task', async (event, updatedTask) => {
+    const index = db.data.tasks.findIndex((t: any) => t.id === updatedTask.id);
+    if (index !== -1) {
+      db.data.tasks[index] = updatedTask;
+      await db.write();
+    }
+    return db.data.tasks;
+  });
 
-    logger.info('All IPC handlers registered successfully');
+  ipcMain.handle('delete-task', async (event, id) => {
+    db.data.tasks = db.data.tasks.filter((t: any) => t.id !== id);
+    await db.write();
+    return db.data.tasks;
+  });
+
+  ipcMain.handle('save-goals', async (event, goals) => {
+    if (Array.isArray(goals)) {
+      db.data.goals = goals;
+      await db.write();
+    }
+    return db.data.goals;
+  });
+
+  ipcMain.handle('save-rating', async (event, rating) => {
+    const newRating = {
+      ...rating,
+      timestamp: Date.now(),
+      timestampReadable: new Date().toLocaleString(),
+      id: crypto.randomUUID()
+    };
+    db.data.ratings.push(newRating);
+    await db.write();
+    return newRating;
+  });
+
+  // Debug and system info handlers
+  ipcMain.handle('get-system-info', async () => {
+    let distro = 'unknown';
+    if (process.platform === 'linux') {
+      try {
+        const osRelease = await fs.readFile('/etc/os-release', 'utf-8');
+        const lines = osRelease.split('\n');
+        const idLine = lines.find(line => line.startsWith('ID='));
+        const idLikeLine = lines.find(line => line.startsWith('ID_LIKE='));
+
+        if (idLine) {
+          distro = idLine.split('=')[1].replace(/"/g, '').toLowerCase();
+        }
+        // Fallback or addition checks could be here, but ID usually suffices for Arch (ID=arch)
+        if (distro === 'unknown' && idLikeLine) {
+          distro = idLikeLine.split('=')[1].replace(/"/g, '').toLowerCase();
+        }
+      } catch (e) {
+        logger.error('Failed to read os-release', e);
+      }
+    }
+
+    return {
+      userDataPath: app.getPath('userData'),
+      appPath: app.getAppPath(),
+      dbPath: dbFilePath,
+      logPath: getLogPath(),
+      versions: {
+        electron: process.versions.electron,
+        chrome: process.versions.chrome,
+        node: process.versions.node,
+      },
+      platform: process.platform,
+      arch: process.arch,
+      distro
+    };
+  });
+
+  ipcMain.handle('open-user-data-folder', () => {
+    const userDataPath = app.getPath('userData');
+    shell.openPath(userDataPath);
+    return userDataPath;
+  });
+
+  ipcMain.handle('open-log-file', () => {
+    const logPath = getLogPath();
+    shell.openPath(path.dirname(logPath));
+    return logPath;
+  });
+
+  ipcMain.handle('get-db-contents', async () => {
+    const currentActivityDb = await getActivityDb();
+    return {
+      tasks: db.data.tasks,
+      activities: currentActivityDb?.data?.activities || [],
+      goals: db.data.goals || [],
+    };
+  });
+
+  ipcMain.handle('start-monitoring', async () => {
+    return await startMonitoring();
+  });
+
+  ipcMain.handle('stop-monitoring', () => {
+    stopMonitoring();
+  });
+
+  logger.info('All IPC handlers registered successfully');
 }
 
 app.on('ready', async () => {
@@ -455,10 +463,10 @@ app.on('ready', async () => {
   try {
     // 1. Register IPC handlers IMMEDIATELY (they will safely wait or error if db is missing, but "No handler" error will be gone)
     registerIpcHandlers();
-    
+
     // 2. Initialize DB
     await initDB();
-    
+
     // 3. Mark app as ready and create window
     isAppReady = true;
     createWindow();
@@ -484,7 +492,7 @@ app.on('activate', () => {
     logger.info('No windows open, creating new window');
     createWindow();
   } else if (!isAppReady) {
-      logger.info('App activated but not yet ready/initialized. Waiting...');
+    logger.info('App activated but not yet ready/initialized. Waiting...');
   }
 });
 

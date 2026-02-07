@@ -16,7 +16,7 @@ interface Store {
     setGoals: (goals: string[]) => void;
     addActivity: (activity: Activity) => void;
     addRating: (rating: any) => void;
-    
+
     // Monitoring
     isMonitoring: boolean;
     systemEvents: any[]; // Using any to avoid circular dependency if SystemEvent not imported, but prefer SystemEvent
@@ -38,8 +38,8 @@ export const useStore = create<Store>((set, get) => ({
     setError: (error) => set({ error }),
     loadTasks: async () => {
         const { tasks, activities, goals, ratings } = await window.electronAPI.getTasks() as any;
-        set({ 
-            tasks: tasks || [], 
+        set({
+            tasks: tasks || [],
             activities: activities || [],
             goals: goals || [],
             ratings: ratings || []
@@ -51,6 +51,7 @@ export const useStore = create<Store>((set, get) => ({
             text,
             completed: false,
             createdAt: Date.now(),
+            createdAtReadable: new Date().toLocaleString(),
         };
         const tasks = await window.electronAPI.addTask(newTask);
         set({ tasks });
@@ -94,7 +95,7 @@ export const useStore = create<Store>((set, get) => ({
     },
     addActivity: (activity: Activity) => {
         const { activities } = get();
-        const existingActivityIndex = activities.findIndex(a => 
+        const existingActivityIndex = activities.findIndex(a =>
             a.title === activity.title && a.owner.name === activity.owner.name
         );
 
@@ -113,7 +114,7 @@ export const useStore = create<Store>((set, get) => ({
         set({ ratings: [...ratings, rating] });
         window.electronAPI.saveRating(rating);
     },
-    
+
     // Monitoring State
     isMonitoring: false,
     systemEvents: [],

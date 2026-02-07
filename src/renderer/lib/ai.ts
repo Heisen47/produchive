@@ -54,8 +54,6 @@ export const initEngine = async (progressCallback: (report: any) => void) => {
                     continue;
                 }
             }
-
-            // Non-recoverable error, throw immediately
             throw e;
         }
     }

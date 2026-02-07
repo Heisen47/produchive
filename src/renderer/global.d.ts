@@ -2,7 +2,8 @@ export interface Task {
     id: string;
     text: string;
     completed: boolean;
-    createdAt: number;
+    created: number;
+    createdAt?: string;
 }
 
 export interface Activity {
@@ -12,6 +13,7 @@ export interface Activity {
         path: string;
     };
     timestamp: number;
+    timestampReadable?: string;
     duration?: number;
 }
 

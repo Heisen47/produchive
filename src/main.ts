@@ -115,9 +115,21 @@ const createWindow = () => {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
-    icon: app.isPackaged
-      ? path.join(process.resourcesPath, 'icon.png')
-      : path.join(__dirname, '../../resources/icon.png'),
+    icon: (() => {
+      if (process.platform === 'darwin') {
+        return app.isPackaged
+          ? path.join(process.resourcesPath, 'icon.icns')
+          : path.join(__dirname, '../../resources/icon.icns');
+      } else if (process.platform === 'win32') {
+        return app.isPackaged
+          ? path.join(process.resourcesPath, 'icon.ico')
+          : path.join(__dirname, '../../resources/icon.ico');
+      } else {
+        return app.isPackaged
+          ? path.join(process.resourcesPath, 'icon.png')
+          : path.join(__dirname, '../../resources/icon.png');
+      }
+    })(),
   });
 
   // and load the index.html of the app.

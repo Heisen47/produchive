@@ -15,7 +15,6 @@ import {
     Target,
     Loader2,
     Sparkles,
-    AlertTriangle,
     Menu,
     X,
     XCircle
@@ -43,7 +42,6 @@ const App = () => {
     const { addActivity, goals, setError, error } = useStore();
     const [currentView, setCurrentView] = useState('dashboard');
     const [isSidebarOpen, setSidebarOpen] = useState(true);
-    // Show onboarding if no goals exist and user hasn't explicitly skipped in this session
     const [showOnboarding, setShowOnboarding] = useState(true); 
     const [isDataLoaded, setDataLoaded] = useState(false); 
 
@@ -53,13 +51,11 @@ const App = () => {
             addActivity(activity);
         });
         
-        // Load initial data (tasks + today's activities)
         const init = async () => {
             try {
-                // Check for Arch Linux
                 const sysInfo = await window.electronAPI.getSystemInfo();
                 if (sysInfo.platform === 'linux' && (sysInfo.distro === 'arch' || sysInfo.distro?.includes('arch'))) {
-                    setError("Arch Linux is not currently supported. Please use Windows or macOS. We haven't tested it on other Linux distributions yet.");
+                    setError("Arch Linux is not currently supported. Please use Windows or macOS. We haven't tested it on other Linux distributions yet. Kindly visit our Github page to raise a PR or open an issue.");
                 }
 
                 await useStore.getState().loadTasks();

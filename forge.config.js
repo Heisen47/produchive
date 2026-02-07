@@ -18,6 +18,8 @@ const config = {
         icon: './resources/icon',
         extraResource: [
             './resources/icon.png',
+            './resources/icon.ico',
+            './resources/icon.icns',
             './node_modules/active-win',
         ],
     },

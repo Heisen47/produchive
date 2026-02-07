@@ -211,7 +211,8 @@ const startMonitoring = async (): Promise<boolean> => {
     // In packaged app, active-win is in Resources folder (via extraResource)
     let activeWin;
     if (app.isPackaged) {
-      activeWin = require(path.join(process.resourcesPath, 'active-win'));
+      const activeWinPath = path.join(process.resourcesPath, 'active-win');
+      activeWin = require(activeWinPath);
     } else {
       activeWin = require('active-win');
     }

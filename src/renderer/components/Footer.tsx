@@ -31,7 +31,7 @@ export const Footer: React.FC = () => {
                         GitHub
                     </a>
                      <a
-                        href={repoUrl}
+                        href={howToUseItUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1.5 sm:gap-2 hover:text-white transition-colors"

@@ -76,6 +76,24 @@ async function initDB() {
     db.data.ratings ||= [];
     await db.write();
 
+    // Migration to add readable timestamps
+    let modified = false;
+    db.data.tasks.forEach((task: any) => {
+      if (!task.createdAt && task.created) {
+        task.createdAt = new Date(task.created).toLocaleString();
+        modified = true;
+      }
+    });
+    db.data.ratings.forEach((rating: any) => {
+      if (!rating.timestampReadable && rating.timestamp) {
+        rating.timestampReadable = new Date(rating.timestamp).toLocaleString();
+        modified = true;
+      }
+    });
+    if (modified) {
+      await db.write();
+    }
+
     // Initialize Activity DB immediately to ensure folder structure
     await getActivityDb();
 

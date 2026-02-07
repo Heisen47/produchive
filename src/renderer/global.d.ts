@@ -2,8 +2,8 @@ export interface Task {
     id: string;
     text: string;
     completed: boolean;
-    createdAt: number;
-    createdAtReadable?: string;
+    created: number;
+    createdAt?: string;
 }
 
 export interface Activity {

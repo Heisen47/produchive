@@ -50,8 +50,8 @@ export const useStore = create<Store>((set, get) => ({
             id: crypto.randomUUID(),
             text,
             completed: false,
-            createdAt: Date.now(),
-            createdAtReadable: new Date().toLocaleString(),
+            created: Date.now(),
+            createdAt: new Date().toLocaleString(),
         };
         const tasks = await window.electronAPI.addTask(newTask);
         set({ tasks });

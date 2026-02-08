@@ -12,7 +12,8 @@ if (started) {
   app.quit();
 }
 
-// Main DB for Tasks and Goals
+app.commandLine.appendSwitch('disable-gpu-watchdog');
+app.commandLine.appendSwitch('force_high_performance_gpu');
 let db: any = { data: { tasks: [], goals: [], ratings: [] } };
 let dbFilePath: string;
 
@@ -114,6 +115,10 @@ const createWindow = () => {
     height: 900,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      partition: 'persist:main',
     },
     icon: (() => {
       if (process.platform === 'darwin') {

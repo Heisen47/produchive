@@ -1,13 +1,12 @@
 /// <reference types="@webgpu/types" />
 import { CreateMLCEngine } from "@mlc-ai/web-llm";
 
-// Fallback model list - try smaller/different models if one fails
-// Order: Primary -> Smaller fallbacks
+
 const MODEL_LIST = [
-    "Qwen2.5-0.5B-Instruct-q4f32_1-MLC",      // Primary: 0.5B params, q4f32
-    "Qwen2.5-0.5B-Instruct-q0f32-MLC",        // Fallback 1: Same model, different quant
-    "TinyLlama-1.1B-Chat-v1.0-q4f32_1-MLC",   // Fallback 2: TinyLlama
-    "SmolLM2-135M-Instruct-q4f16_1-MLC",      // Fallback 3: Very small 135M model
+    "gemma-2-2b-it-q4f32_1-MLC",               // Primary: Gemma 2B - good instruction following
+    "Phi-3.5-mini-instruct-q4f16_1-MLC",       // Fallback 1: Phi 3.5 mini
+    "Llama-3.2-1B-Instruct-q4f32_1-MLC",       // Fallback 2: Llama 3.2 1B
+    "TinyLlama-1.1B-Chat-v1.0-q4f32_1-MLC",    // Fallback 3: TinyLlama
 ];
 
 const MAX_RETRIES = 2;

@@ -20,4 +20,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveGoals: (goals: string[]) => ipcRenderer.invoke('save-goals', goals),
     saveRating: (rating: any) => ipcRenderer.invoke('save-rating', rating),
     getRatingsByDate: (dateStr: string) => ipcRenderer.invoke('get-ratings-by-date', dateStr),
+    getActivityDataByDate: (dateStr: string) => ipcRenderer.invoke('get-activity-data-by-date', dateStr),
 });

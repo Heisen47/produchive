@@ -471,6 +471,41 @@ function registerIpcHandlers() {
     return dayRatings;
   });
 
+  // Get activity data for a specific date (includes goals and activities from that day)
+  ipcMain.handle('get-activity-data-by-date', async (event, dateStr: string) => {
+    try {
+      const activityFilePath = path.join(app.getPath('userData'), 'activity_logs', `activity-${dateStr}.json`);
+      logger.info(`[get-activity-data-by-date] Looking for file: ${activityFilePath}`);
+
+      const fs = await import('node:fs/promises');
+
+      try {
+        await fs.access(activityFilePath);
+      } catch {
+        logger.info(`[get-activity-data-by-date] No activity file for ${dateStr}`);
+        return { goals: [], activities: [], exists: false };
+      }
+
+      const { Low } = await import('lowdb');
+      const { JSONFile } = await import('lowdb/node');
+
+      const adapter = new JSONFile(activityFilePath);
+      const dateDb = new Low(adapter, { activities: [], goals: [] });
+      await dateDb.read();
+      const data = dateDb.data as any;
+      logger.info(`[get-activity-data-by-date] Found ${data.goals?.length || 0} goals and ${data.activities?.length || 0} activities for ${dateStr}`);
+
+      return {
+        goals: data.goals || [],
+        activities: data.activities || [],
+        exists: true
+      };
+    } catch (e) {
+      logger.error(`[get-activity-data-by-date] Error:`, e);
+      return { goals: [], activities: [], exists: false };
+    }
+  });
+
   // Debug and system info handlers
   ipcMain.handle('get-system-info', async () => {
     let distro = 'unknown';

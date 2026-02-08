@@ -425,14 +425,19 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('get-ratings-by-date', async (event, dateStr: string) => {
-    // dateStr format: 'YYYY-MM-DD'
-    const dayStart = new Date(dateStr).setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dateStr).setHours(23, 59, 59, 999);
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+    const dayEnd = new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
 
-    const dayRatings = db.data.ratings.filter((r: any) =>
-      r.timestamp >= dayStart && r.timestamp <= dayEnd
-    );
+    logger.info(`Fetching ratings for ${dateStr}: ${dayStart} to ${dayEnd}`);
+    logger.info(`Total ratings in DB: ${db.data.ratings.length}`);
 
+    const dayRatings = db.data.ratings.filter((r: any) => {
+      const inRange = r.timestamp >= dayStart && r.timestamp <= dayEnd;
+      return inRange;
+    });
+
+    logger.info(`Found ${dayRatings.length} ratings for ${dateStr}`);
     return dayRatings;
   });
 

@@ -24,6 +24,7 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
     const [isOpen, setIsOpen] = useState(false);
     const [selectedDate, setSelectedDate] = useState<string>('');
     const [loading, setLoading] = useState(false);
+    const [isAggregating, setIsAggregating] = useState(false);
     const [reports, setReports] = useState<ProductivityAnalysis[]>([]);
     const [aggregatedReport, setAggregatedReport] = useState<ProductivityAnalysis | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -38,28 +39,33 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
         setError(null);
         setAggregatedReport(null);
         setReports([]);
+        setIsAggregating(false);
 
         try {
             const dayReports = await window.electronAPI.getRatingsByDate(dateStr);
 
             if (dayReports.length === 0) {
                 setError('No reports found for this date.');
+                setLoading(false);
                 return;
             }
 
             setReports(dayReports);
+            setLoading(false);
 
             // If multiple reports, aggregate them with LLM
             if (dayReports.length > 1 && engine) {
+                setIsAggregating(true);
                 await aggregateReports(dayReports);
+                setIsAggregating(false);
             } else if (dayReports.length === 1) {
                 setAggregatedReport(dayReports[0]);
             }
         } catch (err) {
             setError('Failed to load reports for this date.');
             console.error(err);
-        } finally {
             setLoading(false);
+            setIsAggregating(false);
         }
     };
 
@@ -180,7 +186,7 @@ Do not include any markdown formatting or text outside the JSON.`;
                         value={selectedDate}
                         onChange={(e) => setSelectedDate(e.target.value)}
                         max={today}
-                        className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-xl text-gray-100 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all"
+                        className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-xl text-gray-100 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all [color-scheme:dark]"
                     />
                 </div>
 
@@ -192,8 +198,17 @@ Do not include any markdown formatting or text outside the JSON.`;
                     </div>
                 )}
 
+                {/* Aggregating State - LLM processing multiple reports */}
+                {isAggregating && !loading && (
+                    <div className="flex flex-col items-center justify-center py-12 text-gray-400 bg-gradient-to-b from-purple-900/20 to-indigo-900/20 rounded-xl border border-purple-700/30">
+                        <Loader2 size={32} className="animate-spin mb-4 text-purple-400" />
+                        <p className="text-lg font-medium text-gray-200">Generating Daily Summary...</p>
+                        <p className="text-sm text-gray-400 mt-2">Aggregating {reports.length} reports with AI</p>
+                    </div>
+                )}
+
                 {/* Error / No Data State */}
-                {error && !loading && (
+                {error && !loading && !isAggregating && (
                     <div className="flex flex-col items-center justify-center py-12 text-gray-400 bg-gray-900/50 rounded-xl border border-gray-800">
                         <AlertCircle size={48} className="mb-4 text-gray-600" />
                         <p className="text-lg font-medium text-gray-300">{error}</p>

@@ -90,8 +90,7 @@ Do not include any markdown formatting or text outside the JSON.`;
             });
 
             const responseText = completion.choices[0]?.message?.content || "";
-            // Sanitize response to ensure valid JSON (sometimes LLMs add markdown code blocks)
-            const jsonString = responseText.replace(/```json\n?|\n?```/g, '').trim();
+             const jsonString = responseText.replace(/```json\n?|\n?```/g, '').trim();
 
             const result = JSON.parse(jsonString);
 

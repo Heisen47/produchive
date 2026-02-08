@@ -19,6 +19,7 @@ import {
     Brain
 } from 'lucide-react';
 import { Footer } from './components/Footer';
+import { DownloadProgress } from './components/DownloadProgress';
 
 const viewIcons: Record<string, React.ElementType> = {
     dashboard: LayoutDashboard,
@@ -58,7 +59,7 @@ const App = () => {
 
     const [engine, setEngine] = useState<any>(null);
     const [loading, setLoading] = useState(false);
-    const [progress, setProgress] = useState<string>('');
+    const [progress, setProgress] = useState<{ text: string; progress?: number }>({ text: '' });
     const loadingRef = useRef(false);
 
     const startEngine = async () => {
@@ -68,7 +69,10 @@ const App = () => {
         try {
             const eng = await initEngine((progress: any) => {
                 if (!loadingRef.current) return;
-                setProgress(progress.text);
+                setProgress({
+                    text: progress.text || '',
+                    progress: progress.progress
+                });
             });
             if (loadingRef.current) {
                 setEngine(eng);
@@ -85,7 +89,7 @@ const App = () => {
     const cancelEngine = () => {
         loadingRef.current = false;
         setLoading(false);
-        setProgress('');
+        setProgress({ text: '' });
     };
 
     if (!isDataLoaded) {
@@ -151,10 +155,7 @@ const App = () => {
                     <div className="max-w-6xl mx-auto space-y-8">
                         {/* Loading State */}
                         {loading && (
-                            <div className="bg-blue-900/20 border border-blue-800/50 rounded-lg p-4 flex items-center gap-3">
-                                <Loader2 size={18} className="animate-spin text-blue-400" />
-                                <span className="text-sm text-blue-200">{progress || 'Initializing AI...'}</span>
-                            </div>
+                            <DownloadProgress progress={progress} />
                         )}
 
                         {/* Views */}

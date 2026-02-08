@@ -80,18 +80,11 @@ ${goalsText}
 Activities Log (App - Title (Duration)):
 ${activitySummary}
 
-Analyze harshly the user's productivity for the day based on their goal.
+Analyze the user's productivity for the day based on their stated goals.
 
-CRITICAL INSTRUCTION:
-First, evaluate the "User Goals". If the goals are gibberish, random characters, or clearly just testing inputs (e.g. "asdf", "hello", "123", "blah"), you MUST:
-1. Set "rating" to "NA".
-2. Set "verdict" to "NA".
-3. Set "explanation" to "The provided goals appear to be invalid or nonsense. Please set clear, actionable goals for a proper analysis."
-4. Ignore the activity log.
+IMPORTANT: Goals like "Coding", "Study", "Work", "Exercise", "Reading", "Learning" are VALID goals - they are common productivity objectives. Only reject goals if they are literal gibberish like "asdfgh", "aaaaa", or random keyboard mashes.
 
-Otherwise, proceed with the analysis of the activity log against the goals.
-
-Provide the output in STRICT JSON format with the following structure:
+Provide the output in STRICT JSON format:
 {
   "rating": <number 1-10> (use string "NA" if invalid),
   "verdict": "<productive|neutral|unproductive|NA>",

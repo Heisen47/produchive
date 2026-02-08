@@ -52,6 +52,7 @@ declare global {
             getDbContents: () => Promise<{ tasks: Task[]; activities: Activity[]; goal: string | null }>;
             saveGoals: (goals: string[]) => Promise<string[]>;
             saveRating: (rating: any) => Promise<any>;
+            getRatingsByDate: (dateStr: string) => Promise<any[]>;
         }
     }
 }

@@ -424,6 +424,18 @@ function registerIpcHandlers() {
     return newRating;
   });
 
+  ipcMain.handle('get-ratings-by-date', async (event, dateStr: string) => {
+    // dateStr format: 'YYYY-MM-DD'
+    const dayStart = new Date(dateStr).setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dateStr).setHours(23, 59, 59, 999);
+
+    const dayRatings = db.data.ratings.filter((r: any) =>
+      r.timestamp >= dayStart && r.timestamp <= dayEnd
+    );
+
+    return dayRatings;
+  });
+
   // Debug and system info handlers
   ipcMain.handle('get-system-info', async () => {
     let distro = 'unknown';

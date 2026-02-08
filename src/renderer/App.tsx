@@ -58,6 +58,7 @@ const App = () => {
     }, [addActivity, setError]);
 
     const [engine, setEngine] = useState<any>(null);
+    const [modelName, setModelName] = useState<string>('');
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<{ text: string; progress?: number }>({ text: '' });
     const loadingRef = useRef(false);
@@ -67,7 +68,7 @@ const App = () => {
         setLoading(true);
 
         try {
-            const eng = await initEngine((progress: any) => {
+            const result = await initEngine((progress: any) => {
                 if (!loadingRef.current) return;
                 setProgress({
                     text: progress.text || '',
@@ -75,7 +76,8 @@ const App = () => {
                 });
             });
             if (loadingRef.current) {
-                setEngine(eng);
+                setEngine(result.engine);
+                setModelName(result.modelName);
                 setLoading(false);
             }
         } catch (err: any) {
@@ -138,7 +140,12 @@ const App = () => {
                                 <XCircle size={16} />
                                 Stop
                             </button>
-                        ) : !engine && (
+                        ) : engine ? (
+                            <div className="flex items-center gap-2 text-sm text-green-400 bg-green-900/20 border border-green-800/50 px-3 py-1.5 rounded-lg">
+                                <Sparkles size={14} />
+                                <span className="font-medium">{modelName.split('-')[0]}</span>
+                            </div>
+                        ) : (
                             <button
                                 onClick={startEngine}
                                 className="text-sm bg-gray-800 hover:bg-gray-700 text-gray-200 px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 disabled:opacity-50"

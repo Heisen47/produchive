@@ -33,7 +33,26 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
     };
 
     const analyzeProductivity = async () => {
-        if (!engine || goals.length === 0 || activities.length === 0) return;
+        if (!engine || goals.length === 0 || activities.length === 0) {
+            console.log('[ProductivityJudge] Cannot generate report:', {
+                hasEngine: !!engine,
+                goalsCount: goals.length,
+                activitiesCount: activities.length
+            });
+            return;
+        }
+
+        console.log('========================================');
+        console.log('[ProductivityJudge] GENERATING AI REPORT');
+        console.log('========================================');
+        console.log('[ProductivityJudge] Data source: In-memory store (Zustand)');
+        console.log('[ProductivityJudge] Goals:', goals);
+        console.log('[ProductivityJudge] Activities count:', activities.length);
+        console.log('[ProductivityJudge] Activities:', activities.map(a => ({
+            app: a.owner.name,
+            title: a.title,
+            duration: a.duration
+        })));
 
         setAnalyzing(true);
         try {
@@ -50,6 +69,11 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
                 .join('\n');
 
             const goalsText = goals.map((g, i) => `Goal ${i + 1}: "${g}"`).join('\n');
+
+            console.log('[ProductivityJudge] Sending to LLM:');
+            console.log('  Goals:', goalsText);
+            console.log('  Activity Summary:', activitySummary);
+
             const prompt = `User Goals:
 ${goalsText}
 
@@ -90,7 +114,7 @@ Do not include any markdown formatting or text outside the JSON.`;
             });
 
             const responseText = completion.choices[0]?.message?.content || "";
-             const jsonString = responseText.replace(/```json\n?|\n?```/g, '').trim();
+            const jsonString = responseText.replace(/```json\n?|\n?```/g, '').trim();
 
             const result = JSON.parse(jsonString);
 

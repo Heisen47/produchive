@@ -47,9 +47,11 @@ async function getActivityDb() {
   const activityFilePath = path.join(logsDir, `activity-${today}.json`);
 
   const adapter = new JSONFile(activityFilePath);
-  activityDb = new Low(adapter, { activities: [] });
+  activityDb = new Low(adapter, { activities: [], goals: [] });
   await activityDb.read();
-  activityDb.data ||= { activities: [] };
+  activityDb.data ||= { activities: [], goals: [] };
+  // Ensure goals array exists for migration
+  if (!activityDb.data.goals) activityDb.data.goals = [];
   await activityDb.write();
 
   currentActivityDate = today;
@@ -377,10 +379,26 @@ function registerIpcHandlers() {
   // Task management handlers
   ipcMain.handle('get-tasks', async () => {
     try {
+      const today = new Date().toISOString().split('T')[0];
+      const activityFilePath = path.join(app.getPath('userData'), 'activity_logs', `activity-${today}.json`);
+
+      logger.info('========================================');
+      logger.info('[get-tasks] Loading data for frontend');
+      logger.info(`[get-tasks] Activity file: ${activityFilePath}`);
+      logger.info(`[get-tasks] Main DB file: ${dbFilePath}`);
+
       const currentActivityDb = await getActivityDb();
+
+      const todaysGoals = currentActivityDb?.data?.goals || [];
+
+      logger.info(`[get-tasks] Goals loaded (today): ${todaysGoals.length}`);
+      logger.info(`[get-tasks] Activities loaded: ${currentActivityDb?.data?.activities?.length || 0}`);
+      logger.info(`[get-tasks] Ratings loaded: ${db.data.ratings?.length || 0}`);
+      logger.info('========================================');
+
       return {
         tasks: db.data.tasks,
-        goals: db.data.goals || [],
+        goals: todaysGoals,
         activities: currentActivityDb?.data?.activities || [],
         ratings: db.data.ratings || []
       };
@@ -414,10 +432,14 @@ function registerIpcHandlers() {
 
   ipcMain.handle('save-goals', async (event, goals) => {
     if (Array.isArray(goals)) {
-      db.data.goals = goals;
-      await db.write();
+      // Save goals to the daily activity DB so they reset each day
+      const currentActivityDb = await getActivityDb();
+      currentActivityDb.data.goals = goals;
+      await currentActivityDb.write();
+      logger.info(`[save-goals] Saved ${goals.length} goals for today`);
+      return goals;
     }
-    return db.data.goals;
+    return [];
   });
 
   ipcMain.handle('save-rating', async (event, rating) => {

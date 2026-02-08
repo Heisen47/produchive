@@ -28,6 +28,8 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
     const [reports, setReports] = useState<ProductivityAnalysis[]>([]);
     const [aggregatedReport, setAggregatedReport] = useState<ProductivityAnalysis | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [dateGoals, setDateGoals] = useState<string[]>([]);
+    const [dateActivities, setDateActivities] = useState<any[]>([]);
 
     // Get today's date in YYYY-MM-DD format for max date
     const today = new Date().toISOString().split('T')[0];
@@ -40,9 +42,24 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
         setAggregatedReport(null);
         setReports([]);
         setIsAggregating(false);
+        setDateGoals([]);
+        setDateActivities([]);
 
         try {
-            const dayReports = await window.electronAPI.getRatingsByDate(dateStr);
+            // Fetch both ratings and activity data for the selected date
+            const [dayReports, activityData] = await Promise.all([
+                window.electronAPI.getRatingsByDate(dateStr),
+                (window.electronAPI as any).getActivityDataByDate(dateStr)
+            ]);
+
+            // Store the date-specific goals and activities
+            setDateGoals(activityData.goals || []);
+            setDateActivities(activityData.activities || []);
+
+            console.log(`[HistoricalReports] Date: ${dateStr}`);
+            console.log(`[HistoricalReports] Goals for that day:`, activityData.goals);
+            console.log(`[HistoricalReports] Activities for that day:`, activityData.activities?.length || 0);
+            console.log(`[HistoricalReports] Reports for that day:`, dayReports.length);
 
             if (dayReports.length === 0) {
                 setError('No reports found for this date.');
@@ -56,7 +73,7 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
             // If multiple reports, aggregate them with LLM
             if (dayReports.length > 1 && engine) {
                 setIsAggregating(true);
-                await aggregateReports(dayReports);
+                await aggregateReports(dayReports, activityData.goals || [], activityData.activities || []);
                 setIsAggregating(false);
             } else if (dayReports.length === 1) {
                 setAggregatedReport(dayReports[0]);
@@ -69,7 +86,7 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
         }
     };
 
-    const aggregateReports = async (reports: ProductivityAnalysis[]) => {
+    const aggregateReports = async (reports: ProductivityAnalysis[], goals: string[] = [], activities: any[] = []) => {
         if (!engine) {
             // Fallback: just average the ratings and use the last report's data
             const avgRating = Math.round(
@@ -84,33 +101,50 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
         }
 
         try {
-            const aggregationPrompt = `You are summarizing multiple productivity reports from the same day into a single cohesive summary.
+            // Format activity summary
+            const activitySummary = activities.length > 0
+                ? activities.map(a => `- ${a.owner?.name || 'Unknown'}: ${a.title} (${Math.round((a.duration || 0) / 60000)}m)`).join('\n')
+                : 'No activity data available';
 
-Reports:
+            const goalsText = goals.length > 0
+                ? goals.map((g, i) => `${i + 1}. ${g}`).join('\n')
+                : 'No goals set for this day';
+
+            const aggregationPrompt = `Analyze this day's productivity based on the goals that were SET ON THAT DAY and the activities tracked.
+
+GOALS FOR THIS DAY:
+${goalsText}
+
+ACTIVITIES TRACKED:
+${activitySummary}
+
+PREVIOUS REPORTS FROM THIS DAY:
 ${reports.map((r, i) => `
 Report ${i + 1}:
 - Rating: ${r.rating}/10
 - Verdict: ${r.verdict}
 - Explanation: ${r.explanation}
-- Tips: ${r.tips?.join(', ') || 'None'}
 `).join('\n')}
 
-Create a single aggregated daily summary in JSON format:
+Create a comprehensive daily summary. Rate the productivity based on how well the activities align with THE GOALS THAT WERE SET ON THIS SPECIFIC DAY.
+
+Provide JSON output:
 {
-  "rating": <average rating rounded to integer>,
-  "verdict": "<productive|neutral|unproductive based on overall day>",
-  "explanation": "<2-3 sentence summary of the entire day's productivity>",
-  "tips": ["<tip1>", "<tip2>", "<tip3>"],
+  "rating": <number 1-10 based on goal achievement>,
+  "verdict": "<productive|neutral|unproductive>",
+  "explanation": "<2-3 sentence summary focusing on goal achievement and main accomplishments>",
+  "weaknesses": ["<weakness 1 that can be improved>", "<weakness 2>"],
+  "tips": ["<actionable tip 1>", "<actionable tip 2>", "<actionable tip 3>"],
   "categorization": {
-    "productive": [<combined list of productive apps>],
-    "neutral": [<combined list of neutral apps>],
-    "distracting": [<combined list of distracting apps>]
+    "productive": [<apps that helped with goals>],
+    "neutral": [<apps that were neither helpful nor distracting>],
+    "distracting": [<apps that took away from goal focus>]
   }
 }
 Do not include any markdown formatting or text outside the JSON.`;
 
             const response = await generateCompletion(engine, [
-                { role: 'system', content: 'You aggregate multiple productivity reports into one daily summary.' },
+                { role: 'system', content: 'You are a productivity analyst. Analyze activities against the goals that were set on that specific day.' },
                 { role: 'user', content: aggregationPrompt }
             ], 0.3);
 
@@ -121,7 +155,7 @@ Do not include any markdown formatting or text outside the JSON.`;
                 rating: result.rating || 5,
                 verdict: result.verdict || 'neutral',
                 explanation: result.explanation || 'Aggregated report.',
-                tips: result.tips || [],
+                tips: [...(result.weaknesses || []), ...(result.tips || [])],
                 categorization: result.categorization || { productive: [], neutral: [], distracting: [] }
             });
         } catch (err) {

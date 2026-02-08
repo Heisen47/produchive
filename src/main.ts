@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, systemPreferences } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, systemPreferences, Tray, Menu, nativeImage } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { createLogger, getLogPath } from './lib/logger';
@@ -47,9 +47,11 @@ async function getActivityDb() {
   const activityFilePath = path.join(logsDir, `activity-${today}.json`);
 
   const adapter = new JSONFile(activityFilePath);
-  activityDb = new Low(adapter, { activities: [] });
+  activityDb = new Low(adapter, { activities: [], goals: [] });
   await activityDb.read();
-  activityDb.data ||= { activities: [] };
+  activityDb.data ||= { activities: [], goals: [] };
+  // Ensure goals array exists for migration
+  if (!activityDb.data.goals) activityDb.data.goals = [];
   await activityDb.write();
 
   currentActivityDate = today;
@@ -107,6 +109,8 @@ async function initDB() {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
 
 const createWindow = () => {
   // Create the browser window.
@@ -156,6 +160,15 @@ const createWindow = () => {
       : path.join(__dirname, '../../resources/icon.png')
     );
   }
+
+  // Minimize to tray instead of closing
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow?.hide();
+      return false;
+    }
+  });
 };
 
 let monitoringInterval: NodeJS.Timeout | null = null;
@@ -187,9 +200,7 @@ const checkMacPermissions = () => {
   }
 
   const screenAccess = systemPreferences.getMediaAccessStatus('screen');
-  // Only show dialog if explicitly denied, not if already granted
   if (screenAccess === 'denied' || screenAccess === 'not-determined') {
-    // Log but don't block - screen recording is optional for basic functionality
     logger.info(`Screen Recording permission status: ${screenAccess}`);
   }
 
@@ -213,7 +224,6 @@ const startMonitoring = async (): Promise<boolean> => {
 
   logger.info('Starting activity monitoring...');
   try {
-    // In packaged app, active-win is in Resources folder (via extraResource)
     let activeWin;
     if (app.isPackaged) {
       const activeWinPath = path.join(process.resourcesPath, 'active-win');
@@ -369,10 +379,26 @@ function registerIpcHandlers() {
   // Task management handlers
   ipcMain.handle('get-tasks', async () => {
     try {
+      const today = new Date().toISOString().split('T')[0];
+      const activityFilePath = path.join(app.getPath('userData'), 'activity_logs', `activity-${today}.json`);
+
+      logger.info('========================================');
+      logger.info('[get-tasks] Loading data for frontend');
+      logger.info(`[get-tasks] Activity file: ${activityFilePath}`);
+      logger.info(`[get-tasks] Main DB file: ${dbFilePath}`);
+
       const currentActivityDb = await getActivityDb();
+
+      const todaysGoals = currentActivityDb?.data?.goals || [];
+
+      logger.info(`[get-tasks] Goals loaded (today): ${todaysGoals.length}`);
+      logger.info(`[get-tasks] Activities loaded: ${currentActivityDb?.data?.activities?.length || 0}`);
+      logger.info(`[get-tasks] Ratings loaded: ${db.data.ratings?.length || 0}`);
+      logger.info('========================================');
+
       return {
         tasks: db.data.tasks,
-        goals: db.data.goals || [],
+        goals: todaysGoals,
         activities: currentActivityDb?.data?.activities || [],
         ratings: db.data.ratings || []
       };
@@ -406,10 +432,14 @@ function registerIpcHandlers() {
 
   ipcMain.handle('save-goals', async (event, goals) => {
     if (Array.isArray(goals)) {
-      db.data.goals = goals;
-      await db.write();
+      // Save goals to the daily activity DB so they reset each day
+      const currentActivityDb = await getActivityDb();
+      currentActivityDb.data.goals = goals;
+      await currentActivityDb.write();
+      logger.info(`[save-goals] Saved ${goals.length} goals for today`);
+      return goals;
     }
-    return db.data.goals;
+    return [];
   });
 
   ipcMain.handle('save-rating', async (event, rating) => {
@@ -454,7 +484,6 @@ function registerIpcHandlers() {
         if (idLine) {
           distro = idLine.split('=')[1].replace(/"/g, '').toLowerCase();
         }
-        // Fallback or addition checks could be here, but ID usually suffices for Arch (ID=arch)
         if (distro === 'unknown' && idLikeLine) {
           distro = idLikeLine.split('=')[1].replace(/"/g, '').toLowerCase();
         }
@@ -514,7 +543,6 @@ function registerIpcHandlers() {
 app.on('ready', async () => {
   logger.info('=== Produchive Starting ===');
   try {
-    // 1. Register IPC handlers IMMEDIATELY (they will safely wait or error if db is missing, but "No handler" error will be gone)
     registerIpcHandlers();
 
     // 2. Initialize DB
@@ -524,23 +552,75 @@ app.on('ready', async () => {
     isAppReady = true;
     createWindow();
 
+    // 4. Create system tray
+    const iconPath = (() => {
+      if (process.platform === 'win32') {
+        return app.isPackaged
+          ? path.join(process.resourcesPath, 'icon.ico')
+          : path.join(__dirname, '../../resources/icon.ico');
+      } else {
+        return app.isPackaged
+          ? path.join(process.resourcesPath, 'icon.png')
+          : path.join(__dirname, '../../resources/icon.png');
+      }
+    })();
+
+    tray = new Tray(iconPath);
+    tray.setToolTip('Produchive - Productivity Tracker');
+
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: 'Show Produchive',
+        click: () => {
+          mainWindow?.show();
+          mainWindow?.focus();
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Start Monitoring',
+        click: async () => {
+          await startMonitoring();
+        }
+      },
+      {
+        label: 'Stop Monitoring',
+        click: () => {
+          stopMonitoring();
+        }
+      },
+      { type: 'separator' },
+      {
+        label: 'Quit',
+        click: () => {
+          isQuitting = true;
+          app.quit();
+        }
+      }
+    ]);
+
+    tray.setContextMenu(contextMenu);
+
+    // Double-click to show window
+    tray.on('double-click', () => {
+      mainWindow?.show();
+      mainWindow?.focus();
+    });
+
   } catch (error) {
     logger.error('Error during app initialization:', error);
     dialog.showErrorBox('Startup Error', 'Critical error during starting up: ' + String(error));
   }
 });
 
-// Quit when all windows are closed, except on macOS.
+// Keep app running in tray when all windows are closed
 app.on('window-all-closed', () => {
-  logger.info('All windows closed');
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  logger.info('All windows closed - running in tray');
+
 });
 
 app.on('activate', () => {
   logger.info('App activated');
-  // Only create window if the app is fully ready and initialized
   if (isAppReady && BrowserWindow.getAllWindows().length === 0) {
     logger.info('No windows open, creating new window');
     createWindow();
@@ -550,7 +630,6 @@ app.on('activate', () => {
 });
 
 app.on('will-quit', () => {
-  // No logger call here as per instruction
 });
 
 // Handle uncaught exceptions

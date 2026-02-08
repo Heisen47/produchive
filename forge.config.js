@@ -28,13 +28,11 @@ const config = {
         postPackage: async (forgeConfig, options) => {
             const outputDir = options.outputPaths[0];
 
-            // Copy active-win dependencies recursively, preserving nested node_modules structure
             if (process.platform === 'win32') {
                 const resourcesDir = path.join(outputDir, 'resources');
                 const activeWinDest = path.join(resourcesDir, 'active-win');
                 const rootNodeModules = path.join(process.cwd(), 'node_modules');
 
-                // Function to recursively get all dependencies from a package.json
                 const getDependencies = (pkgPath) => {
                     const pkgJsonPath = path.join(pkgPath, 'package.json');
                     if (!fs.existsSync(pkgJsonPath)) return [];
@@ -56,10 +54,8 @@ const config = {
 
                     const deps = getDependencies(pkgPath);
                     for (const dep of deps) {
-                        // Check if dependency is nested in the package's own node_modules
                         const nestedPath = path.join(pkgPath, 'node_modules', dep);
-                        // Or hoisted to root node_modules
-                        const hoistedPath = path.join(rootNodeModules, dep);
+                         const hoistedPath = path.join(rootNodeModules, dep);
 
                         if (fs.existsSync(nestedPath)) {
                             // Keep nested structure

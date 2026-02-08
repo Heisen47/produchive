@@ -12,7 +12,8 @@ if (started) {
   app.quit();
 }
 
-// Main DB for Tasks and Goals
+app.commandLine.appendSwitch('disable-gpu-watchdog');
+app.commandLine.appendSwitch('force_high_performance_gpu');
 let db: any = { data: { tasks: [], goals: [], ratings: [] } };
 let dbFilePath: string;
 
@@ -114,6 +115,10 @@ const createWindow = () => {
     height: 900,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      partition: 'persist:main',
     },
     icon: (() => {
       if (process.platform === 'darwin') {
@@ -417,6 +422,23 @@ function registerIpcHandlers() {
     db.data.ratings.push(newRating);
     await db.write();
     return newRating;
+  });
+
+  ipcMain.handle('get-ratings-by-date', async (event, dateStr: string) => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
+    const dayEnd = new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
+
+    logger.info(`Fetching ratings for ${dateStr}: ${dayStart} to ${dayEnd}`);
+    logger.info(`Total ratings in DB: ${db.data.ratings.length}`);
+
+    const dayRatings = db.data.ratings.filter((r: any) => {
+      const inRange = r.timestamp >= dayStart && r.timestamp <= dayEnd;
+      return inRange;
+    });
+
+    logger.info(`Found ${dayRatings.length} ratings for ${dateStr}`);
+    return dayRatings;
   });
 
   // Debug and system info handlers

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle } from 'lucide-react';
 import { useStore } from '../lib/store';
+import { HistoricalReports } from './HistoricalReports';
 
 interface ProductivityAnalysis {
     rating: number | string; // 1-10 or "NA"
@@ -15,31 +16,17 @@ interface ProductivityAnalysis {
 }
 
 export const ProductivityJudge = ({ engine }: { engine: any }) => {
-    const { goals, activities, addRating, ratings } = useStore();
+    const { goals, activities, addRating } = useStore();
     const goal = goals.length > 0 ? goals[0] : null;
     const [analyzing, setAnalyzing] = useState(false);
     const [analysis, setAnalysis] = useState<ProductivityAnalysis | null>(null);
 
-    // Load latest analysis on mount if available
-    React.useEffect(() => {
-        if (ratings && ratings.length > 0 && !analysis) {
-            // Get the most recent rating (assuming they are pushed in order)
-            const latest = ratings[ratings.length - 1];
-            setAnalysis({
-                rating: latest.rating,
-                verdict: latest.verdict,
-                explanation: latest.explanation,
-                tips: latest.tips,
-                categorization: latest.categorization
-            });
-        }
-    }, [ratings]);
 
     const formatDuration = (ms: number) => {
         const seconds = Math.floor(ms / 1000);
         const minutes = Math.floor(seconds / 60);
         const hours = Math.floor(minutes / 60);
-        
+
         if (hours > 0) return `${hours}h ${minutes % 60}m`;
         if (minutes > 0) return `${minutes}m`;
         return `${seconds}s`;
@@ -103,9 +90,8 @@ Do not include any markdown formatting or text outside the JSON.`;
             });
 
             const responseText = completion.choices[0]?.message?.content || "";
-            // Sanitize response to ensure valid JSON (sometimes LLMs add markdown code blocks)
-            const jsonString = responseText.replace(/```json\n?|\n?```/g, '').trim();
-            
+             const jsonString = responseText.replace(/```json\n?|\n?```/g, '').trim();
+
             const result = JSON.parse(jsonString);
 
             const analysisResult = {
@@ -168,7 +154,7 @@ Do not include any markdown formatting or text outside the JSON.`;
                     {/* Header: Score & Verdict */}
                     <div className="flex items-center justify-between mb-6 border-b border-white/10 pb-6">
                         <div className="flex items-center gap-4">
-                             <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold bg-black/40 text-white border border-white/10`}>
+                            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold bg-black/40 text-white border border-white/10`}>
                                 {typeof analysis.rating === 'number' ? `${analysis.rating}/10` : analysis.rating}
                             </div>
                             <div>
@@ -203,7 +189,7 @@ Do not include any markdown formatting or text outside the JSON.`;
                             <h5 className="text-red-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
                                 <XCircle size={14} /> Distracting
                             </h5>
-                             <ul className="space-y-1">
+                            <ul className="space-y-1">
                                 {analysis.categorization.distracting.length > 0 ? (
                                     analysis.categorization.distracting.map((app, i) => (
                                         <li key={i} className="text-sm text-gray-300 truncate">• {app}</li>
@@ -215,7 +201,7 @@ Do not include any markdown formatting or text outside the JSON.`;
                             <h5 className="text-yellow-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
                                 <Minus size={14} /> Neutral
                             </h5>
-                             <ul className="space-y-1">
+                            <ul className="space-y-1">
                                 {analysis.categorization.neutral.length > 0 ? (
                                     analysis.categorization.neutral.map((app, i) => (
                                         <li key={i} className="text-sm text-gray-300 truncate">• {app}</li>
@@ -242,6 +228,9 @@ Do not include any markdown formatting or text outside the JSON.`;
                     </div>
                 </div>
             )}
+
+            {/* Historical Reports Section */}
+            <HistoricalReports engine={engine} />
         </div>
     );
 };

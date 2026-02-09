@@ -4,7 +4,7 @@ import { Github, Bug, FileQuestionIcon } from 'lucide-react';
 export const Footer: React.FC = () => {
     const repoUrl = 'https://github.com/Heisen47/produchive';
     const issuesUrl = `${repoUrl}/issues`;
-    const howToUseItUrl = `${repoUrl}/blob/main/docs/HOW_TO_USE_IT.md`;
+    const howToUseItUrl = `${repoUrl}/blob/master/docs/HOW_TO_USE_IT.md`;
 
     return (
         <footer className="border-t border-gray-800 bg-gray-1000/80 backdrop-blur-sm py-4 px-4 sm:px-8 mt-auto">

@@ -4,7 +4,11 @@ Produchive is a self-hosted, offline-first productivity application that helps y
 
 ## Download 
 
- For [windows](https://github.com/Heisen47/produchive/releases/download/v0.0.2/produchive-0.0.2.Setup.exe)
+ For [windows](https://github.com/Heisen47/produchive/releases/download/v0.0.2/produchive-0.0.2.Setup.exe) 
+
+ || 
+
+ 
  For [mac](https://github.com/Heisen47/produchive/releases/download/v0.0.2/produchive-darwin-arm64-0.0.2.zip)
 
 ## Key Features

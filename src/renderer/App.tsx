@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Footer } from './components/Footer';
 import { DownloadProgress } from './components/DownloadProgress';
+import { UpdateBanner } from './components/UpdateBanner';
 
 const viewIcons: Record<string, React.ElementType> = {
     dashboard: LayoutDashboard,
@@ -121,6 +122,7 @@ const App = () => {
 
             {/* Main Content */}
             <main className="flex-1 flex flex-col min-w-0 bg-gray-950 relative">
+                <UpdateBanner />
                 {/* Header */}
                 <header className="h-16 border-b border-gray-800 flex items-center justify-between px-8 bg-gray-950/50 backdrop-blur-sm sticky top-0 z-10">
                     <div className="flex items-center gap-3">

@@ -115,6 +115,28 @@ A: Check your internet connection. The model is several hundred MB. Once downloa
 
 ---
 
+## Launch at Startup
+
+Want Produchive to start automatically when you turn on your computer?
+
+1. Look at the **footer** of the app.
+2. You'll see a **"Launch at startup"** toggle switch.
+3. Turn it **on** — the app will now auto-launch when your PC or Mac starts up.
+4. Turn it **off** anytime to disable auto-launch.
+
+---
+
+## Update Notifications
+
+When a new version of Produchive is released on GitHub:
+
+1. A **blue banner** will appear at the top of the app.
+2. It shows the new version number and a **"Download"** button.
+3. Click **Download** to go to the GitHub Releases page and get the latest version.
+4. You can dismiss the banner by clicking the **X** button.
+
+---
+
 ## Tips for Best Results
 
 1. **Be specific with your goals.** Instead of "Work", try "Complete chapters 3-5 of online course".

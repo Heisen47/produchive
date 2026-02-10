@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, systemPreferences, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, systemPreferences, Tray, Menu, nativeImage, net } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { createLogger, getLogPath } from './lib/logger';
@@ -570,6 +570,51 @@ function registerIpcHandlers() {
 
   ipcMain.handle('stop-monitoring', () => {
     stopMonitoring();
+  });
+
+  // Auto-launch (startup) handlers
+  ipcMain.handle('get-auto-launch', () => {
+    return app.getLoginItemSettings().openAtLogin;
+  });
+
+  ipcMain.handle('set-auto-launch', (_event, enabled: boolean) => {
+    app.setLoginItemSettings({ openAtLogin: enabled });
+    logger.info(`Auto-launch set to: ${enabled}`);
+    return enabled;
+  });
+
+  // Update checker — compares package.json version against latest GitHub release
+  ipcMain.handle('check-for-updates', async () => {
+    const currentVersion = app.getVersion();
+    try {
+      const response = await net.fetch('https://api.github.com/repos/Heisen47/produchive/releases/latest', {
+        headers: { 'User-Agent': 'produchive-app' }
+      });
+
+      if (!response.ok) {
+        logger.warn(`GitHub API returned ${response.status}`);
+        return { updateAvailable: false, currentVersion };
+      }
+
+      const data = await response.json() as any;
+      const latestVersion = (data.tag_name || '').replace(/^v/, '');
+      const releaseUrl = data.html_url || 'https://github.com/Heisen47/produchive/releases';
+
+      // Simple semver comparison: split by dots and compare numerically
+      const current = currentVersion.split('.').map(Number);
+      const latest = latestVersion.split('.').map(Number);
+      let updateAvailable = false;
+      for (let i = 0; i < 3; i++) {
+        if ((latest[i] || 0) > (current[i] || 0)) { updateAvailable = true; break; }
+        if ((latest[i] || 0) < (current[i] || 0)) break;
+      }
+
+      logger.info(`Update check: current=${currentVersion}, latest=${latestVersion}, updateAvailable=${updateAvailable}`);
+      return { updateAvailable, latestVersion, currentVersion, releaseUrl };
+    } catch (error) {
+      logger.error('Failed to check for updates:', error);
+      return { updateAvailable: false, currentVersion };
+    }
   });
 
   logger.info('All IPC handlers registered successfully');

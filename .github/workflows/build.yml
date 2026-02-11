@@ -45,12 +45,11 @@ jobs:
           # Check the out directory for the artifacts. 
           # Forge usually outputs to "out/make/..."
           files: |
-            out/**/*.deb
-            out/**/*.rpm
-            out/**/*.zip
-            out/**/*.exe
-            out/**/*.nupkg
-            out/**/*.dmg
+            out/make/**/*.deb
+            out/make/**/*.rpm
+            out/make/**/*.zip
+            out/make/**/*.nupkg
+            out/make/**/*.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

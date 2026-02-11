@@ -55,7 +55,7 @@ const config = {
                     const deps = getDependencies(pkgPath);
                     for (const dep of deps) {
                         const nestedPath = path.join(pkgPath, 'node_modules', dep);
-                         const hoistedPath = path.join(rootNodeModules, dep);
+                        const hoistedPath = path.join(rootNodeModules, dep);
 
                         if (fs.existsSync(nestedPath)) {
                             // Keep nested structure
@@ -118,7 +118,7 @@ const config = {
     },
     makers: [
         new MakerSquirrel({}),
-        new MakerZIP({}, ['darwin']),
+        new MakerZIP({}, ['darwin', 'win32']),
         new MakerRpm({
             options: {
                 icon: './resources/icon.png'

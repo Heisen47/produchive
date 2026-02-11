@@ -2,14 +2,6 @@
 
 Produchive is a self-hosted, offline-first productivity application that helps you stay focused. It monitors your activity and uses a local AI to judge your performance based on your goals.
 
-## Download 
-
- For [windows](https://github.com/Heisen47/produchive/releases/download/v0.0.2/produchive-0.0.2.Setup.exe) 
-
-
- 
- For [mac](https://github.com/Heisen47/produchive/releases/download/v0.0.2/produchive-darwin-arm64-0.0.2.zip)
-
 ## Key Features
 
 *   **Offline & Private**: All data is stored locally on your device. No cloud, no tracking.

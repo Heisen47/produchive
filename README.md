@@ -16,8 +16,8 @@ For the latest version, please visit our **[Releases Page](https://github.com/He
 
 | Platform | Recommended File |
 |----------|-----------------|
-| **Windows** | `produchive-[version] Setup.exe` |
-| **macOS** | `produchive-[version].dmg` |
+| **Windows** | `produchive-darwin-arm64-[version].zip` |
+| **macOS** | `produchive-win32-x64-[version].zip` |
 
 _Note: If you prefer a portable version without installation, look for the `.zip` file._
 

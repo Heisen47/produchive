@@ -10,6 +10,17 @@ Produchive is a self-hosted, offline-first productivity application that helps y
 *   **AI Performance Judge**: An optional AI feature that analyzes your activity against your set goals.
     *   *Note: Internet is only required once to download the AI model. You can skip this feature if you prefer.*
 
+## Download
+
+For the latest version, please visit our **[Releases Page](https://github.com/Heisen47/produchive/releases/latest)**.
+
+| Platform | Recommended File |
+|----------|-----------------|
+| **Windows** | `produchive-[version] Setup.exe` |
+| **macOS** | `produchive-[version].dmg` |
+
+_Note: If you prefer a portable version without installation, look for the `.zip` file._
+
 ## Installation for Mac Users
 
 If you download the app from the GitHub Releases page:

@@ -6,6 +6,7 @@ interface Store {
     goals: string[];
     activities: Activity[];
     ratings: any[];
+    stats: { streak: number };
     loadTasks: () => Promise<void>;
     addTask: (text: string) => Promise<void>;
     toggleTask: (id: string) => Promise<void>;
@@ -19,7 +20,7 @@ interface Store {
 
     // Monitoring
     isMonitoring: boolean;
-    systemEvents: any[]; 
+    systemEvents: any[];
     setMonitoring: (status: boolean) => void;
     addSystemEvent: (event: any) => void;
     clearSystemEvents: () => void;
@@ -34,15 +35,17 @@ export const useStore = create<Store>((set, get) => ({
     goals: [],
     activities: [],
     ratings: [],
+    stats: { streak: 0 },
     error: null,
     setError: (error) => set({ error }),
     loadTasks: async () => {
-        const { tasks, activities, goals, ratings } = await window.electronAPI.getTasks() as any;
+        const { tasks, activities, goals, ratings, stats } = await window.electronAPI.getTasks() as any;
         set({
             tasks: tasks || [],
             activities: activities || [],
             goals: goals || [],
-            ratings: ratings || []
+            ratings: ratings || [],
+            stats: stats || { streak: 0 }
         });
     },
     addTask: async (text: string) => {

@@ -119,10 +119,10 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any
 };
 
 export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
-    const { activities, isMonitoring, setMonitoring } = useStore();
+    const { activities, isMonitoring, setMonitoring, stats: userStats } = useStore();
     const { isDark } = useTheme();
 
-    const stats = useMemo(() => {
+    const usageStats = useMemo(() => {
         const appUsage: Record<string, number> = {};
         const appCounts: Record<string, number> = {};
         let totalDuration = 0;
@@ -177,55 +177,72 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
     return (
         <div className="space-y-8">
 
-            <div className="flex flex-col gap-1">
-                <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
-                    Welcome{' '}
-                    <span className="relative inline-block">
-                        {/* Straw hat — floats above "Captain", tips up on hover */}
-                        <span
-                            className="straw-hat-tip absolute pointer-events-auto"
-                            style={{ left: '45px', top: '-20px', display: 'inline-block' }}
-                            title="🎩"
-                        >
-                            <svg viewBox="0 0 64 32" width="52" height="26" style={{ display: 'block', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.35))' }}>
-                                {/* Brim */}
-                                <ellipse cx="32" cy="22" rx="30" ry="8" fill="#c8860a" />
-                                <ellipse cx="32" cy="20" rx="30" ry="8" fill="#e8a020" />
-                                {/* Crown */}
-                                <ellipse cx="32" cy="14" rx="16" ry="12" fill="#e8a020" />
-                                <ellipse cx="32" cy="10" rx="14" ry="10" fill="#f0b030" />
-                                {/* Red band */}
-                                <ellipse cx="32" cy="20" rx="16" ry="4" fill="#dc2626" />
-                                <ellipse cx="32" cy="19" rx="16" ry="3.5" fill="#ef4444" />
-                                {/* Highlight */}
-                                <ellipse cx="26" cy="10" rx="5" ry="3" fill="#fcd34d" opacity="0.4" />
-                            </svg>
+            <div className="flex items-end justify-between">
+                <div className="flex flex-col gap-1">
+                    <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                        Welcome{' '}
+                        <span className="relative inline-block">
+                            {/* Straw hat — floats above "Captain", tips up on hover */}
+                            <span
+                                className="straw-hat-tip absolute pointer-events-auto"
+                                style={{ left: '45px', top: '-20px', display: 'inline-block' }}
+                                title="🎩"
+                            >
+                                <svg viewBox="0 0 64 32" width="52" height="26" style={{ display: 'block', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.35))' }}>
+                                    {/* Brim */}
+                                    <ellipse cx="32" cy="22" rx="30" ry="8" fill="#c8860a" />
+                                    <ellipse cx="32" cy="20" rx="30" ry="8" fill="#e8a020" />
+                                    {/* Crown */}
+                                    <ellipse cx="32" cy="14" rx="16" ry="12" fill="#e8a020" />
+                                    <ellipse cx="32" cy="10" rx="14" ry="10" fill="#f0b030" />
+                                    {/* Red band */}
+                                    <ellipse cx="32" cy="20" rx="16" ry="4" fill="#dc2626" />
+                                    <ellipse cx="32" cy="19" rx="16" ry="3.5" fill="#ef4444" />
+                                    {/* Highlight */}
+                                    <ellipse cx="26" cy="10" rx="5" ry="3" fill="#fcd34d" opacity="0.4" />
+                                </svg>
+                            </span>
+                            <span className="text-accent">Captain</span>
                         </span>
-                        <span className="text-accent">Captain</span>
-                    </span>
-                </h1>
-                <span className="text-sm italic opacity-80" style={{ color: 'var(--text-secondary)' }}>Let's make today count together</span>
+                    </h1>
+                    <span className="text-sm italic opacity-80" style={{ color: 'var(--text-secondary)' }}>Let's make today count together</span>
+                </div>
+
+                {/* Streak Red Box */}
+                <div className="flex flex-col items-center justify-center px-4 py-2 rounded-xl border animate-fade-in"
+                    style={{
+                        background: 'rgba(239, 68, 68, 0.1)',
+                        borderColor: 'rgba(239, 68, 68, 0.2)',
+                        color: '#ef4444'
+                    }}
+                >
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-80">Streak</span>
+                    <div className="flex items-center gap-1">
+                        <span className="text-xl font-bold">{userStats?.streak || 1}</span>
+                        <span className="text-lg">🔥</span>
+                    </div>
+                </div>
             </div>
 
             {/* Metrics Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <MetricCard
                     title="Total Time Tracked"
-                    value={formatDuration(stats.totalDuration)}
+                    value={formatDuration(usageStats.totalDuration)}
                     subtext="Today's activity"
                     icon={Clock}
                     delay={0}
                 />
                 <MetricCard
                     title="Most Used App"
-                    value={stats.mostUsed ? stats.mostUsed.name : '-'}
-                    subtext={stats.mostUsed ? formatDuration(stats.mostUsed.duration) : 'No data'}
+                    value={usageStats.mostUsed?.name || 'None'}
+                    subtext={usageStats.mostUsed ? formatDuration(usageStats.mostUsed.duration) : 'No data'}
                     icon={Zap}
                     delay={80}
                 />
                 <MetricCard
                     title="Active Sessions"
-                    value={stats.activeCount}
+                    value={usageStats.activeCount.toString()}
                     subtext="Distinct activities logged"
                     icon={ActivityIcon}
                     delay={160}
@@ -283,8 +300,8 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
 
                 {/* Table Body */}
                 <div>
-                    {stats.topApps.length > 0 ? (
-                        stats.topApps.map((app, idx) => (
+                    {usageStats.topApps.length > 0 ? (
+                        usageStats.topApps.map((app, idx) => (
                             <div
                                 key={idx}
                                 className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 transition-all duration-200 group animate-fade-in-up"
@@ -323,7 +340,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                                                 className="absolute bottom-0 left-0 rounded-full transition-all duration-1000 ease-out animate-bar-shimmer"
                                                 style={{
                                                     height: '4px',
-                                                    width: `${Math.min(100, (app.duration / Math.max(stats.totalDuration, 1)) * 100)}%`,
+                                                    width: `${Math.min(100, (app.duration / Math.max(usageStats.totalDuration, 1)) * 100)}%`,
                                                     background: 'linear-gradient(90deg, var(--accent-dark), var(--accent), var(--accent-light), var(--accent), var(--accent-dark))',
                                                 }}
                                             />
@@ -331,7 +348,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                                             <div
                                                 className="absolute bottom-[2px] transition-all duration-1000 ease-out catbus-tip"
                                                 style={{
-                                                    left: `calc(${Math.min(100, (app.duration / Math.max(stats.totalDuration, 1)) * 100)}% - 10px)`,
+                                                    left: `calc(${Math.min(100, (app.duration / Math.max(usageStats.totalDuration, 1)) * 100)}% - 10px)`,
                                                 }}
                                             >
                                                 <svg viewBox="0 0 40 22" width="20" height="11" style={{ display: 'block', filter: 'drop-shadow(0 0 3px var(--accent))' }}>
@@ -369,7 +386,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                                         {formatDuration(app.duration)}
                                     </span>
                                     <span className="text-xs ml-1 sm:ml-2 transition-colors" style={{ color: 'var(--text-muted)' }}>
-                                        {((app.duration / Math.max(stats.totalDuration, 1)) * 100).toFixed(0)}%
+                                        {((app.duration / Math.max(usageStats.totalDuration, 1)) * 100).toFixed(0)}%
                                     </span>
                                 </div>
                             </div>

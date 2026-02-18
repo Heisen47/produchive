@@ -19,7 +19,7 @@ interface Store {
 
     // Monitoring
     isMonitoring: boolean;
-    systemEvents: any[]; // Using any to avoid circular dependency if SystemEvent not imported, but prefer SystemEvent
+    systemEvents: any[]; 
     setMonitoring: (status: boolean) => void;
     addSystemEvent: (event: any) => void;
     clearSystemEvents: () => void;

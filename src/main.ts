@@ -697,23 +697,21 @@ app.on('ready', async () => {
     createWindow();
 
     // 4. Create system tray
-    const iconPath = (() => {
-      if (process.platform === 'win32') {
-        return app.isPackaged
-          ? path.join(process.resourcesPath, 'icon.ico')
-          : path.join(__dirname, '../../resources/icon.ico');
-      } else {
-        return app.isPackaged
-          ? path.join(process.resourcesPath, 'icon.png')
-          : path.join(__dirname, '../../resources/icon.png');
-      }
-    })();
+    let trayIcon: Electron.NativeImage;
 
-    let trayIcon = nativeImage.createFromPath(iconPath);
     if (process.platform === 'darwin') {
-      // Resize to proper menu-bar size (18×18 pt, macOS handles @2x automatically)
-      trayIcon = trayIcon.resize({ width: 18, height: 18 });
-      trayIcon.setTemplateImage(true); // Lets macOS tint for light/dark menu bar
+      // Use dedicated monochrome "P" tray icon for macOS menu bar
+      // The 'Template' suffix tells macOS to automatically tint for light/dark mode
+      const trayIconPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'trayIconTemplate.png')
+        : path.join(__dirname, '../../resources/trayIconTemplate.png');
+      trayIcon = nativeImage.createFromPath(trayIconPath);
+      trayIcon.setTemplateImage(true);
+    } else {
+      const iconPath = process.platform === 'win32'
+        ? (app.isPackaged ? path.join(process.resourcesPath, 'icon.ico') : path.join(__dirname, '../../resources/icon.ico'))
+        : (app.isPackaged ? path.join(process.resourcesPath, 'icon.png') : path.join(__dirname, '../../resources/icon.png'));
+      trayIcon = nativeImage.createFromPath(iconPath);
     }
     tray = new Tray(trayIcon);
     tray.setToolTip('Produchive - Productivity Tracker');

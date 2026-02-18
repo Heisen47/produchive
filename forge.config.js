@@ -20,6 +20,8 @@ const config = {
             './resources/icon.png',
             './resources/icon.ico',
             './resources/icon.icns',
+            './resources/trayIconTemplate.png',
+            './resources/trayIconTemplate@2x.png',
             './node_modules/active-win',
         ],
     },
@@ -55,7 +57,7 @@ const config = {
                     const deps = getDependencies(pkgPath);
                     for (const dep of deps) {
                         const nestedPath = path.join(pkgPath, 'node_modules', dep);
-                         const hoistedPath = path.join(rootNodeModules, dep);
+                        const hoistedPath = path.join(rootNodeModules, dep);
 
                         if (fs.existsSync(nestedPath)) {
                             // Keep nested structure

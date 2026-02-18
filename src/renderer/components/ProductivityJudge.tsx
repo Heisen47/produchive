@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { HistoricalReports } from './HistoricalReports';
+import { useTheme } from './ThemeProvider';
 
 interface ProductivityAnalysis {
     rating: number | string; // 1-10 or "NA"
@@ -17,6 +18,7 @@ interface ProductivityAnalysis {
 
 export const ProductivityJudge = ({ engine }: { engine: any }) => {
     const { goals, activities, addRating } = useStore();
+    const { isDark } = useTheme();
     const goal = goals.length > 0 ? goals[0] : null;
     const [analyzing, setAnalyzing] = useState(false);
     const [analysis, setAnalysis] = useState<ProductivityAnalysis | null>(null);
@@ -74,29 +76,7 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
             console.log('  Goals:', goalsText);
             console.log('  Activity Summary:', activitySummary);
 
-            const prompt = `User Goals:
-${goalsText}
-
-Activities Log (App - Title (Duration)):
-${activitySummary}
-
-Analyze the user's productivity for the day based on their stated goals.
-
-IMPORTANT: Goals like "Coding", "Study", "Work", "Exercise", "Reading", "Learning" are VALID goals - they are common productivity objectives. Only reject goals if they are literal gibberish like "asdfgh", "aaaaa", or random keyboard mashes.
-
-Provide the output in STRICT JSON format:
-{
-  "rating": <number 1-10> (use string "NA" if invalid),
-  "verdict": "<productive|neutral|unproductive|NA>",
-  "explanation": "<2-3 sentence summary>",
-  "tips": ["<actionable advice 1>", "<actionable advice 2>", "<actionable advice 3>"],
-  "categorization": {
-    "productive": ["<app name 1>", ...],
-    "neutral": ["<app name 1>", ...],
-    "distracting": ["<app name 1>", ...]
-  }
-}
-Do not include any markdown formatting or text outside the JSON.`;
+            const prompt = `User Goals:\n${goalsText}\n\nActivities Log (App - Title (Duration)):\n${activitySummary}\n\nAnalyze the user's productivity for the day based on their stated goals.\n\nIMPORTANT: Goals like "Coding", "Study", "Work", "Exercise", "Reading", "Learning" are VALID goals - they are common productivity objectives. Only reject goals if they are literal gibberish like "asdfgh", "aaaaa", or random keyboard mashes.\n\nProvide the output in STRICT JSON format:\n{\n  "rating": <number 1-10> (use string "NA" if invalid),\n  "verdict": "<productive|neutral|unproductive|NA>",\n  "explanation": "<2-3 sentence summary>",\n  "tips": ["<actionable advice 1>", "<actionable advice 2>", "<actionable advice 3>"],\n  "categorization": {\n    "productive": ["<app name 1>", ...],\n    "neutral": ["<app name 1>", ...],\n    "distracting": ["<app name 1>", ...]\n  }\n}\nDo not include any markdown formatting or text outside the JSON.`;
 
             const completion = await engine.chat.completions.create({
                 messages: [
@@ -135,12 +115,24 @@ Do not include any markdown formatting or text outside the JSON.`;
         }
     };
 
-    const getVerdictColor = (verdict: string) => {
+    const getVerdictStyle = (verdict: string) => {
         switch (verdict) {
-            case 'productive': return 'from-green-900/40 to-emerald-900/40 border-green-700/50';
-            case 'unproductive': return 'from-red-900/40 to-orange-900/40 border-red-700/50';
-            case 'NA': return 'from-gray-900/40 to-slate-900/40 border-gray-700/50';
-            default: return 'from-yellow-900/40 to-amber-900/40 border-yellow-700/50';
+            case 'productive': return {
+                bg: isDark ? 'linear-gradient(135deg, rgba(34,197,94,0.1), rgba(16,185,129,0.08))' : 'linear-gradient(135deg, rgba(34,197,94,0.08), rgba(16,185,129,0.05))',
+                border: 'rgba(34,197,94,0.3)',
+            };
+            case 'unproductive': return {
+                bg: isDark ? 'linear-gradient(135deg, rgba(239,68,68,0.1), rgba(249,115,22,0.08))' : 'linear-gradient(135deg, rgba(239,68,68,0.08), rgba(249,115,22,0.05))',
+                border: 'rgba(239,68,68,0.3)',
+            };
+            case 'NA': return {
+                bg: isDark ? 'linear-gradient(135deg, rgba(100,116,139,0.1), rgba(71,85,105,0.08))' : 'linear-gradient(135deg, rgba(100,116,139,0.08), rgba(71,85,105,0.05))',
+                border: 'rgba(100,116,139,0.3)',
+            };
+            default: return {
+                bg: isDark ? 'linear-gradient(135deg, rgba(234,179,8,0.1), rgba(245,158,11,0.08))' : 'linear-gradient(135deg, rgba(234,179,8,0.08), rgba(245,158,11,0.05))',
+                border: 'rgba(234,179,8,0.3)',
+            };
         }
     };
 
@@ -151,7 +143,14 @@ Do not include any markdown formatting or text outside the JSON.`;
             <button
                 onClick={analyzeProductivity}
                 disabled={analyzing || !engine || activities.length === 0}
-                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white px-6 py-4 rounded-xl font-bold transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer shadow-lg hover:shadow-xl"
+                className="w-full px-6 py-4 rounded-2xl font-bold transition-all duration-300 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                style={{
+                    background: 'linear-gradient(135deg, #6366f1, #8b5cf6, #6366f1)',
+                    backgroundSize: '200% 200%',
+                    color: '#fff',
+                    boxShadow: analyzing ? 'none' : '0 8px 30px rgba(99,102,241,0.4)',
+                    animation: !analyzing ? 'gradientShift 3s ease infinite' : undefined,
+                }}
             >
                 {analyzing ? (
                     <>
@@ -166,85 +165,97 @@ Do not include any markdown formatting or text outside the JSON.`;
                 )}
             </button>
 
-            {analysis && (
-                <div className={`bg-gradient-to-b ${getVerdictColor(analysis.verdict)} border rounded-2xl p-6 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
-                    {/* Header: Score & Verdict */}
-                    <div className="flex items-center justify-between mb-6 border-b border-white/10 pb-6">
-                        <div className="flex items-center gap-4">
-                            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold bg-black/40 text-white border border-white/10`}>
-                                {typeof analysis.rating === 'number' ? `${analysis.rating}/10` : analysis.rating}
+            {analysis && (() => {
+                const style = getVerdictStyle(analysis.verdict);
+                return (
+                    <div
+                        className="rounded-2xl p-6 animate-fade-in-up"
+                        style={{
+                            background: style.bg,
+                            border: `1px solid ${style.border}`,
+                            backdropFilter: 'blur(20px)',
+                        }}
+                    >
+                        {/* Header: Score & Verdict */}
+                        <div className="flex items-center justify-between mb-6 pb-6" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
+                            <div className="flex items-center gap-4">
+                                <div
+                                    className="w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold"
+                                    style={{
+                                        background: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.6)',
+                                        color: 'var(--text-primary)',
+                                        border: '1px solid var(--border-primary)',
+                                    }}
+                                >
+                                    {typeof analysis.rating === 'number' ? `${analysis.rating}/10` : analysis.rating}
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-display font-bold capitalize" style={{ color: 'var(--text-primary)' }}>{analysis.verdict} Day</h3>
+                                    <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Based on your activity history</p>
+                                </div>
                             </div>
-                            <div>
-                                <h3 className="text-xl font-bold text-white capitalize">{analysis.verdict} Day</h3>
-                                <p className="text-gray-300 text-sm mt-1">Based on your activity history</p>
-                            </div>
                         </div>
-                    </div>
 
-                    {/* Explanation */}
-                    <div className="mb-8">
-                        <p className="text-lg text-gray-100 leading-relaxed font-medium">
-                            "{analysis.explanation}"
-                        </p>
-                    </div>
+                        {/* Explanation */}
+                        <div className="mb-8">
+                            <p className="text-lg leading-relaxed font-medium" style={{ color: 'var(--text-primary)' }}>
+                                "{analysis.explanation}"
+                            </p>
+                        </div>
 
-                    {/* Categorization Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                        <div className="bg-black/20 rounded-xl p-4 border border-green-500/20">
-                            <h5 className="text-green-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
-                                <CheckCircle2 size={14} /> Productive
-                            </h5>
-                            <ul className="space-y-1">
-                                {analysis.categorization.productive.length > 0 ? (
-                                    analysis.categorization.productive.map((app, i) => (
-                                        <li key={i} className="text-sm text-gray-300 truncate">• {app}</li>
-                                    ))
-                                ) : <li className="text-sm text-gray-500 italic">None detected</li>}
-                            </ul>
-                        </div>
-                        <div className="bg-black/20 rounded-xl p-4 border border-red-500/20">
-                            <h5 className="text-red-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
-                                <XCircle size={14} /> Distracting
-                            </h5>
-                            <ul className="space-y-1">
-                                {analysis.categorization.distracting.length > 0 ? (
-                                    analysis.categorization.distracting.map((app, i) => (
-                                        <li key={i} className="text-sm text-gray-300 truncate">• {app}</li>
-                                    ))
-                                ) : <li className="text-sm text-gray-500 italic">None detected</li>}
-                            </ul>
-                        </div>
-                        <div className="bg-black/20 rounded-xl p-4 border border-yellow-500/20">
-                            <h5 className="text-yellow-400 text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2">
-                                <Minus size={14} /> Neutral
-                            </h5>
-                            <ul className="space-y-1">
-                                {analysis.categorization.neutral.length > 0 ? (
-                                    analysis.categorization.neutral.map((app, i) => (
-                                        <li key={i} className="text-sm text-gray-300 truncate">• {app}</li>
-                                    ))
-                                ) : <li className="text-sm text-gray-500 italic">None detected</li>}
-                            </ul>
-                        </div>
-                    </div>
-
-                    {/* Tips */}
-                    <div className="bg-blue-900/20 rounded-xl p-5 border border-blue-500/20">
-                        <h4 className="flex items-center gap-2 text-blue-300 font-bold mb-3">
-                            <Lightbulb size={18} />
-                            Productivity Tips
-                        </h4>
-                        <ul className="space-y-2">
-                            {analysis.tips.map((tip, i) => (
-                                <li key={i} className="text-sm text-blue-100 flex items-start gap-2">
-                                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
-                                    {tip}
-                                </li>
+                        {/* Categorization Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                            {[
+                                { title: 'Productive', items: analysis.categorization.productive, icon: CheckCircle2, color: '#4ade80', borderColor: 'rgba(34,197,94,0.2)' },
+                                { title: 'Distracting', items: analysis.categorization.distracting, icon: XCircle, color: '#f87171', borderColor: 'rgba(239,68,68,0.2)' },
+                                { title: 'Neutral', items: analysis.categorization.neutral, icon: Minus, color: '#fbbf24', borderColor: 'rgba(234,179,8,0.2)' },
+                            ].map((cat, i) => (
+                                <div
+                                    key={i}
+                                    className="rounded-xl p-4"
+                                    style={{
+                                        background: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.5)',
+                                        border: `1px solid ${cat.borderColor}`,
+                                    }}
+                                >
+                                    <h5 className="text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: cat.color }}>
+                                        <cat.icon size={14} /> {cat.title}
+                                    </h5>
+                                    <ul className="space-y-1">
+                                        {cat.items.length > 0 ? (
+                                            cat.items.map((app: string, j: number) => (
+                                                <li key={j} className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>• {app}</li>
+                                            ))
+                                        ) : <li className="text-sm italic" style={{ color: 'var(--text-muted)' }}>None detected</li>}
+                                    </ul>
+                                </div>
                             ))}
-                        </ul>
+                        </div>
+
+                        {/* Tips */}
+                        <div
+                            className="rounded-xl p-5"
+                            style={{
+                                background: isDark ? 'rgba(37, 99, 235, 0.1)' : 'rgba(37, 99, 235, 0.06)',
+                                border: '1px solid rgba(37, 99, 235, 0.2)',
+                            }}
+                        >
+                            <h4 className="flex items-center gap-2 font-bold mb-3" style={{ color: '#93c5fd' }}>
+                                <Lightbulb size={18} />
+                                Productivity Tips
+                            </h4>
+                            <ul className="space-y-2">
+                                {analysis.tips.map((tip, i) => (
+                                    <li key={i} className="text-sm flex items-start gap-2" style={{ color: isDark ? '#dbeafe' : '#1e40af' }}>
+                                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--accent)' }} />
+                                        {tip}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
 
             {/* Historical Reports Section */}
             <HistoricalReports engine={engine} />

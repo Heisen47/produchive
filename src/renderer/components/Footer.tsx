@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Github, Bug, FileQuestionIcon } from 'lucide-react';
+import { useTheme } from './ThemeProvider';
 
 export const Footer: React.FC = () => {
     const repoUrl = 'https://github.com/Heisen47/produchive';
     const issuesUrl = `${repoUrl}/issues`;
     const howToUseItUrl = `${repoUrl}/blob/master/docs/HOW_TO_USE_IT.md`;
+    const { isDark } = useTheme();
 
     const [autoLaunch, setAutoLaunch] = useState(false);
 
@@ -21,53 +23,60 @@ export const Footer: React.FC = () => {
     };
 
     return (
-        <footer className="border-t border-gray-800 bg-gray-1000/80 backdrop-blur-sm py-4 px-4 sm:px-8 mt-auto">
-            <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs sm:text-sm text-gray-400">
+        <footer
+            className="py-3 px-4 sm:px-8 mt-auto"
+            style={{
+                background: 'var(--bg-card)',
+                backdropFilter: 'blur(20px)',
+                borderTop: '1px solid var(--border-secondary)',
+            }}
+        >
+            <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs sm:text-sm" style={{ color: 'var(--text-muted)' }}>
                 <div className="flex items-center gap-4 order-2 sm:order-1">
                     <span>© {new Date().getFullYear()} Produchive</span>
                     <button
                         onClick={toggleAutoLaunch}
-                        className="flex items-center gap-2 hover:text-gray-200 transition-colors"
+                        className="flex items-center gap-2 transition-colors duration-200"
                         title="Launch Produchive when your computer starts"
+                        style={{ color: autoLaunch ? 'var(--accent)' : 'var(--text-muted)' }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)'; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = autoLaunch ? 'var(--accent)' : 'var(--text-muted)'; }}
                     >
-                        <div className={`relative w-8 h-4 rounded-full transition-colors ${autoLaunch ? 'bg-indigo-600' : 'bg-gray-700'}`}>
-                            <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${autoLaunch ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                        <div
+                            className="relative w-8 h-4 rounded-full transition-colors duration-300"
+                            style={{ background: autoLaunch ? 'var(--accent)' : (isDark ? 'rgba(71,85,105,0.5)' : 'rgba(168,162,158,0.4)') }}
+                        >
+                            <div
+                                className="absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform duration-300 shadow-sm"
+                                style={{ transform: autoLaunch ? 'translateX(16px)' : 'translateX(2px)' }}
+                            />
                         </div>
                         <span className="hidden sm:inline">Launch at startup</span>
                     </button>
                 </div>
                 <div className="flex items-center gap-3 sm:gap-4 order-1 sm:order-2">
-                    <a
-                        href={issuesUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 sm:gap-2 hover:text-blue-400 transition-colors"
-                    >
-                        <Bug size={14} className="sm:w-4 sm:h-4" />
-                        <span className="hidden xs:inline">Report an Issue</span>
-                        <span className="xs:hidden">Issues</span>
-                    </a>
-                    <a
-                        href={repoUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 sm:gap-2 hover:text-white transition-colors"
-                    >
-                        <Github size={14} className="sm:w-4 sm:h-4" />
-                        GitHub
-                    </a>
-                     <a
-                        href={howToUseItUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 sm:gap-2 hover:text-white transition-colors"
-                    >
-                        <FileQuestionIcon size={14} className="sm:w-4 sm:h-4" />
-                        How to use it?
-                    </a>
+                    {[
+                        { href: issuesUrl, icon: Bug, label: 'Report an Issue', shortLabel: 'Issues' },
+                        { href: repoUrl, icon: Github, label: 'GitHub', shortLabel: 'GitHub' },
+                        { href: howToUseItUrl, icon: FileQuestionIcon, label: 'How to use it?', shortLabel: 'Help' },
+                    ].map((link, i) => (
+                        <a
+                            key={i}
+                            href={link.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1.5 sm:gap-2 transition-all duration-200"
+                            style={{ color: 'var(--text-muted)' }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--accent)'; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'; }}
+                        >
+                            <link.icon size={14} className="sm:w-4 sm:h-4" />
+                            <span className="hidden xs:inline">{link.label}</span>
+                            <span className="xs:hidden">{link.shortLabel}</span>
+                        </a>
+                    ))}
                 </div>
             </div>
         </footer>
     );
 };
-

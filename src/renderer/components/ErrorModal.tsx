@@ -1,100 +1,118 @@
-import React, { useEffect } from 'react';
-import { X, AlertTriangle, Copy, RefreshCw } from 'lucide-react';
+import React, { useState } from 'react';
+import { AlertTriangle, Copy, RotateCcw, X, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { useStore } from '../lib/store';
+import { useTheme } from './ThemeProvider';
 
 export const ErrorModal = () => {
     const { error, setError } = useStore();
-
-    useEffect(() => {
-        if (error) {
-        }
-    }, [error]);
-
-    const [showDetails, setShowDetails] = React.useState(false);
+    const [showDetails, setShowDetails] = useState(false);
+    const [copied, setCopied] = useState(false);
+    const { isDark } = useTheme();
 
     if (!error) return null;
 
-    const copyError = () => {
-        if (error) {
-            navigator.clipboard.writeText(error);
-        }
-    };
-
-    const reloadApp = () => {
-        window.location.reload();
+    const copyError = async () => {
+        try {
+            await navigator.clipboard.writeText(typeof error === 'string' ? error : JSON.stringify(error, null, 2));
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {}
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-            <div className="bg-gray-900 border border-red-500/30 rounded-xl shadow-2xl max-w-lg w-full mx-4 overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 ring-1 ring-white/10">
-                
+        <div className="fixed inset-0 z-50 flex items-center justify-center animate-in fade-in" style={{ background: 'var(--bg-overlay)', backdropFilter: 'blur(12px)' }}>
+            <div
+                className="max-w-lg w-full mx-4 rounded-2xl overflow-hidden flex flex-col max-h-[90vh] animate-scale-in glass-card-static"
+                style={{
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    boxShadow: isDark ? '0 25px 60px rgba(0,0,0,0.5), 0 0 40px rgba(239,68,68,0.15)' : '0 25px 60px rgba(0,0,0,0.15)',
+                }}
+            >
                 {/* Header */}
-                <div className="px-6 py-5 border-b border-gray-800 flex items-center gap-4 bg-gray-900/50">
-                    <div className="bg-red-500/10 p-3 rounded-full shrink-0 ring-1 ring-red-500/20">
-                        <AlertTriangle size={24} className="text-red-500" />
+                <div className="p-5 flex items-center gap-3" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
+                    <div className="p-2 rounded-xl" style={{ background: 'rgba(239,68,68,0.1)' }}>
+                        <AlertTriangle size={20} style={{ color: '#f87171' }} />
                     </div>
-                    <div>
-                        <h3 className="text-lg font-bold text-white tracking-tight">Application Error</h3>
-                        <p className="text-red-400 text-xs font-medium uppercase tracking-wider mt-0.5">Critical System Issue</p>
-                    </div>
-                    <button 
+                    <h3 className="font-display font-bold text-lg flex-1" style={{ color: 'var(--text-primary)' }}>Something went wrong</h3>
+                    <button
                         onClick={() => setError(null)}
-                        className="ml-auto text-gray-500 hover:text-white transition-colors p-1"
+                        className="p-1.5 rounded-lg transition-colors"
+                        style={{ color: 'var(--text-muted)' }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)'; (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)'; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                     >
-                        <X size={20} />
+                        <X size={18} />
                     </button>
                 </div>
 
                 {/* Body */}
                 <div className="p-6 overflow-y-auto custom-scrollbar">
-                    <p className="text-gray-300 text-sm leading-relaxed mb-4">
+                    <p className="text-sm leading-relaxed mb-4" style={{ color: 'var(--text-secondary)' }}>
                         An unexpected error has occurred. You can try reloading the application or copying the error details below to report the issue.
                     </p>
 
-                    <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                             <button 
-                                onClick={() => setShowDetails(!showDetails)}
-                                className="text-xs font-medium text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors"
-                            >
-                                {showDetails ? 'Hide' : 'Show'} Technical Details
-                            </button>
-                        </div>
-                        
-                        {showDetails && (
-                            <div className="bg-black/50 rounded-lg border border-gray-800 p-4 relative group">
-                                <pre className="text-xs font-mono text-red-300 whitespace-pre-wrap break-all leading-normal">
-                                    {error}
-                                </pre>
-                            </div>
-                        )}
-                    </div>
+                    <button
+                        onClick={() => setShowDetails(!showDetails)}
+                        className="flex items-center gap-2 text-sm transition-colors mb-3"
+                        style={{ color: 'var(--text-muted)' }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)'; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'; }}
+                    >
+                        {showDetails ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        {showDetails ? 'Hide Details' : 'Show Details'}
+                    </button>
+
+                    {showDetails && (
+                        <pre
+                            className="rounded-xl p-4 text-xs overflow-x-auto custom-scrollbar font-mono animate-fade-in"
+                            style={{
+                                background: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.05)',
+                                color: '#f87171',
+                                border: '1px solid rgba(239,68,68,0.15)',
+                            }}
+                        >
+                            {typeof error === 'string' ? error : JSON.stringify(error, null, 2)}
+                        </pre>
+                    )}
                 </div>
 
                 {/* Footer */}
-                <div className="bg-gray-950/50 px-6 py-4 border-t border-gray-800 flex items-center justify-between gap-3">
-                     <button
+                <div className="p-4 flex gap-3 justify-end" style={{ borderTop: '1px solid var(--border-secondary)' }}>
+                    <button
                         onClick={copyError}
-                        className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg text-sm font-medium transition-colors border border-gray-700 hover:border-gray-600 flex items-center gap-2"
+                        className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 flex items-center gap-2"
+                        style={{
+                            background: 'var(--bg-elevated)',
+                            color: 'var(--text-secondary)',
+                            border: '1px solid var(--border-primary)',
+                        }}
                     >
-                        <Copy size={14} />
-                        Copy Error
+                        {copied ? <Check size={16} style={{ color: '#4ade80' }} /> : <Copy size={16} />}
+                        {copied ? 'Copied' : 'Copy'}
                     </button>
-                    <div className="flex items-center gap-3">
-                        <button
-                            onClick={reloadApp}
-                            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors border border-gray-700 hover:border-gray-600 flex items-center gap-2"
-                        >
-                            <RefreshCw size={14} />
-                            Reload
-                        </button>
-                        <button
-                            onClick={() => setError(null)}
-                            className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-medium transition-colors shadow-lg shadow-red-900/20"
-                        >
-                            Dismiss
-                        </button>
-                    </div>
+                    <button
+                        onClick={() => window.location.reload()}
+                        className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 flex items-center gap-2"
+                        style={{
+                            background: 'rgba(239,68,68,0.1)',
+                            color: '#f87171',
+                            border: '1px solid rgba(239,68,68,0.2)',
+                        }}
+                    >
+                        <RotateCcw size={16} />
+                        Reload App
+                    </button>
+                    <button
+                        onClick={() => setError(null)}
+                        className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200"
+                        style={{
+                            background: 'var(--bg-elevated)',
+                            color: 'var(--text-secondary)',
+                            border: '1px solid var(--border-primary)',
+                        }}
+                    >
+                        Dismiss
+                    </button>
                 </div>
             </div>
         </div>

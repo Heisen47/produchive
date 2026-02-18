@@ -12,6 +12,21 @@ if (started) {
   app.quit();
 }
 
+// Enforce single instance — if another instance launches, focus the existing window
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // Someone tried to open a second instance — focus our window
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      if (!mainWindow.isVisible()) mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 app.commandLine.appendSwitch('disable-gpu-watchdog');
 app.commandLine.appendSwitch('force_high_performance_gpu');
 let db: any = { data: { tasks: [], goals: [], ratings: [] } };

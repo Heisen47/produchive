@@ -12,6 +12,7 @@ import {
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { Activity } from '../global';
+import { TotoroSceneBg } from './TotoroSceneBg';
 
 // ─── Color palette ───
 const CHART_COLORS = [
@@ -143,14 +144,14 @@ const MetricCard = ({ title, value, subtext, icon: Icon, delay = 0 }: any) => {
     if (title === 'Total Time' || title === 'Most Used App') BgComponent = TotoroBg;
     if (title === 'Apps Tracked') BgComponent = NoFaceBg;
     if (title === 'Avg AI Rating') BgComponent = CalciferBg;
-    
+
     return (
         <div
             className="glass-card rounded-2xl p-6 group cursor-default animate-fade-in-up relative overflow-hidden"
             style={{ animationDelay: `${delay}ms` }}
         >
             {BgComponent && <BgComponent className="opacity-30 dark:opacity-20 transition-opacity duration-500 group-hover:opacity-40 dark:group-hover:opacity-30" />}
-            
+
             <div className="relative z-10">
                 <div className="flex items-start justify-between mb-4">
                     <div
@@ -404,14 +405,15 @@ export const UsageCharts = () => {
                     {topApps.length > 0 ? (
                         <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
                             {/* Donut Chart */}
-                            <div className="glass-card-static rounded-2xl p-6 animate-fade-in-up" style={{ animationDelay: '100ms' }}>
+                            <div className="glass-card-static rounded-2xl p-6 animate-fade-in-up relative overflow-hidden" style={{ animationDelay: '100ms' }}>
                                 <div className="flex items-center gap-2 mb-6">
                                     <BarChart3 size={20} style={{ color: 'var(--accent)' }} />
                                     <h3 className="font-display font-bold" style={{ color: 'var(--text-primary)' }}>
                                         Usage Breakdown
                                     </h3>
                                 </div>
-                                <div className="h-[300px]">
+                                <TotoroSceneBg opacity={0.1} />
+                                <div className="h-[300px]" style={{ position: 'relative', zIndex: 1 }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <PieChart>
                                             <Pie
@@ -558,14 +560,52 @@ export const UsageCharts = () => {
                                                     <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
                                                         {app.name}
                                                     </p>
-                                                    <div className="h-1.5 w-full rounded-full mt-1 overflow-hidden" style={{ background: isDark ? 'rgba(30,41,59,0.5)' : 'rgba(168,162,158,0.2)' }}>
+                                                    {/* Bar track with catbus at tip */}
+                                                    <div className="relative mt-2" style={{ height: '18px', width: '100%' }}>
+                                                        {/* Track */}
                                                         <div
-                                                            className="h-full rounded-full transition-all duration-1000 ease-out"
+                                                            className="absolute bottom-0 left-0 w-full rounded-full"
                                                             style={{
-                                                                width: `${Math.min(100, (app.duration / Math.max(totalDuration, 1)) * 100)}%`,
-                                                                background: `linear-gradient(90deg, ${CHART_COLORS[idx % CHART_COLORS.length]}, ${CHART_COLORS[(idx + 1) % CHART_COLORS.length]})`,
+                                                                height: '5px',
+                                                                background: isDark ? 'rgba(30,41,59,0.5)' : 'rgba(168,162,158,0.2)',
                                                             }}
                                                         />
+                                                        {/* Fill bar */}
+                                                        <div
+                                                            className="absolute bottom-0 left-0 rounded-full transition-all duration-1000 ease-out animate-bar-shimmer"
+                                                            style={{
+                                                                height: '5px',
+                                                                width: `${Math.min(100, (app.duration / Math.max(totalDuration, 1)) * 100)}%`,
+                                                                background: `linear-gradient(90deg, ${CHART_COLORS[idx % CHART_COLORS.length]}88, ${CHART_COLORS[idx % CHART_COLORS.length]}, #fff8, ${CHART_COLORS[idx % CHART_COLORS.length]}, ${CHART_COLORS[idx % CHART_COLORS.length]}88)`,
+                                                            }}
+                                                        />
+                                                        {/* Catbus at the tip */}
+                                                        <div
+                                                            className="absolute bottom-[2px] transition-all duration-1000 ease-out catbus-tip"
+                                                            style={{
+                                                                left: `calc(${Math.min(100, (app.duration / Math.max(totalDuration, 1)) * 100)}% - 10px)`,
+                                                            }}
+                                                        >
+                                                            <svg viewBox="0 0 40 22" width="20" height="11" style={{ display: 'block', filter: `drop-shadow(0 0 3px ${CHART_COLORS[idx % CHART_COLORS.length]})` }}>
+                                                                <rect x="2" y="4" width="34" height="14" rx="5" fill="#94a3b8" />
+                                                                <rect x="5" y="7" width="5" height="4" rx="1" fill="#1e293b" opacity="0.7" />
+                                                                <rect x="12" y="7" width="5" height="4" rx="1" fill="#1e293b" opacity="0.7" />
+                                                                <rect x="19" y="7" width="5" height="4" rx="1" fill="#1e293b" opacity="0.7" />
+                                                                <rect x="26" y="7" width="5" height="4" rx="1" fill="#1e293b" opacity="0.7" />
+                                                                <circle cx="10" cy="18" r="3.5" fill="#334155" />
+                                                                <circle cx="10" cy="18" r="1.5" fill="#64748b" />
+                                                                <circle cx="28" cy="18" r="3.5" fill="#334155" />
+                                                                <circle cx="28" cy="18" r="1.5" fill="#64748b" />
+                                                                <ellipse cx="36" cy="11" rx="2" ry="1.5" fill="#fbbf24" opacity="0.9" />
+                                                                <circle cx="37" cy="8" r="1.5" fill="white" />
+                                                                <circle cx="37" cy="8" r="0.7" fill="#1e293b" />
+                                                                <circle cx="37" cy="14" r="1.5" fill="white" />
+                                                                <circle cx="37" cy="14" r="0.7" fill="#1e293b" />
+                                                                <line x1="36" y1="11" x2="40" y2="10" stroke="#94a3b8" strokeWidth="0.5" />
+                                                                <line x1="36" y1="11" x2="40" y2="12" stroke="#94a3b8" strokeWidth="0.5" />
+                                                                <path d="M2,8 Q-2,4 0,1 Q2,-1 3,2" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" />
+                                                            </svg>
+                                                        </div>
                                                     </div>
                                                 </div>
                                                 <div className="text-right flex-shrink-0">

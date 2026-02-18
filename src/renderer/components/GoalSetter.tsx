@@ -1,7 +1,19 @@
 import React, { useState } from 'react';
-import { Target, Check, Plus, X, Edit2, Save } from 'lucide-react';
+import { Target, Check, Plus, X, Edit2, AlertCircle } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
+import { LuffyBg } from './LuffyBg';
+
+const GOAL_SUGGESTIONS = [
+    'Complete coding project',
+    'Study for 2 hours',
+    'Write documentation',
+    'Review pull requests',
+    'Practice DSA problems',
+    'Work on side project',
+    'Design new feature',
+    'Fix outstanding bugs',
+];
 
 export const GoalSetter = () => {
     const [inputGoal, setInputGoal] = useState('');
@@ -32,7 +44,7 @@ export const GoalSetter = () => {
 
     return (
         <div
-            className="glass-card-static rounded-2xl p-6 mb-6 animate-fade-in-up"
+            className="glass-card-static rounded-2xl p-6 mb-6 animate-fade-in-up relative overflow-hidden"
             style={{
                 borderImage: isDark ? 'linear-gradient(135deg, rgba(99,102,241,0.3), rgba(147,51,234,0.2), transparent) 1' : undefined,
             }}
@@ -121,8 +133,37 @@ export const GoalSetter = () => {
                 ))}
 
                 {goals.length === 0 && (
-                    <div className="text-center py-6 rounded-xl" style={{ border: '2px dashed var(--border-primary)' }}>
-                        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>No goals set yet</p>
+                    <div className="space-y-4 mb-2">
+                        {/* Suggestion bubbles */}
+                        <div>
+                            <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
+                                ✨ Quick suggestions
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                                {GOAL_SUGGESTIONS.map((suggestion) => (
+                                    <button
+                                        key={suggestion}
+                                        onClick={() => { if (goals.length < 5) addGoal(suggestion); }}
+                                        className="px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 hover:scale-105 active:scale-95"
+                                        style={{
+                                            background: 'var(--bg-elevated)',
+                                            border: '1px solid var(--border-secondary)',
+                                            color: 'var(--text-secondary)',
+                                        }}
+                                        onMouseEnter={(e) => {
+                                            (e.currentTarget as HTMLElement).style.borderColor = 'rgba(99,102,241,0.4)';
+                                            (e.currentTarget as HTMLElement).style.color = '#818cf8';
+                                        }}
+                                        onMouseLeave={(e) => {
+                                            (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-secondary)';
+                                            (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)';
+                                        }}
+                                    >
+                                        + {suggestion}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>
@@ -158,6 +199,18 @@ export const GoalSetter = () => {
                     </button>
                 </div>
             )}
+
+            {/* Specificity tip */}
+            <div className="flex items-start gap-2 mt-3 px-3 py-2.5 rounded-xl" style={{ background: 'rgba(251, 191, 36, 0.08)', border: '1px solid rgba(251, 191, 36, 0.2)' }}>
+                <AlertCircle size={14} className="shrink-0 mt-0.5" style={{ color: '#fbbf24' }} />
+                <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                    <span className="font-semibold" style={{ color: '#fbbf24' }}>Be specific.</span>{' '}
+                    Vague goals like "be productive" lead to weaker AI evaluations. Try "Complete 3 coding tasks" or "Study React for 2 hours" instead.
+                </p>
+            </div>
+
+            {/* Luffy — subtle background character like Totoro */}
+            <LuffyBg mood={goals.length > 0 ? 'happy' : 'sad'} />
         </div>
     );
 };

@@ -161,7 +161,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
             startTime = Date.now().toString();
             sessionStorage.setItem(START_TIME_KEY, startTime);
         }
-        
+
         const elapsed = Date.now() - parseInt(startTime);
         if (elapsed < 60000) {
             setShowHalo(true);
@@ -176,6 +176,9 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
 
     return (
         <div className="space-y-8">
+
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>Welcome <span className="text-accent">Captain</span></h1>
+
             {/* Metrics Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <MetricCard
@@ -224,9 +227,8 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                         </button>
                         <button
                             onClick={handleToggleMonitoring}
-                            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95 ${
-                                !isMonitoring && showHalo ? 'ring-4 ring-emerald-500/50 shadow-[0_0_30px_rgba(74,222,128,0.5)] animate-pulse' : ''
-                            }`}
+                            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95 ${!isMonitoring && showHalo ? 'ring-4 ring-emerald-500/50 shadow-[0_0_30px_rgba(74,222,128,0.5)] animate-pulse' : ''
+                                }`}
                             style={{
                                 background: isMonitoring ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)',
                                 color: isMonitoring ? '#f87171' : '#4ade80',
@@ -278,14 +280,59 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                                     </div>
                                     <div className="min-w-0 flex-1">
                                         <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{app.name}</p>
-                                        <div className="h-1 w-full max-w-[120px] rounded-full mt-1 overflow-hidden" style={{ background: isDark ? 'rgba(30,41,59,0.5)' : 'rgba(168,162,158,0.2)' }}>
+                                        {/* Bar track with catbus at tip */}
+                                        <div className="relative mt-2" style={{ height: '18px', maxWidth: '120px' }}>
+                                            {/* Track */}
                                             <div
-                                                className="h-full rounded-full transition-all duration-1000 ease-out"
+                                                className="absolute bottom-0 left-0 w-full rounded-full"
                                                 style={{
-                                                    width: `${Math.min(100, (app.duration / Math.max(stats.totalDuration, 1)) * 100)}%`,
-                                                    background: 'linear-gradient(90deg, var(--accent), var(--accent-light))',
+                                                    height: '4px',
+                                                    background: isDark ? 'rgba(30,41,59,0.5)' : 'rgba(168,162,158,0.2)',
                                                 }}
                                             />
+                                            {/* Fill bar */}
+                                            <div
+                                                className="absolute bottom-0 left-0 rounded-full transition-all duration-1000 ease-out animate-bar-shimmer"
+                                                style={{
+                                                    height: '4px',
+                                                    width: `${Math.min(100, (app.duration / Math.max(stats.totalDuration, 1)) * 100)}%`,
+                                                    background: 'linear-gradient(90deg, var(--accent-dark), var(--accent), var(--accent-light), var(--accent), var(--accent-dark))',
+                                                }}
+                                            />
+                                            {/* Catbus at the tip */}
+                                            <div
+                                                className="absolute bottom-[2px] transition-all duration-1000 ease-out catbus-tip"
+                                                style={{
+                                                    left: `calc(${Math.min(100, (app.duration / Math.max(stats.totalDuration, 1)) * 100)}% - 10px)`,
+                                                }}
+                                            >
+                                                <svg viewBox="0 0 40 22" width="20" height="11" style={{ display: 'block', filter: 'drop-shadow(0 0 3px var(--accent))' }}>
+                                                    {/* Bus body */}
+                                                    <rect x="2" y="4" width="34" height="14" rx="5" fill="#94a3b8" />
+                                                    {/* Windows row */}
+                                                    <rect x="5" y="7" width="5" height="4" rx="1" fill="#1e293b" opacity="0.7" />
+                                                    <rect x="12" y="7" width="5" height="4" rx="1" fill="#1e293b" opacity="0.7" />
+                                                    <rect x="19" y="7" width="5" height="4" rx="1" fill="#1e293b" opacity="0.7" />
+                                                    <rect x="26" y="7" width="5" height="4" rx="1" fill="#1e293b" opacity="0.7" />
+                                                    {/* Wheels */}
+                                                    <circle cx="10" cy="18" r="3.5" fill="#334155" />
+                                                    <circle cx="10" cy="18" r="1.5" fill="#64748b" />
+                                                    <circle cx="28" cy="18" r="3.5" fill="#334155" />
+                                                    <circle cx="28" cy="18" r="1.5" fill="#64748b" />
+                                                    {/* Headlight */}
+                                                    <ellipse cx="36" cy="11" rx="2" ry="1.5" fill="#fbbf24" opacity="0.9" />
+                                                    {/* Catbus face — eyes on front */}
+                                                    <circle cx="37" cy="8" r="1.5" fill="white" />
+                                                    <circle cx="37" cy="8" r="0.7" fill="#1e293b" />
+                                                    <circle cx="37" cy="14" r="1.5" fill="white" />
+                                                    <circle cx="37" cy="14" r="0.7" fill="#1e293b" />
+                                                    {/* Whiskers */}
+                                                    <line x1="36" y1="11" x2="40" y2="10" stroke="#94a3b8" strokeWidth="0.5" />
+                                                    <line x1="36" y1="11" x2="40" y2="12" stroke="#94a3b8" strokeWidth="0.5" />
+                                                    {/* Tail */}
+                                                    <path d="M2,8 Q-2,4 0,1 Q2,-1 3,2" fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeLinecap="round" />
+                                                </svg>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

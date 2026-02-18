@@ -521,6 +521,42 @@ function registerIpcHandlers() {
     }
   });
 
+  // Get activity data for a range of dates (for charts)
+  ipcMain.handle('get-activity-data-range', async (event, startDate: string, endDate: string) => {
+    try {
+      const fs = await import('node:fs/promises');
+      const { Low } = await import('lowdb');
+      const { JSONFile } = await import('lowdb/node');
+      const logsDir = path.join(app.getPath('userData'), 'activity_logs');
+
+      const result: Record<string, { activities: any[] }> = {};
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0];
+        const filePath = path.join(logsDir, `activity-${dateStr}.json`);
+
+        try {
+          await fs.access(filePath);
+          const adapter = new JSONFile(filePath);
+          const dateDb = new Low(adapter, { activities: [], goals: [] });
+          await dateDb.read();
+          const data = dateDb.data as any;
+          result[dateStr] = { activities: data.activities || [] };
+        } catch {
+          result[dateStr] = { activities: [] };
+        }
+      }
+
+      logger.info(`[get-activity-data-range] Fetched ${Object.keys(result).length} days from ${startDate} to ${endDate}`);
+      return result;
+    } catch (e) {
+      logger.error(`[get-activity-data-range] Error:`, e);
+      return {};
+    }
+  });
+
   // Debug and system info handlers
   ipcMain.handle('get-system-info', async () => {
     let distro = 'unknown';

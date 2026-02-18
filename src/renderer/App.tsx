@@ -4,6 +4,7 @@ import { ActivityMonitor } from './components/ActivityMonitor';
 import { ProductivityJudge } from './components/ProductivityJudge';
 import { DebugPanel } from './components/DebugPanel';
 import { Dashboard } from './components/Dashboard';
+import { UsageCharts } from './components/UsageCharts';
 import { SystemLog } from './components/SystemLog';
 import { GoalOnboarding } from './components/GoalOnboarding';
 import { WelcomeGuide } from './components/WelcomeGuide';
@@ -17,6 +18,7 @@ import {
     Sparkles,
     XCircle,
     LayoutDashboard,
+    BarChart3,
     Activity,
     Brain
 } from 'lucide-react';
@@ -26,12 +28,14 @@ import { UpdateBanner } from './components/UpdateBanner';
 
 const viewIcons: Record<string, React.ElementType> = {
     dashboard: LayoutDashboard,
+    analytics: BarChart3,
     monitor: Activity,
     ai: Brain
 };
 
 const viewLabels: Record<string, string> = {
     dashboard: 'Dashboard',
+    analytics: 'Analytics',
     monitor: 'Live Monitor',
     ai: 'Goals & AI',
 };
@@ -224,6 +228,8 @@ const AppContent = () => {
                         {/* Views with animation */}
                         <div key={viewKey} className="animate-fade-in-up">
                             {currentView === 'dashboard' && <Dashboard onNavigate={handleViewChange} />}
+
+                            {currentView === 'analytics' && <UsageCharts />}
 
                             {currentView === 'monitor' && (
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

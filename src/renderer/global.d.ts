@@ -54,6 +54,7 @@ declare global {
             saveRating: (rating: any) => Promise<any>;
             getRatingsByDate: (dateStr: string) => Promise<any[]>;
             getActivityDataByDate: (dateStr: string) => Promise<any>;
+            getActivityDataRange: (startDate: string, endDate: string) => Promise<Record<string, { activities: Activity[] }>>;
 
             // Auto-launch
             getAutoLaunch: () => Promise<boolean>;

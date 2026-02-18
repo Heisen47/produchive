@@ -7,6 +7,7 @@ import {
     X,
     Sun,
     Moon,
+    BarChart3,
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 
@@ -122,6 +123,13 @@ export const Navbar = ({
                     label="Dashboard"
                     active={currentView === 'dashboard'}
                     onClick={() => setCurrentView('dashboard')}
+                    collapsed={!isSidebarOpen}
+                />
+                <SidebarLink
+                    icon={BarChart3}
+                    label="Analytics"
+                    active={currentView === 'analytics'}
+                    onClick={() => setCurrentView('analytics')}
                     collapsed={!isSidebarOpen}
                 />
                 <SidebarLink

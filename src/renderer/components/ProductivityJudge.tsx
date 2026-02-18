@@ -3,6 +3,7 @@ import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle } from 'lucide-
 import { useStore } from '../lib/store';
 import { HistoricalReports } from './HistoricalReports';
 import { useTheme } from './ThemeProvider';
+import { AnimationOverlay } from './AnimationOverlay';
 
 interface ProductivityAnalysis {
     rating: number | string; // 1-10 or "NA"
@@ -22,6 +23,7 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
     const goal = goals.length > 0 ? goals[0] : null;
     const [analyzing, setAnalyzing] = useState(false);
     const [analysis, setAnalysis] = useState<ProductivityAnalysis | null>(null);
+    const [showResultAnimation, setShowResultAnimation] = useState(false);
 
 
     const formatDuration = (ms: number) => {
@@ -76,7 +78,7 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
             console.log('  Goals:', goalsText);
             console.log('  Activity Summary:', activitySummary);
 
-            const prompt = `User Goals:\n${goalsText}\n\nActivities Log (App - Title (Duration)):\n${activitySummary}\n\nAnalyze the user's productivity for the day based on their stated goals.\n\nIMPORTANT: Goals like "Coding", "Study", "Work", "Exercise", "Reading", "Learning" are VALID goals - they are common productivity objectives. Only reject goals if they are literal gibberish like "asdfgh", "aaaaa", or random keyboard mashes.\n\nProvide the output in STRICT JSON format:\n{\n  "rating": <number 1-10> (use string "NA" if invalid),\n  "verdict": "<productive|neutral|unproductive|NA>",\n  "explanation": "<2-3 sentence summary>",\n  "tips": ["<actionable advice 1>", "<actionable advice 2>", "<actionable advice 3>"],\n  "categorization": {\n    "productive": ["<app name 1>", ...],\n    "neutral": ["<app name 1>", ...],\n    "distracting": ["<app name 1>", ...]\n  }\n}\nDo not include any markdown formatting or text outside the JSON.`;
+            const prompt = `User Goals:\n${goalsText}\n\nActivities Log (App - Title (Duration)):\n${activitySummary}\n\nAnalyze the user's productivity for the day based on their stated goals.\n\nIMPORTANT: Goals like "Coding", "Study", "Work", "Exercise", "Reading", "Learning" are VALID goals - they are common productivity objectives. Only reject goals if they are literal gibberish like "asdfgh", "aaaaa", or random keyboard mashes.\n\nDISTINCTION GUIDANCE:\n- Prioritize ACTIVE work (e.g. IDEs like VS Code, LeetCode, writing documents ,) over PASSIVE consumption (e.g. YouTube tutorials, social media).\n- Watching coding tutorials on YouTube is OKAY but should be scored lower than actual coding practice. Entertainment YouTube is DISTRACTING unless "Relax" is a goal.\n- Be specific in your verdict justification.\n\nProvide the output in STRICT JSON format:\n{\n  "rating": <number 1-10> (use string "NA" if invalid),\n  "verdict": "<productive|neutral|unproductive|NA>",\n  "explanation": "<2-3 sentence summary>",\n  "tips": ["<actionable advice 1>", "<actionable advice 2>", "<actionable advice 3>"],\n  "categorization": {\n    "productive": ["<app name 1>", ...],\n    "neutral": ["<app name 1>", ...],\n    "distracting": ["<app name 1>", ...]\n  }\n}\nDo not include any markdown formatting or text outside the JSON.`;
 
             const completion = await engine.chat.completions.create({
                 messages: [
@@ -100,8 +102,8 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
             };
 
             setAnalysis(analysisResult);
-            setAnalysis(analysisResult);
             addRating(analysisResult);
+            setShowResultAnimation(true);
         } catch (error) {
             setAnalysis({
                 rating: 5,
@@ -259,6 +261,19 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
 
             {/* Historical Reports Section */}
             <HistoricalReports engine={engine} />
+
+            {showResultAnimation && analysis && (
+                <AnimationOverlay
+                    type={
+                        (typeof analysis.rating === 'number' && analysis.rating >= 8) ? 'rating-high' :
+                            (typeof analysis.rating === 'number' && analysis.rating >= 5) ? 'rating-mid' :
+                                'rating-low'
+                    }
+                    rating={typeof analysis.rating === 'number' ? analysis.rating : 0}
+                    goal={goals[0]}
+                    onComplete={() => setShowResultAnimation(false)}
+                />
+            )}
         </div>
     );
 };

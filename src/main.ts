@@ -67,6 +67,33 @@ async function getActivityDb() {
   activityDb.data ||= { activities: [], goals: [] };
   // Ensure goals array exists for migration
   if (!activityDb.data.goals) activityDb.data.goals = [];
+
+  // Streak Logic: If streak is missing for today, calculate it from yesterday
+  if (typeof activityDb.data.streak === 'undefined') {
+    try {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      const yesterdayFilePath = path.join(logsDir, `activity-${yesterdayStr}.json`);
+
+      await fs.access(yesterdayFilePath); // Check if yesterday's file exists
+
+      // Read yesterday's file manually to get the streak
+      const yesterdayAdapter = new JSONFile(yesterdayFilePath);
+      const yesterdayDb = new Low(yesterdayAdapter, { streak: 0 });
+      await yesterdayDb.read();
+
+      const prevStreak = (yesterdayDb.data as any)?.streak || 0;
+      activityDb.data.streak = prevStreak + 1;
+      logger.info(`[Streak] Incrementing streak to ${activityDb.data.streak}`);
+    } catch (e) {
+      // Yesterday's file doesn't exist or error reading it -> Streak broken/reset
+      activityDb.data.streak = 1;
+      logger.info(`[Streak] No activity yesterday (or error), resetting streak to 1`);
+    }
+    await activityDb.write();
+  }
+
   await activityDb.write();
 
   currentActivityDate = today;
@@ -93,6 +120,8 @@ async function initDB() {
       db.data.goals = [(db.data as any).goal];
     }
     db.data.goals ||= [];
+    db.data.ratings ||= [];
+
     db.data.ratings ||= [];
     await db.write();
 
@@ -136,6 +165,7 @@ const createWindow = () => {
     height: 900,
     show: false, // Don't show until content is painted
     backgroundColor: '#0a0e1a', // Match dark theme bg to prevent white flash
+    autoHideMenuBar: true, // Hide default menu bar (File, Edit, etc)
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -430,7 +460,8 @@ function registerIpcHandlers() {
         tasks: db.data.tasks,
         goals: todaysGoals,
         activities: currentActivityDb?.data?.activities || [],
-        ratings: db.data.ratings || []
+        ratings: db.data.ratings || [],
+        stats: { streak: currentActivityDb?.data?.streak || 1 }
       };
     } catch (e) {
       logger.error('Failed in get-tasks', e);

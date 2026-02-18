@@ -44,7 +44,7 @@ const AppContent = () => {
     const { addActivity, goals, setError, error } = useStore();
     const { isDark } = useTheme();
     const [currentView, setCurrentView] = useState('dashboard');
-    const [isSidebarOpen, setSidebarOpen] = useState(true);
+    const [isSidebarOpen, setSidebarOpen] = useState(false);
     const [showOnboarding, setShowOnboarding] = useState(true);
     const [showWelcome, setShowWelcome] = useState(false); // Loaded from DB
     const [isDataLoaded, setDataLoaded] = useState(false);

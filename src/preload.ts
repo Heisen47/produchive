@@ -28,4 +28,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Update checker
     checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+
+    // App settings
+    getSettings: () => ipcRenderer.invoke('get-settings'),
+    setSetting: (key: string, value: any) => ipcRenderer.invoke('set-setting', key, value),
 });

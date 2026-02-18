@@ -68,9 +68,11 @@ async function initDB() {
     logger.info(`Database file location: ${dbFilePath}`);
 
     const adapter = new JSONFile(dbFilePath);
-    db = new Low(adapter, { tasks: [], goals: [], ratings: [] });
+    db = new Low(adapter, { tasks: [], goals: [], ratings: [], settings: {} });
     await db.read();
-    db.data ||= { tasks: [], goals: [], ratings: [] };
+    db.data ||= { tasks: [], goals: [], ratings: [], settings: {} };
+    // Ensure settings object exists (migration)
+    db.data.settings ||= {};
     // Migration for old "goal" property if needed
     if (!db.data.goals && (db.data as any).goal) {
       db.data.goals = [(db.data as any).goal];
@@ -117,12 +119,15 @@ const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 900,
+    show: false, // Don't show until content is painted
+    backgroundColor: '#0a0e1a', // Match dark theme bg to prevent white flash
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
       partition: 'persist:main',
+      backgroundThrottling: false, // Prevent renderer suspension when hidden
     },
     icon: (() => {
       if (process.platform === 'darwin') {
@@ -139,6 +144,11 @@ const createWindow = () => {
           : path.join(__dirname, '../../resources/icon.png');
       }
     })(),
+  });
+
+  // Show window only after content is fully painted
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
   });
 
   // and load the index.html of the app.
@@ -168,6 +178,11 @@ const createWindow = () => {
       mainWindow?.hide();
       return false;
     }
+  });
+
+  // When restoring from tray, ensure content is visible before showing
+  mainWindow.on('show', () => {
+    mainWindow?.webContents.invalidate(); // Force repaint
   });
 };
 
@@ -617,6 +632,19 @@ function registerIpcHandlers() {
     }
   });
 
+  // App settings (persisted in DB)
+  ipcMain.handle('get-settings', async () => {
+    return db.data.settings || {};
+  });
+
+  ipcMain.handle('set-setting', async (_event, key: string, value: any) => {
+    db.data.settings ||= {};
+    db.data.settings[key] = value;
+    await db.write();
+    logger.info(`Setting updated: ${key} = ${JSON.stringify(value)}`);
+    return db.data.settings;
+  });
+
   logger.info('All IPC handlers registered successfully');
 }
 
@@ -645,7 +673,13 @@ app.on('ready', async () => {
       }
     })();
 
-    tray = new Tray(iconPath);
+    let trayIcon = nativeImage.createFromPath(iconPath);
+    if (process.platform === 'darwin') {
+      // Resize to proper menu-bar size (18×18 pt, macOS handles @2x automatically)
+      trayIcon = trayIcon.resize({ width: 18, height: 18 });
+      trayIcon.setTemplateImage(true); // Lets macOS tint for light/dark menu bar
+    }
+    tray = new Tray(trayIcon);
     tray.setToolTip('Produchive - Productivity Tracker');
 
     const contextMenu = Menu.buildFromTemplate([

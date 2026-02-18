@@ -131,27 +131,44 @@ const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, name, p
     );
 };
 
+import { TotoroBg } from './TotoroBg';
+import { NoFaceBg } from './NoFaceBg';
+import { CalciferBg } from './CalciferBg';
+
+// ... (other imports)
+
 // ─── Metric Card ───
-const MetricCard = ({ title, value, subtext, icon: Icon, delay = 0 }: any) => (
-    <div
-        className="glass-card rounded-2xl p-6 group cursor-default animate-fade-in-up"
-        style={{ animationDelay: `${delay}ms` }}
-    >
-        <div className="flex items-start justify-between mb-4">
-            <div
-                className="p-2.5 rounded-xl transition-all duration-300 group-hover:scale-110"
-                style={{ background: 'var(--accent-glow)', color: 'var(--accent)' }}
-            >
-                <Icon size={20} />
+const MetricCard = ({ title, value, subtext, icon: Icon, delay = 0 }: any) => {
+    let BgComponent = null;
+    if (title === 'Total Time' || title === 'Most Used App') BgComponent = TotoroBg;
+    if (title === 'Apps Tracked') BgComponent = NoFaceBg;
+    if (title === 'Avg AI Rating') BgComponent = CalciferBg;
+    
+    return (
+        <div
+            className="glass-card rounded-2xl p-6 group cursor-default animate-fade-in-up relative overflow-hidden"
+            style={{ animationDelay: `${delay}ms` }}
+        >
+            {BgComponent && <BgComponent className="opacity-30 dark:opacity-20 transition-opacity duration-500 group-hover:opacity-40 dark:group-hover:opacity-30" />}
+            
+            <div className="relative z-10">
+                <div className="flex items-start justify-between mb-4">
+                    <div
+                        className="p-2.5 rounded-xl transition-all duration-300 group-hover:scale-110"
+                        style={{ background: 'var(--accent-glow)', color: 'var(--accent)' }}
+                    >
+                        <Icon size={20} />
+                    </div>
+                </div>
+                <div>
+                    <h3 className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>{title}</h3>
+                    <p className="text-2xl font-display font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>{value}</p>
+                    {subtext && <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>{subtext}</p>}
+                </div>
             </div>
         </div>
-        <div>
-            <h3 className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>{title}</h3>
-            <p className="text-2xl font-display font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>{value}</p>
-            {subtext && <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>{subtext}</p>}
-        </div>
-    </div>
-);
+    );
+};
 
 // ─── Verdict color helpers ───
 const getVerdictColor = (verdict: string) => {

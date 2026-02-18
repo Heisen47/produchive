@@ -136,6 +136,7 @@ const createWindow = () => {
     height: 900,
     show: false, // Don't show until content is painted
     backgroundColor: '#0a0e1a', // Match dark theme bg to prevent white flash
+    autoHideMenuBar: true, // Hide default menu bar (File, Edit, etc)
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

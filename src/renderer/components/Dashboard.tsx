@@ -177,7 +177,34 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
     return (
         <div className="space-y-8">
 
-            <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>Welcome <span className="text-accent">Captain</span></h1>
+            <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                Welcome{' '}
+                <span className="relative inline-block">
+                    {/* Straw hat — floats above "Captain", tips up on hover */}
+                    <span
+                        className="straw-hat-tip absolute pointer-events-auto"
+                        style={{ left: '45px', top: '-20px', display: 'inline-block' }}
+                        title="🎩"
+                    >
+                        <svg viewBox="0 0 64 32" width="52" height="26" style={{ display: 'block', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.35))' }}>
+                            {/* Brim */}
+                            <ellipse cx="32" cy="22" rx="30" ry="8" fill="#c8860a" />
+                            <ellipse cx="32" cy="20" rx="30" ry="8" fill="#e8a020" />
+                            {/* Crown */}
+                            <ellipse cx="32" cy="14" rx="16" ry="12" fill="#e8a020" />
+                            <ellipse cx="32" cy="10" rx="14" ry="10" fill="#f0b030" />
+                            {/* Red band */}
+                            <ellipse cx="32" cy="20" rx="16" ry="4" fill="#dc2626" />
+                            <ellipse cx="32" cy="19" rx="16" ry="3.5" fill="#ef4444" />
+                            {/* Highlight */}
+                            <ellipse cx="26" cy="10" rx="5" ry="3" fill="#fcd34d" opacity="0.4" />
+                        </svg>
+                    </span>
+                    <span className="text-accent">Captain</span>
+                </span>
+                
+            </h1>
+            <span className="text-xs">Let's make <i>today</i> count together</span>
 
             {/* Metrics Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

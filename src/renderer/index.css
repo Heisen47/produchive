@@ -500,3 +500,53 @@ body {
   animation: catbus-bounce 0.5s ease-in-out;
   cursor: pointer;
 }
+
+/* ══════════════════════════════════════════
+   STRAW HAT CAP-TIP GREETING
+   ══════════════════════════════════════════ */
+
+@keyframes hat-tip {
+  0% {
+    transform: translateY(0) rotate(20deg);
+  }
+
+  30% {
+    transform: translateY(-16px) rotate(70deg);
+  }
+
+  55% {
+    transform: translateY(-12px) rotate(62deg);
+  }
+
+  80% {
+    transform: translateY(-4px) rotate(50deg);
+  }
+
+  100% {
+    transform: translateY(0) rotate(45deg);
+  }
+}
+
+/* Idle: gentle float */
+@keyframes hat-float {
+
+  0%,
+  100% {
+    transform: translateY(0px) rotate(45deg);
+  }
+
+  50% {
+    transform: translateY(-3px) rotate(45deg);
+  }
+}
+
+.straw-hat-tip {
+  animation: hat-float 3s ease-in-out infinite;
+  transform-origin: center bottom;
+  transform: translateX(-50%) rotate(45deg);
+  cursor: pointer;
+}
+
+.straw-hat-tip:hover {
+  animation: hat-tip 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}

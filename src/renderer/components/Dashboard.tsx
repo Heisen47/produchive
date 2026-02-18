@@ -152,6 +152,28 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
         }
     };
 
+    const [showHalo, setShowHalo] = React.useState(false);
+
+    React.useEffect(() => {
+        const START_TIME_KEY = 'app_start_timestamp';
+        let startTime = sessionStorage.getItem(START_TIME_KEY);
+        if (!startTime) {
+            startTime = Date.now().toString();
+            sessionStorage.setItem(START_TIME_KEY, startTime);
+        }
+        
+        const elapsed = Date.now() - parseInt(startTime);
+        if (elapsed < 60000) {
+            setShowHalo(true);
+            const timer = setTimeout(() => {
+                setShowHalo(false);
+            }, 60000 - elapsed);
+            return () => clearTimeout(timer);
+        }
+    }, []);
+
+    // ... existing code ...
+
     return (
         <div className="space-y-8">
             {/* Metrics Grid */}
@@ -179,8 +201,6 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                 />
             </div>
 
-
-
             {/* Activity Table */}
             <div className="glass-card-static rounded-2xl overflow-hidden relative">
                 <TotoroBusStopBg className="opacity-20 dark:opacity-20 translate-y-4" />
@@ -204,7 +224,9 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                         </button>
                         <button
                             onClick={handleToggleMonitoring}
-                            className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95"
+                            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95 ${
+                                !isMonitoring && showHalo ? 'ring-4 ring-emerald-500/50 shadow-[0_0_30px_rgba(74,222,128,0.5)] animate-pulse' : ''
+                            }`}
                             style={{
                                 background: isMonitoring ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)',
                                 color: isMonitoring ? '#f87171' : '#4ade80',

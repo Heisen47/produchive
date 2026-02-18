@@ -2,11 +2,12 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     PieChart, Pie, Cell, ResponsiveContainer,
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-    Legend,
+    Legend, LineChart, Line,
 } from 'recharts';
 import {
     Clock, Zap, Monitor, TrendingUp,
-    Hourglass, BarChart3, Loader2
+    Hourglass, BarChart3, Loader2, Brain,
+    Star, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
@@ -85,10 +86,33 @@ const CustomTooltip = ({ active, payload, label, isDark }: any) => {
                     <div className="w-2.5 h-2.5 rounded-full" style={{ background: entry.color || entry.payload?.fill }} />
                     <span style={{ color: 'var(--text-secondary)' }}>{entry.name}:</span>
                     <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
-                        {formatMinutes(entry.value)}
+                        {typeof entry.value === 'number' && entry.name !== 'Rating' ? formatMinutes(entry.value) : entry.value}
                     </span>
                 </div>
             ))}
+        </div>
+    );
+};
+
+// ─── Ratings Tooltip ───
+const RatingTooltip = ({ active, payload, label, isDark }: any) => {
+    if (!active || !payload?.length) return null;
+    const rating = payload[0];
+    return (
+        <div
+            className="rounded-xl p-3 text-sm shadow-lg"
+            style={{
+                background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                border: '1px solid var(--border-primary)',
+                backdropFilter: 'blur(12px)',
+            }}
+        >
+            {label && <p className="font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>{label}</p>}
+            <div className="flex items-center gap-2 py-0.5">
+                <Star size={12} fill={rating.value >= 7 ? '#4ade80' : rating.value >= 4 ? '#fbbf24' : '#f87171'} stroke="none" />
+                <span style={{ color: 'var(--text-secondary)' }}>Rating:</span>
+                <span className="font-bold" style={{ color: 'var(--text-primary)' }}>{rating.value}/10</span>
+            </div>
         </div>
     );
 };
@@ -129,15 +153,32 @@ const MetricCard = ({ title, value, subtext, icon: Icon, delay = 0 }: any) => (
     </div>
 );
 
+// ─── Verdict color helpers ───
+const getVerdictColor = (verdict: string) => {
+    switch (verdict) {
+        case 'productive': return '#4ade80';
+        case 'unproductive': return '#f87171';
+        case 'NA': return '#94a3b8';
+        default: return '#fbbf24';
+    }
+};
+
+const getRatingColor = (rating: number) => {
+    if (rating >= 7) return '#4ade80';
+    if (rating >= 4) return '#fbbf24';
+    return '#f87171';
+};
+
 // ═══════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════
 export const UsageCharts = () => {
-    const { activities } = useStore();
+    const { activities, ratings } = useStore();
     const { isDark } = useTheme();
     const [period, setPeriod] = useState<TimePeriod>('today');
     const [rangeData, setRangeData] = useState<Record<string, { activities: Activity[] }>>({});
     const [loading, setLoading] = useState(false);
+    const [expandedRating, setExpandedRating] = useState<number | null>(null);
 
     // ─── Fetch data for the selected period ───
     const fetchData = useCallback(async (p: TimePeriod) => {
@@ -158,6 +199,54 @@ export const UsageCharts = () => {
         fetchData(period);
     }, [period, fetchData]);
 
+    // ─── Filter ratings for the selected period ───
+    const filteredRatings = useMemo(() => {
+        const now = new Date();
+        let startTime: number;
+
+        if (period === 'today') {
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            startTime = todayStart.getTime();
+        } else if (period === 'yesterday') {
+            const yesterdayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+            const yesterdayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            return ratings
+                .filter((r: any) => r.timestamp >= yesterdayStart.getTime() && r.timestamp < yesterdayEnd.getTime())
+                .sort((a: any, b: any) => b.timestamp - a.timestamp);
+        } else if (period === '7days') {
+            const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
+            startTime = weekAgo.getTime();
+        } else {
+            const monthAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29);
+            startTime = monthAgo.getTime();
+        }
+
+        return ratings
+            .filter((r: any) => r.timestamp >= startTime)
+            .sort((a: any, b: any) => b.timestamp - a.timestamp);
+    }, [ratings, period]);
+
+    // ─── Ratings chart data (for line chart in 7/30 day views) ───
+    const ratingsChartData = useMemo(() => {
+        if (period !== '7days' && period !== '30days') return [];
+
+        // Group ratings by date, take average
+        const byDate: Record<string, number[]> = {};
+        filteredRatings.forEach((r: any) => {
+            if (typeof r.rating !== 'number') return;
+            const dateStr = new Date(r.timestamp).toISOString().split('T')[0];
+            if (!byDate[dateStr]) byDate[dateStr] = [];
+            byDate[dateStr].push(r.rating);
+        });
+
+        return Object.entries(byDate)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([dateStr, vals]) => ({
+                date: getShortDate(dateStr),
+                Rating: Math.round((vals.reduce((s, v) => s + v, 0) / vals.length) * 10) / 10,
+            }));
+    }, [filteredRatings, period]);
+
     // ─── Compute chart data ───
     const { pieData, barData, topApps, totalDuration, appCount } = useMemo(() => {
         let allActivities: Activity[] = [];
@@ -176,7 +265,6 @@ export const UsageCharts = () => {
         const topApps = aggregateActivities(allActivities);
         const totalDuration = topApps.reduce((sum, a) => sum + a.duration, 0);
 
-        // Pie data — top 8 apps + "Other"
         const topForPie = topApps.slice(0, 8);
         const otherDuration = topApps.slice(8).reduce((sum, a) => sum + a.duration, 0);
         const pieData = [
@@ -192,7 +280,6 @@ export const UsageCharts = () => {
             }] : []),
         ];
 
-        // Bar data — daily breakdown (only for 7days / 30days)
         let barData: any[] = [];
         if (period === '7days' || period === '30days') {
             const dates = Object.keys(rangeData).sort();
@@ -217,18 +304,15 @@ export const UsageCharts = () => {
             });
         }
 
-        return {
-            pieData,
-            barData,
-            topApps,
-            totalDuration,
-            appCount: topApps.length,
-        };
+        return { pieData, barData, topApps, totalDuration, appCount: topApps.length };
     }, [activities, rangeData, period]);
 
     const gridColor = isDark ? 'rgba(59, 130, 246, 0.08)' : 'rgba(168, 162, 158, 0.2)';
     const axisColor = isDark ? '#64748b' : '#a8a29e';
     const top5Names = topApps.slice(0, 5).map(a => a.name);
+    const avgRating = filteredRatings.length > 0
+        ? Math.round(filteredRatings.filter((r: any) => typeof r.rating === 'number').reduce((s: number, r: any) => s + r.rating, 0) / filteredRatings.filter((r: any) => typeof r.rating === 'number').length * 10) / 10
+        : null;
 
     return (
         <div className="space-y-8">
@@ -266,7 +350,7 @@ export const UsageCharts = () => {
             {!loading && (
                 <>
                     {/* Metric Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className={`grid grid-cols-1 gap-6 ${avgRating !== null ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
                         <MetricCard
                             title="Total Time"
                             value={formatDuration(totalDuration)}
@@ -284,10 +368,19 @@ export const UsageCharts = () => {
                         <MetricCard
                             title="Apps Tracked"
                             value={appCount}
-                            subtext={`Distinct applications`}
+                            subtext="Distinct applications"
                             icon={Monitor}
                             delay={200}
                         />
+                        {avgRating !== null && (
+                            <MetricCard
+                                title="Avg AI Rating"
+                                value={`${avgRating}/10`}
+                                subtext={`${filteredRatings.length} report${filteredRatings.length !== 1 ? 's' : ''}`}
+                                icon={Brain}
+                                delay={300}
+                            />
+                        )}
                     </div>
 
                     {/* Charts Row */}
@@ -333,7 +426,6 @@ export const UsageCharts = () => {
                                                 iconType="circle"
                                                 iconSize={8}
                                             />
-                                            {/* Center text overlay */}
                                             <text
                                                 x="50%" y="47%"
                                                 textAnchor="middle"
@@ -414,7 +506,6 @@ export const UsageCharts = () => {
                                     </div>
                                 </div>
                             ) : (
-                                /* Top Apps Ranked List */
                                 <div className="glass-card-static rounded-2xl p-6 animate-fade-in-up" style={{ animationDelay: '200ms' }}>
                                     <div className="flex items-center gap-2 mb-6">
                                         <TrendingUp size={20} style={{ color: '#8b5cf6' }} />
@@ -437,7 +528,6 @@ export const UsageCharts = () => {
                                                     (e.currentTarget as HTMLElement).style.transform = 'translateX(0)';
                                                 }}
                                             >
-                                                {/* Rank */}
                                                 <div
                                                     className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
                                                     style={{
@@ -447,7 +537,6 @@ export const UsageCharts = () => {
                                                 >
                                                     {idx + 1}
                                                 </div>
-                                                {/* App info */}
                                                 <div className="flex-1 min-w-0">
                                                     <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
                                                         {app.name}
@@ -462,7 +551,6 @@ export const UsageCharts = () => {
                                                         />
                                                     </div>
                                                 </div>
-                                                {/* Duration */}
                                                 <div className="text-right flex-shrink-0">
                                                     <span className="text-sm font-mono" style={{ color: 'var(--text-secondary)' }}>
                                                         {formatDuration(app.duration)}
@@ -478,7 +566,6 @@ export const UsageCharts = () => {
                             )}
                         </div>
                     ) : (
-                        /* Empty State */
                         <div className="glass-card-static rounded-2xl p-12 text-center animate-fade-in-up">
                             <div className="animate-float inline-block mb-4">
                                 <Hourglass size={48} style={{ color: 'var(--text-muted)', opacity: 0.4 }} />
@@ -489,6 +576,178 @@ export const UsageCharts = () => {
                             <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>
                                 Start monitoring from the Dashboard to begin tracking your app usage.
                             </p>
+                        </div>
+                    )}
+
+                    {/* ═══════════════════════════════════ */}
+                    {/* AI Ratings Section */}
+                    {/* ═══════════════════════════════════ */}
+                    {filteredRatings.length > 0 && (
+                        <div className="space-y-6 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
+                            {/* Ratings Trend Line Chart (7/30 days only) */}
+                            {ratingsChartData.length > 1 && (
+                                <div className="glass-card-static rounded-2xl p-6">
+                                    <div className="flex items-center gap-2 mb-6">
+                                        <Brain size={20} style={{ color: '#a855f7' }} />
+                                        <h3 className="font-display font-bold" style={{ color: 'var(--text-primary)' }}>
+                                            Productivity Rating Trend
+                                        </h3>
+                                    </div>
+                                    <div className="h-[200px]">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={ratingsChartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                                                <XAxis
+                                                    dataKey="date"
+                                                    tick={{ fill: axisColor, fontSize: 11 }}
+                                                    axisLine={{ stroke: gridColor }}
+                                                    tickLine={false}
+                                                />
+                                                <YAxis
+                                                    domain={[0, 10]}
+                                                    tick={{ fill: axisColor, fontSize: 11 }}
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                    ticks={[0, 2, 4, 6, 8, 10]}
+                                                />
+                                                <Tooltip content={<RatingTooltip isDark={isDark} />} />
+                                                <Line
+                                                    type="monotone"
+                                                    dataKey="Rating"
+                                                    stroke="#a855f7"
+                                                    strokeWidth={3}
+                                                    dot={{ fill: '#a855f7', strokeWidth: 2, r: 5, stroke: isDark ? '#0f172a' : '#fff' }}
+                                                    activeDot={{ r: 7, fill: '#a855f7', stroke: isDark ? '#0f172a' : '#fff', strokeWidth: 3 }}
+                                                    animationDuration={800}
+                                                />
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Past Ratings Cards */}
+                            <div className="glass-card-static rounded-2xl p-6">
+                                <div className="flex items-center gap-2 mb-6">
+                                    <Star size={20} style={{ color: '#f59e0b' }} />
+                                    <h3 className="font-display font-bold" style={{ color: 'var(--text-primary)' }}>
+                                        AI Reports
+                                    </h3>
+                                    <span className="text-xs px-2 py-0.5 rounded-full ml-auto" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
+                                        {filteredRatings.length} report{filteredRatings.length !== 1 ? 's' : ''}
+                                    </span>
+                                </div>
+                                <div className="space-y-3 overflow-y-auto custom-scrollbar" style={{ maxHeight: '400px' }}>
+                                    {filteredRatings.map((rating: any, idx: number) => {
+                                        const isExpanded = expandedRating === idx;
+                                        const ratingNum = typeof rating.rating === 'number' ? rating.rating : 0;
+                                        const ratingColor = getRatingColor(ratingNum);
+                                        const verdictColor = getVerdictColor(rating.verdict);
+
+                                        return (
+                                            <div
+                                                key={rating.id || idx}
+                                                className="rounded-xl overflow-hidden transition-all duration-300"
+                                                style={{
+                                                    background: 'var(--bg-elevated)',
+                                                    border: `1px solid ${isExpanded ? verdictColor + '40' : 'var(--border-secondary)'}`,
+                                                }}
+                                            >
+                                                {/* Collapsed header — always visible */}
+                                                <button
+                                                    onClick={() => setExpandedRating(isExpanded ? null : idx)}
+                                                    className="w-full flex items-center gap-3 p-4 text-left transition-all duration-200"
+                                                    onMouseEnter={(e) => {
+                                                        if (!isExpanded) (e.currentTarget.parentElement as HTMLElement).style.borderColor = 'var(--border-hover)';
+                                                    }}
+                                                    onMouseLeave={(e) => {
+                                                        if (!isExpanded) (e.currentTarget.parentElement as HTMLElement).style.borderColor = 'var(--border-secondary)';
+                                                    }}
+                                                >
+                                                    {/* Score badge */}
+                                                    <div
+                                                        className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0"
+                                                        style={{ background: ratingColor + '18', color: ratingColor }}
+                                                    >
+                                                        {typeof rating.rating === 'number' ? rating.rating : '—'}
+                                                    </div>
+
+                                                    {/* Info */}
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                            <span
+                                                                className="text-xs font-bold uppercase px-2 py-0.5 rounded-md"
+                                                                style={{ background: verdictColor + '18', color: verdictColor }}
+                                                            >
+                                                                {rating.verdict || 'N/A'}
+                                                            </span>
+                                                            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                                                {rating.timestampReadable || new Date(rating.timestamp).toLocaleString()}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-sm mt-1 truncate" style={{ color: 'var(--text-secondary)' }}>
+                                                            {rating.explanation}
+                                                        </p>
+                                                    </div>
+
+                                                    {/* Expand toggle */}
+                                                    <div className="flex-shrink-0" style={{ color: 'var(--text-muted)' }}>
+                                                        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                                    </div>
+                                                </button>
+
+                                                {/* Expanded details */}
+                                                {isExpanded && (
+                                                    <div className="px-4 pb-4 animate-fade-in-up" style={{ borderTop: '1px solid var(--border-secondary)' }}>
+                                                        {/* Explanation */}
+                                                        <p className="text-sm leading-relaxed py-3" style={{ color: 'var(--text-primary)' }}>
+                                                            "{rating.explanation}"
+                                                        </p>
+
+                                                        {/* Categorization */}
+                                                        {rating.categorization && (
+                                                            <div className="grid grid-cols-3 gap-2 mb-3">
+                                                                {[
+                                                                    { label: 'Productive', items: rating.categorization.productive, color: '#4ade80' },
+                                                                    { label: 'Neutral', items: rating.categorization.neutral, color: '#fbbf24' },
+                                                                    { label: 'Distracting', items: rating.categorization.distracting, color: '#f87171' },
+                                                                ].map((cat, i) => (
+                                                                    <div key={i} className="rounded-lg p-2.5" style={{ background: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)' }}>
+                                                                        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: cat.color }}>{cat.label}</span>
+                                                                        <div className="mt-1 space-y-0.5">
+                                                                            {cat.items?.length > 0
+                                                                                ? cat.items.map((app: string, j: number) => (
+                                                                                    <p key={j} className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>• {app}</p>
+                                                                                ))
+                                                                                : <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>None</p>
+                                                                            }
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Tips */}
+                                                        {rating.tips?.length > 0 && (
+                                                            <div className="rounded-lg p-3" style={{ background: isDark ? 'rgba(99,102,241,0.08)' : 'rgba(99,102,241,0.05)', border: '1px solid rgba(99,102,241,0.15)' }}>
+                                                                <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#818cf8' }}>Tips</span>
+                                                                <ul className="mt-1 space-y-1">
+                                                                    {rating.tips.map((tip: string, i: number) => (
+                                                                        <li key={i} className="text-xs flex items-start gap-1.5" style={{ color: isDark ? '#c7d2fe' : '#4338ca' }}>
+                                                                            <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: '#818cf8' }} />
+                                                                            {tip}
+                                                                        </li>
+                                                                    ))}
+                                                                </ul>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         </div>
                     )}
                 </>

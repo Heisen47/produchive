@@ -6,7 +6,7 @@ import {
     Sparkles,
     ArrowRight,
     X,
-    Rocket,
+    GraduationCap,
     Eye,
     Brain,
     ChevronLeft,
@@ -25,7 +25,7 @@ interface Step {
 
 const steps: Step[] = [
     {
-        icon: Rocket,
+        icon: GraduationCap,
         iconColor: '#3b82f6',
         iconBg: 'rgba(59, 130, 246, 0.12)',
         title: 'Welcome to Produchive',
@@ -276,7 +276,7 @@ export const WelcomeGuide: React.FC<WelcomeGuideProps> = ({ onClose }) => {
                             {isLast ? (
                                 <>
                                     Get Started
-                                    <Rocket size={16} />
+                                    <GraduationCap size={16} />
                                 </>
                             ) : (
                                 <>

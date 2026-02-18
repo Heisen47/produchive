@@ -53,6 +53,19 @@ declare global {
             saveGoals: (goals: string[]) => Promise<string[]>;
             saveRating: (rating: any) => Promise<any>;
             getRatingsByDate: (dateStr: string) => Promise<any[]>;
+            getActivityDataByDate: (dateStr: string) => Promise<any>;
+            getActivityDataRange: (startDate: string, endDate: string) => Promise<Record<string, { activities: Activity[] }>>;
+
+            // Auto-launch
+            getAutoLaunch: () => Promise<boolean>;
+            setAutoLaunch: (enabled: boolean) => Promise<boolean>;
+
+            // Update checker
+            checkForUpdates: () => Promise<any>;
+
+            // App settings
+            getSettings: () => Promise<Record<string, any>>;
+            setSetting: (key: string, value: any) => Promise<Record<string, any>>;
         }
     }
 }

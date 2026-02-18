@@ -20,6 +20,8 @@ const config = {
             './resources/icon.png',
             './resources/icon.ico',
             './resources/icon.icns',
+            './resources/trayIconTemplate.png',
+            './resources/trayIconTemplate@2x.png',
             './node_modules/active-win',
         ],
     },

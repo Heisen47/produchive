@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useCallback } from 'react';
 import {
     Clock,
     Activity as ActivityIcon,
@@ -18,41 +18,89 @@ const formatDuration = (seconds: number) => {
     return `${hrs}h ${mins % 60}m`;
 };
 
-// Metric Card Component
+// Interactive Metric Card with tilt + shimmer
 const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any) => {
     const { isDark } = useTheme();
+    const cardRef = useRef<HTMLDivElement>(null);
+    const shimmerRef = useRef<HTMLDivElement>(null);
+
+    const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        const card = cardRef.current;
+        if (!card) return;
+        const rect = card.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        // Tilt: max 6 degrees
+        const rotateX = ((y - centerY) / centerY) * -6;
+        const rotateY = ((x - centerX) / centerX) * 6;
+        card.style.transform = `perspective(600px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-4px) scale(1.02)`;
+
+        // Move shimmer highlight
+        if (shimmerRef.current) {
+            shimmerRef.current.style.background = `radial-gradient(300px circle at ${x}px ${y}px, var(--accent-glow), transparent 70%)`;
+        }
+    }, []);
+
+    const handleMouseLeave = useCallback(() => {
+        const card = cardRef.current;
+        if (card) {
+            card.style.transform = 'perspective(600px) rotateX(0) rotateY(0) translateY(0) scale(1)';
+        }
+        if (shimmerRef.current) {
+            shimmerRef.current.style.background = 'transparent';
+        }
+    }, []);
+
     return (
         <div
-            className="glass-card rounded-2xl p-6 group cursor-default animate-fade-in-up"
-            style={{ animationDelay: `${delay}ms` }}
+            ref={cardRef}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+            className="glass-card rounded-2xl p-6 cursor-default animate-fade-in-up relative overflow-hidden"
+            style={{
+                animationDelay: `${delay}ms`,
+                transition: 'transform 0.15s ease-out, box-shadow 0.3s ease',
+                willChange: 'transform',
+            }}
         >
-            <div className="flex items-start justify-between mb-4">
-                <div
-                    className="p-2.5 rounded-xl transition-all duration-300 group-hover:scale-110"
-                    style={{
-                        background: 'var(--accent-glow)',
-                        color: 'var(--accent)',
-                    }}
-                >
-                    <Icon size={20} />
-                </div>
-                {trend && (
-                    <div className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full"
+            {/* Shimmer overlay */}
+            <div
+                ref={shimmerRef}
+                className="absolute inset-0 pointer-events-none rounded-2xl transition-opacity duration-300"
+                style={{ opacity: 0.6 }}
+            />
+
+            <div className="relative z-10">
+                <div className="flex items-start justify-between mb-4">
+                    <div
+                        className="p-2.5 rounded-xl transition-all duration-300 group-hover:scale-110"
                         style={{
-                            color: '#4ade80',
-                            background: 'rgba(34, 197, 94, 0.1)',
-                            border: '1px solid rgba(34, 197, 94, 0.2)',
+                            background: 'var(--accent-glow)',
+                            color: 'var(--accent)',
                         }}
                     >
-                        <ArrowUpRight size={12} />
-                        {trend}
+                        <Icon size={20} />
                     </div>
-                )}
-            </div>
-            <div>
-                <h3 className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>{title}</h3>
-                <p className="text-2xl font-display font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>{value}</p>
-                {subtext && <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>{subtext}</p>}
+                    {trend && (
+                        <div className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full"
+                            style={{
+                                color: '#4ade80',
+                                background: 'rgba(34, 197, 94, 0.1)',
+                                border: '1px solid rgba(34, 197, 94, 0.2)',
+                            }}
+                        >
+                            <ArrowUpRight size={12} />
+                            {trend}
+                        </div>
+                    )}
+                </div>
+                <div>
+                    <h3 className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>{title}</h3>
+                    <p className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>{value}</p>
+                    {subtext && <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>{subtext}</p>}
+                </div>
             </div>
         </div>
     );
@@ -70,7 +118,6 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
         activities.forEach(act => {
             const duration = (act.duration ? act.duration / 1000 : 1);
             const appName = act.owner.name;
-
             appUsage[appName] = (appUsage[appName] || 0) + duration;
             appCounts[appName] = (appCounts[appName] || 0) + 1;
             totalDuration += duration;
@@ -80,12 +127,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
             .sort(([, a], [, b]) => b - a)
             .map(([name, duration]) => ({ name, duration, count: appCounts[name] }));
 
-        return {
-            totalDuration,
-            topApps: sortedApps,
-            mostUsed: sortedApps[0],
-            activeCount: activities.length
-        };
+        return { totalDuration, topApps: sortedApps, mostUsed: sortedApps[0], activeCount: activities.length };
     }, [activities]);
 
     const handleToggleMonitoring = async () => {
@@ -94,15 +136,13 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
             setMonitoring(false);
         } else {
             const success = await window.electronAPI.startMonitoring();
-            if (success) {
-                setMonitoring(true);
-            }
+            if (success) setMonitoring(true);
         }
     };
 
     return (
         <div className="space-y-8">
-            {/* Top Row: Metrics */}
+            {/* Metrics Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <MetricCard
                     title="Total Time Tracked"
@@ -116,28 +156,28 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     value={stats.mostUsed ? stats.mostUsed.name : '-'}
                     subtext={stats.mostUsed ? formatDuration(stats.mostUsed.duration) : 'No data'}
                     icon={Zap}
-                    delay={100}
+                    delay={80}
                 />
                 <MetricCard
                     title="Active Sessions"
                     value={stats.activeCount}
                     subtext="Distinct activities logged"
                     icon={ActivityIcon}
-                    delay={200}
+                    delay={160}
                 />
             </div>
 
-            {/* Main Section: Activity Feed / Table */}
+            {/* Activity Table */}
             <div className="glass-card-static rounded-2xl overflow-hidden">
                 <div className="p-6 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
                     <div>
-                        <h3 className="text-lg font-display font-bold" style={{ color: 'var(--text-primary)' }}>Activity Summary</h3>
+                        <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Activity Summary</h3>
                         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Aggregated usage by application</p>
                     </div>
                     <div className="flex gap-3">
                         <button
                             onClick={() => onNavigate && onNavigate('ai')}
-                            className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2 hover:scale-105"
+                            className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2 hover:scale-105 active:scale-95"
                             style={{
                                 background: 'rgba(147, 51, 234, 0.1)',
                                 color: '#c084fc',
@@ -149,7 +189,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                         </button>
                         <button
                             onClick={handleToggleMonitoring}
-                            className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105"
+                            className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95"
                             style={{
                                 background: isMonitoring ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)',
                                 color: isMonitoring ? '#f87171' : '#4ade80',
@@ -188,10 +228,9 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                                 onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)'; }}
                                 onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                             >
-                                {/* Application Info */}
                                 <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
                                     <div
-                                        className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0 rounded-xl flex items-center justify-center font-bold text-xs transition-all duration-300 group-hover:scale-110"
+                                        className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0 rounded-xl flex items-center justify-center font-bold text-xs transition-all duration-300 group-hover:scale-110 group-hover:rotate-3"
                                         style={{
                                             background: 'var(--accent-glow)',
                                             color: 'var(--accent)',
@@ -213,7 +252,6 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                                         </div>
                                     </div>
                                 </div>
-                                {/* Duration */}
                                 <div className="w-24 sm:w-32 flex-shrink-0 text-right">
                                     <span className="text-sm font-mono" style={{ color: 'var(--text-secondary)' }}>
                                         {formatDuration(app.duration)}
@@ -226,7 +264,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                         ))
                     ) : (
                         <div className="p-12 text-center animate-fade-in-up">
-                            <div className="animate-float inline-block mb-4">
+                            <div className="inline-block mb-4" style={{ animation: 'float 3s ease-in-out infinite' }}>
                                 <Hourglass size={40} style={{ color: 'var(--text-muted)', opacity: 0.4 }} />
                             </div>
                             <p className="font-medium" style={{ color: 'var(--text-secondary)' }}>No activity recorded today yet.</p>

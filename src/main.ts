@@ -99,9 +99,11 @@ async function initDB() {
     logger.info(`Database file location: ${dbFilePath}`);
 
     const adapter = new JSONFile(dbFilePath);
-    db = new Low(adapter, { tasks: [], goals: [], ratings: [] });
+    db = new Low(adapter, { tasks: [], goals: [], ratings: [], settings: {} });
     await db.read();
-    db.data ||= { tasks: [], goals: [], ratings: [] };
+    db.data ||= { tasks: [], goals: [], ratings: [], settings: {} };
+    // Ensure settings object exists (migration)
+    db.data.settings ||= {};
     // Migration for old "goal" property if needed
     if (!db.data.goals && (db.data as any).goal) {
       db.data.goals = [(db.data as any).goal];
@@ -148,12 +150,15 @@ const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 900,
+    show: false, // Don't show until content is painted
+    backgroundColor: '#0a0e1a', // Match dark theme bg to prevent white flash
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
       partition: 'persist:main',
+      backgroundThrottling: false, // Prevent renderer suspension when hidden
     },
     icon: (() => {
       if (process.platform === 'darwin') {
@@ -170,6 +175,11 @@ const createWindow = () => {
           : path.join(__dirname, '../../resources/icon.png');
       }
     })(),
+  });
+
+  // Show window only after content is fully painted
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
   });
 
   // and load the index.html of the app.
@@ -199,6 +209,11 @@ const createWindow = () => {
       mainWindow?.hide();
       return false;
     }
+  });
+
+  // When restoring from tray, ensure content is visible before showing
+  mainWindow.on('show', () => {
+    mainWindow?.webContents.invalidate(); // Force repaint
   });
 };
 
@@ -537,6 +552,42 @@ function registerIpcHandlers() {
     }
   });
 
+  // Get activity data for a range of dates (for charts)
+  ipcMain.handle('get-activity-data-range', async (event, startDate: string, endDate: string) => {
+    try {
+      const fs = await import('node:fs/promises');
+      const { Low } = await import('lowdb');
+      const { JSONFile } = await import('lowdb/node');
+      const logsDir = path.join(app.getPath('userData'), 'activity_logs');
+
+      const result: Record<string, { activities: any[] }> = {};
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0];
+        const filePath = path.join(logsDir, `activity-${dateStr}.json`);
+
+        try {
+          await fs.access(filePath);
+          const adapter = new JSONFile(filePath);
+          const dateDb = new Low(adapter, { activities: [], goals: [] });
+          await dateDb.read();
+          const data = dateDb.data as any;
+          result[dateStr] = { activities: data.activities || [] };
+        } catch {
+          result[dateStr] = { activities: [] };
+        }
+      }
+
+      logger.info(`[get-activity-data-range] Fetched ${Object.keys(result).length} days from ${startDate} to ${endDate}`);
+      return result;
+    } catch (e) {
+      logger.error(`[get-activity-data-range] Error:`, e);
+      return {};
+    }
+  });
+
   // Debug and system info handlers
   ipcMain.handle('get-system-info', async () => {
     let distro = 'unknown';
@@ -648,6 +699,19 @@ function registerIpcHandlers() {
     }
   });
 
+  // App settings (persisted in DB)
+  ipcMain.handle('get-settings', async () => {
+    return db.data.settings || {};
+  });
+
+  ipcMain.handle('set-setting', async (_event, key: string, value: any) => {
+    db.data.settings ||= {};
+    db.data.settings[key] = value;
+    await db.write();
+    logger.info(`Setting updated: ${key} = ${JSON.stringify(value)}`);
+    return db.data.settings;
+  });
+
   logger.info('All IPC handlers registered successfully');
 }
 
@@ -664,19 +728,23 @@ app.on('ready', async () => {
     createWindow();
 
     // 4. Create system tray
-    const iconPath = (() => {
-      if (process.platform === 'win32') {
-        return app.isPackaged
-          ? path.join(process.resourcesPath, 'icon.ico')
-          : path.join(__dirname, '../../resources/icon.ico');
-      } else {
-        return app.isPackaged
-          ? path.join(process.resourcesPath, 'icon.png')
-          : path.join(__dirname, '../../resources/icon.png');
-      }
-    })();
+    let trayIcon: Electron.NativeImage;
 
-    tray = new Tray(iconPath);
+    if (process.platform === 'darwin') {
+      // Use dedicated monochrome "P" tray icon for macOS menu bar
+      // The 'Template' suffix tells macOS to automatically tint for light/dark mode
+      const trayIconPath = app.isPackaged
+        ? path.join(process.resourcesPath, 'trayIconTemplate.png')
+        : path.join(__dirname, '../../resources/trayIconTemplate.png');
+      trayIcon = nativeImage.createFromPath(trayIconPath);
+      trayIcon.setTemplateImage(true);
+    } else {
+      const iconPath = process.platform === 'win32'
+        ? (app.isPackaged ? path.join(process.resourcesPath, 'icon.ico') : path.join(__dirname, '../../resources/icon.ico'))
+        : (app.isPackaged ? path.join(process.resourcesPath, 'icon.png') : path.join(__dirname, '../../resources/icon.png'));
+      trayIcon = nativeImage.createFromPath(iconPath);
+    }
+    tray = new Tray(trayIcon);
     tray.setToolTip('Produchive - Productivity Tracker');
 
     const contextMenu = Menu.buildFromTemplate([

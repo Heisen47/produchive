@@ -4,8 +4,10 @@ import { ActivityMonitor } from './components/ActivityMonitor';
 import { ProductivityJudge } from './components/ProductivityJudge';
 import { DebugPanel } from './components/DebugPanel';
 import { Dashboard } from './components/Dashboard';
+import { UsageCharts } from './components/UsageCharts';
 import { SystemLog } from './components/SystemLog';
 import { GoalOnboarding } from './components/GoalOnboarding';
+import { WelcomeGuide } from './components/WelcomeGuide';
 import { ErrorModal } from './components/ErrorModal';
 import { Navbar } from './components/Navbar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
@@ -16,6 +18,7 @@ import {
     Sparkles,
     XCircle,
     LayoutDashboard,
+    BarChart3,
     Activity,
     Brain
 } from 'lucide-react';
@@ -25,12 +28,14 @@ import { UpdateBanner } from './components/UpdateBanner';
 
 const viewIcons: Record<string, React.ElementType> = {
     dashboard: LayoutDashboard,
+    analytics: BarChart3,
     monitor: Activity,
     ai: Brain
 };
 
 const viewLabels: Record<string, string> = {
     dashboard: 'Dashboard',
+    analytics: 'Analytics',
     monitor: 'Live Monitor',
     ai: 'Goals & AI',
 };
@@ -41,6 +46,7 @@ const AppContent = () => {
     const [currentView, setCurrentView] = useState('dashboard');
     const [isSidebarOpen, setSidebarOpen] = useState(true);
     const [showOnboarding, setShowOnboarding] = useState(true);
+    const [showWelcome, setShowWelcome] = useState(false); // Loaded from DB
     const [isDataLoaded, setDataLoaded] = useState(false);
     const [viewKey, setViewKey] = useState(0);
 
@@ -64,6 +70,12 @@ const AppContent = () => {
                 }
 
                 await useStore.getState().loadTasks();
+
+                // Check welcome guide flag from DB
+                const settings = await window.electronAPI.getSettings();
+                if (!settings?.welcomeDismissed) {
+                    setShowWelcome(true);
+                }
             } catch (e: any) {
                 setError("Failed to load initial data: " + e.message);
             }
@@ -128,7 +140,8 @@ const AppContent = () => {
     return (
         <div className="h-screen w-screen flex overflow-hidden font-sans selection:bg-blue-500/30" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
             <ErrorModal />
-            {showOnboarding && <GoalOnboarding onClose={() => setShowOnboarding(false)} />}
+            {showWelcome && <WelcomeGuide onClose={() => setShowWelcome(false)} />}
+            {!showWelcome && showOnboarding && <GoalOnboarding onClose={() => setShowOnboarding(false)} />}
 
             {/* Sidebar */}
             <Navbar
@@ -215,6 +228,8 @@ const AppContent = () => {
                         {/* Views with animation */}
                         <div key={viewKey} className="animate-fade-in-up">
                             {currentView === 'dashboard' && <Dashboard onNavigate={handleViewChange} />}
+
+                            {currentView === 'analytics' && <UsageCharts />}
 
                             {currentView === 'monitor' && (
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

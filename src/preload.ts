@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveRating: (rating: any) => ipcRenderer.invoke('save-rating', rating),
     getRatingsByDate: (dateStr: string) => ipcRenderer.invoke('get-ratings-by-date', dateStr),
     getActivityDataByDate: (dateStr: string) => ipcRenderer.invoke('get-activity-data-by-date', dateStr),
+    getActivityDataRange: (startDate: string, endDate: string) => ipcRenderer.invoke('get-activity-data-range', startDate, endDate),
 
     // Auto-launch
     getAutoLaunch: () => ipcRenderer.invoke('get-auto-launch'),
@@ -28,4 +29,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
     // Update checker
     checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+
+    // App settings
+    getSettings: () => ipcRenderer.invoke('get-settings'),
+    setSetting: (key: string, value: any) => ipcRenderer.invoke('set-setting', key, value),
 });

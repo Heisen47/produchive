@@ -27,7 +27,7 @@ export const UpdateBanner: React.FC = () => {
         >
             <Info size={16} style={{ color: 'var(--accent-light)' }} />
             <span style={{ color: 'var(--text-secondary)' }}>
-                <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>v{updateInfo.version}</span> is available.
+                <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>A new version {updateInfo.version}</span> is available.
             </span>
             <a
                 href={updateInfo.url || '#'}

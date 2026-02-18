@@ -12,6 +12,7 @@ import { useTheme } from './ThemeProvider';
 import { TotoroBg } from './TotoroBg';
 import { NoFaceBg } from './NoFaceBg';
 import { SootSpriteBg } from './SootSpriteBg';
+import { TotoroBusStopBg } from './TotoroBusStopBg';
 
 // Helper for formatting duration
 const formatDuration = (seconds: number) => {
@@ -178,9 +179,12 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                 />
             </div>
 
+
+
             {/* Activity Table */}
-            <div className="glass-card-static rounded-2xl overflow-hidden">
-                <div className="p-6 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
+            <div className="glass-card-static rounded-2xl overflow-hidden relative">
+                <TotoroBusStopBg className="opacity-20 dark:opacity-20 translate-y-4" />
+                <div className="relative z-10 p-6 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
                     <div>
                         <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Activity Summary</h3>
                         <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Aggregated usage by application</p>

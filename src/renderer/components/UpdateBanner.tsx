@@ -15,7 +15,7 @@ export const UpdateBanner: React.FC = () => {
             .catch(() => {});
     }, []);
 
-    if (!updateInfo || dismissed) return null;
+    if (!updateInfo?.updateAvailable || dismissed) return null;
 
     return (
         <div

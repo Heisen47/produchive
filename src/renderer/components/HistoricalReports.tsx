@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, ChevronDown, ChevronUp, Loader2, AlertCircle, FileText } from 'lucide-react';
 import { generateCompletion } from '../lib/ai';
+import { useTheme } from './ThemeProvider';
 
 interface ProductivityAnalysis {
     rating: number | string;
@@ -30,6 +31,7 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
     const [error, setError] = useState<string | null>(null);
     const [dateGoals, setDateGoals] = useState<string[]>([]);
     const [dateActivities, setDateActivities] = useState<any[]>([]);
+    const { isDark } = useTheme();
 
     // Get today's date in YYYY-MM-DD format for max date
     const today = new Date().toISOString().split('T')[0];
@@ -88,7 +90,6 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
 
     const aggregateReports = async (reports: ProductivityAnalysis[], goals: string[] = [], activities: any[] = []) => {
         if (!engine) {
-            // Fallback: just average the ratings and use the last report's data
             const avgRating = Math.round(
                 reports.reduce((sum, r) => sum + (typeof r.rating === 'number' ? r.rating : 5), 0) / reports.length
             );
@@ -101,7 +102,6 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
         }
 
         try {
-            // Format activity summary
             const activitySummary = activities.length > 0
                 ? activities.map(a => `- ${a.owner?.name || 'Unknown'}: ${a.title} (${Math.round((a.duration || 0) / 60000)}m)`).join('\n')
                 : 'No activity data available';
@@ -110,38 +110,7 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
                 ? goals.map((g, i) => `${i + 1}. ${g}`).join('\n')
                 : 'No goals set for this day';
 
-            const aggregationPrompt = `Analyze this day's productivity based on the goals that were SET ON THAT DAY and the activities tracked.
-
-GOALS FOR THIS DAY:
-${goalsText}
-
-ACTIVITIES TRACKED:
-${activitySummary}
-
-PREVIOUS REPORTS FROM THIS DAY:
-${reports.map((r, i) => `
-Report ${i + 1}:
-- Rating: ${r.rating}/10
-- Verdict: ${r.verdict}
-- Explanation: ${r.explanation}
-`).join('\n')}
-
-Create a comprehensive daily summary. Rate the productivity based on how well the activities align with THE GOALS THAT WERE SET ON THIS SPECIFIC DAY.
-
-Provide JSON output:
-{
-  "rating": <number 1-10 based on goal achievement>,
-  "verdict": "<productive|neutral|unproductive>",
-  "explanation": "<2-3 sentence summary focusing on goal achievement and main accomplishments>",
-  "weaknesses": ["<weakness 1 that can be improved>", "<weakness 2>"],
-  "tips": ["<actionable tip 1>", "<actionable tip 2>", "<actionable tip 3>"],
-  "categorization": {
-    "productive": [<apps that helped with goals>],
-    "neutral": [<apps that were neither helpful nor distracting>],
-    "distracting": [<apps that took away from goal focus>]
-  }
-}
-Do not include any markdown formatting or text outside the JSON.`;
+            const aggregationPrompt = `Analyze this day's productivity based on the goals that were SET ON THAT DAY and the activities tracked.\n\nGOALS FOR THIS DAY:\n${goalsText}\n\nACTIVITIES TRACKED:\n${activitySummary}\n\nPREVIOUS REPORTS FROM THIS DAY:\n${reports.map((r, i) => `\nReport ${i + 1}:\n- Rating: ${r.rating}/10\n- Verdict: ${r.verdict}\n- Explanation: ${r.explanation}\n`).join('\n')}\n\nCreate a comprehensive daily summary. Rate the productivity based on how well the activities align with THE GOALS THAT WERE SET ON THIS SPECIFIC DAY.\n\nProvide JSON output:\n{\n  "rating": <number 1-10 based on goal achievement>,\n  "verdict": "<productive|neutral|unproductive>",\n  "explanation": "<2-3 sentence summary focusing on goal achievement and main accomplishments>",\n  "weaknesses": ["<weakness 1 that can be improved>", "<weakness 2>"],\n  "tips": ["<actionable tip 1>", "<actionable tip 2>", "<actionable tip 3>"],\n  "categorization": {\n    "productive": [<apps that helped with goals>],\n    "neutral": [<apps that were neither helpful nor distracting>],\n    "distracting": [<apps that took away from goal focus>]\n  }\n}\nDo not include any markdown formatting or text outside the JSON.`;
 
             const response = await generateCompletion(engine, [
                 { role: 'system', content: 'You are a productivity analyst. Analyze activities against the goals that were set on that specific day.' },
@@ -160,7 +129,6 @@ Do not include any markdown formatting or text outside the JSON.`;
             });
         } catch (err) {
             console.error('Aggregation failed:', err);
-            // Fallback to simple average
             const avgRating = Math.round(
                 reports.reduce((sum, r) => sum + (typeof r.rating === 'number' ? r.rating : 5), 0) / reports.length
             );
@@ -178,12 +146,20 @@ Do not include any markdown formatting or text outside the JSON.`;
         }
     }, [selectedDate]);
 
-    const getVerdictColor = (verdict: string) => {
+    const getVerdictStyle = (verdict: string) => {
         switch (verdict) {
-            case 'productive': return 'from-green-900/40 to-emerald-900/40 border-green-700/50';
-            case 'unproductive': return 'from-red-900/40 to-orange-900/40 border-red-700/50';
-            case 'NA': return 'from-gray-900/40 to-slate-900/40 border-gray-700/50';
-            default: return 'from-yellow-900/40 to-amber-900/40 border-yellow-700/50';
+            case 'productive': return {
+                bg: isDark ? 'linear-gradient(135deg, rgba(34,197,94,0.1), rgba(16,185,129,0.08))' : 'linear-gradient(135deg, rgba(34,197,94,0.06), rgba(16,185,129,0.04))',
+                border: 'rgba(34,197,94,0.3)',
+            };
+            case 'unproductive': return {
+                bg: isDark ? 'linear-gradient(135deg, rgba(239,68,68,0.1), rgba(249,115,22,0.08))' : 'linear-gradient(135deg, rgba(239,68,68,0.06), rgba(249,115,22,0.04))',
+                border: 'rgba(239,68,68,0.3)',
+            };
+            default: return {
+                bg: isDark ? 'linear-gradient(135deg, rgba(234,179,8,0.1), rgba(245,158,11,0.08))' : 'linear-gradient(135deg, rgba(234,179,8,0.06), rgba(245,158,11,0.04))',
+                border: 'rgba(234,179,8,0.3)',
+            };
         }
     };
 
@@ -197,112 +173,164 @@ Do not include any markdown formatting or text outside the JSON.`;
             {/* Toggle Button */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl hover:bg-gray-800 transition-all group"
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-300 group"
+                style={{
+                    background: 'var(--bg-elevated)',
+                    border: '1px solid var(--border-card)',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-hover)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-card)'; }}
             >
                 <div className="flex items-center gap-3">
-                    <Calendar size={20} className="text-gray-400 group-hover:text-purple-400 transition-colors" />
-                    <span className="font-medium text-gray-200">View Past Reports</span>
+                    <Calendar size={20} style={{ color: 'var(--text-muted)' }} className="group-hover:text-purple-400 transition-colors" />
+                    <span className="font-medium" style={{ color: 'var(--text-secondary)' }}>View Past Reports</span>
                 </div>
-                {isOpen ? (
-                    <ChevronUp size={20} className="text-gray-400" />
-                ) : (
-                    <ChevronDown size={20} className="text-gray-400" />
-                )}
+                <div style={{ color: 'var(--text-muted)' }}>
+                    {isOpen ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                </div>
             </button>
 
             {/* Expandable Content */}
             <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isOpen ? 'max-h-[800px] opacity-100 mt-4' : 'max-h-0 opacity-0'}`}>
                 {/* Date Picker */}
                 <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-400 mb-2">Select Date</label>
+                    <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-muted)' }}>Select Date</label>
                     <input
                         type="date"
                         value={selectedDate}
                         onChange={(e) => setSelectedDate(e.target.value)}
                         max={today}
-                        className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-xl text-gray-100 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all [color-scheme:dark]"
+                        className="w-full px-4 py-3 rounded-xl text-sm focus:outline-none transition-all duration-200 [color-scheme:dark]"
+                        style={{
+                            background: 'var(--bg-input)',
+                            border: '1px solid var(--border-input)',
+                            color: 'var(--text-primary)',
+                        }}
+                        onFocus={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 3px var(--accent-glow)'; }}
+                        onBlur={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-input)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
                     />
                 </div>
 
                 {/* Loading State */}
                 {loading && (
-                    <div className="flex items-center justify-center py-12 text-gray-400">
+                    <div className="flex items-center justify-center py-12" style={{ color: 'var(--text-muted)' }}>
                         <Loader2 size={24} className="animate-spin mr-3" />
                         <span>Loading reports...</span>
                     </div>
                 )}
 
-                {/* Aggregating State - LLM processing multiple reports */}
+                {/* Aggregating State */}
                 {isAggregating && !loading && (
-                    <div className="flex flex-col items-center justify-center py-12 text-gray-400 bg-gradient-to-b from-purple-900/20 to-indigo-900/20 rounded-xl border border-purple-700/30">
-                        <Loader2 size={32} className="animate-spin mb-4 text-purple-400" />
-                        <p className="text-lg font-medium text-gray-200">Generating Daily Summary...</p>
-                        <p className="text-sm text-gray-400 mt-2">Aggregating {reports.length} reports with AI</p>
+                    <div
+                        className="flex flex-col items-center justify-center py-12 rounded-xl"
+                        style={{
+                            background: isDark ? 'linear-gradient(135deg, rgba(147,51,234,0.1), rgba(99,102,241,0.08))' : 'linear-gradient(135deg, rgba(147,51,234,0.06), rgba(99,102,241,0.04))',
+                            border: '1px solid rgba(147,51,234,0.2)',
+                        }}
+                    >
+                        <Loader2 size={32} className="animate-spin mb-4" style={{ color: '#c084fc' }} />
+                        <p className="text-lg font-display font-medium" style={{ color: 'var(--text-primary)' }}>Generating Daily Summary...</p>
+                        <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>Aggregating {reports.length} reports with AI</p>
                     </div>
                 )}
 
                 {/* Error / No Data State */}
                 {error && !loading && !isAggregating && (
-                    <div className="flex flex-col items-center justify-center py-12 text-gray-400 bg-gray-900/50 rounded-xl border border-gray-800">
-                        <AlertCircle size={48} className="mb-4 text-gray-600" />
-                        <p className="text-lg font-medium text-gray-300">{error}</p>
-                        <p className="text-sm text-gray-500 mt-2">Try selecting a different date.</p>
+                    <div
+                        className="flex flex-col items-center justify-center py-12 rounded-xl"
+                        style={{
+                            background: 'var(--bg-elevated)',
+                            border: '1px solid var(--border-card)',
+                        }}
+                    >
+                        <AlertCircle size={48} className="mb-4" style={{ color: 'var(--text-muted)', opacity: 0.5 }} />
+                        <p className="text-lg font-medium" style={{ color: 'var(--text-secondary)' }}>{error}</p>
+                        <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>Try selecting a different date.</p>
                     </div>
                 )}
 
                 {/* Report Display */}
-                {aggregatedReport && !loading && !error && (
-                    <div className={`bg-gradient-to-b ${getVerdictColor(aggregatedReport.verdict)} border rounded-2xl p-6 animate-in fade-in slide-in-from-bottom-4 duration-500`}>
-                        {/* Header */}
-                        <div className="flex items-center justify-between mb-4 pb-4 border-b border-white/10">
-                            <div className="flex items-center gap-3">
-                                <FileText size={20} className="text-purple-400" />
-                                <div>
-                                    <h4 className="font-bold text-white">{formatDate(selectedDate)}</h4>
-                                    {reports.length > 1 && (
-                                        <p className="text-xs text-gray-400">Aggregated from {reports.length} reports</p>
-                                    )}
+                {aggregatedReport && !loading && !error && (() => {
+                    const style = getVerdictStyle(aggregatedReport.verdict);
+                    return (
+                        <div
+                            className="rounded-2xl p-6 animate-fade-in-up"
+                            style={{
+                                background: style.bg,
+                                border: `1px solid ${style.border}`,
+                                backdropFilter: 'blur(20px)',
+                            }}
+                        >
+                            {/* Header */}
+                            <div className="flex items-center justify-between mb-4 pb-4" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
+                                <div className="flex items-center gap-3">
+                                    <FileText size={20} style={{ color: '#c084fc' }} />
+                                    <div>
+                                        <h4 className="font-display font-bold" style={{ color: 'var(--text-primary)' }}>{formatDate(selectedDate)}</h4>
+                                        {reports.length > 1 && (
+                                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Aggregated from {reports.length} reports</p>
+                                        )}
+                                    </div>
+                                </div>
+                                <div
+                                    className="px-4 py-2 rounded-xl flex items-center justify-center text-lg font-bold"
+                                    style={{
+                                        background: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.6)',
+                                        color: 'var(--text-primary)',
+                                        border: '1px solid var(--border-primary)',
+                                    }}
+                                >
+                                    {typeof aggregatedReport.rating === 'number' ? `${aggregatedReport.rating}/10` : aggregatedReport.rating}
                                 </div>
                             </div>
-                            <div className={`px-4 py-2 rounded-xl flex items-center justify-center text-lg font-bold bg-black/40 text-white border border-white/10`}>
-                                {typeof aggregatedReport.rating === 'number' ? `${aggregatedReport.rating}/10` : aggregatedReport.rating}
+
+                            {/* Verdict */}
+                            <div className="mb-4">
+                                <span className="text-sm" style={{ color: 'var(--text-muted)' }}>Verdict: </span>
+                                <span className="font-bold capitalize" style={{ color: 'var(--text-primary)' }}>{aggregatedReport.verdict}</span>
                             </div>
+
+                            {/* Explanation */}
+                            <p className="leading-relaxed mb-6" style={{ color: 'var(--text-secondary)' }}>
+                                "{aggregatedReport.explanation}"
+                            </p>
+
+                            {/* Tips */}
+                            {aggregatedReport.tips && aggregatedReport.tips.length > 0 && (
+                                <div
+                                    className="rounded-xl p-4"
+                                    style={{
+                                        background: isDark ? 'rgba(37,99,235,0.1)' : 'rgba(37,99,235,0.06)',
+                                        border: '1px solid rgba(37,99,235,0.2)',
+                                    }}
+                                >
+                                    <h5 className="font-bold mb-2" style={{ color: '#93c5fd' }}>Tips from that day:</h5>
+                                    <ul className="space-y-1">
+                                        {aggregatedReport.tips.map((tip, i) => (
+                                            <li key={i} className="text-sm flex items-start gap-2" style={{ color: isDark ? '#dbeafe' : '#1e40af' }}>
+                                                <span className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--accent)' }} />
+                                                {tip}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
                         </div>
-
-                        {/* Verdict */}
-                        <div className="mb-4">
-                            <span className="text-sm text-gray-400">Verdict: </span>
-                            <span className="font-bold text-white capitalize">{aggregatedReport.verdict}</span>
-                        </div>
-
-                        {/* Explanation */}
-                        <p className="text-gray-200 leading-relaxed mb-6">
-                            "{aggregatedReport.explanation}"
-                        </p>
-
-                        {/* Tips */}
-                        {aggregatedReport.tips && aggregatedReport.tips.length > 0 && (
-                            <div className="bg-blue-900/20 rounded-xl p-4 border border-blue-500/20">
-                                <h5 className="text-blue-300 font-bold mb-2">Tips from that day:</h5>
-                                <ul className="space-y-1">
-                                    {aggregatedReport.tips.map((tip, i) => (
-                                        <li key={i} className="text-sm text-blue-100 flex items-start gap-2">
-                                            <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0" />
-                                            {tip}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )}
-                    </div>
-                )}
+                    );
+                })()}
 
                 {/* Prompt to select date */}
                 {!selectedDate && !loading && !error && (
-                    <div className="flex flex-col items-center justify-center py-12 text-gray-400 bg-gray-900/50 rounded-xl border border-gray-800">
-                        <Calendar size={48} className="mb-4 text-gray-600" />
-                        <p className="text-lg font-medium text-gray-300">Select a date to view reports</p>
-                        <p className="text-sm text-gray-500 mt-2">Use the date picker above to browse your history.</p>
+                    <div
+                        className="flex flex-col items-center justify-center py-12 rounded-xl animate-fade-in-up"
+                        style={{
+                            background: 'var(--bg-elevated)',
+                            border: '1px solid var(--border-card)',
+                        }}
+                    >
+                        <Calendar size={48} className="mb-4 animate-float" style={{ color: 'var(--text-muted)', opacity: 0.5 }} />
+                        <p className="text-lg font-display font-medium" style={{ color: 'var(--text-secondary)' }}>Select a date to view reports</p>
+                        <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>Use the date picker above to browse your history.</p>
                     </div>
                 )}
             </div>

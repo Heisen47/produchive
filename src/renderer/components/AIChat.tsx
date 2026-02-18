@@ -1,143 +1,158 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { initEngine } from '../lib/ai';
-import { Bot, Send, Loader2, Sparkles, AlertTriangle } from 'lucide-react';
-import { useStore } from '../lib/store';
+import { Send, Bot, User, Loader2, MessageCircle } from 'lucide-react';
+import { useTheme } from './ThemeProvider';
 
-export const AIChat = () => {
-    const [engine, setEngine] = useState<any>(null);
-    const [messages, setMessages] = useState<{ role: string, content: string }[]>([]);
+interface Message {
+    role: 'user' | 'assistant';
+    content: string;
+}
+
+interface AIChatProps {
+    engine: any;
+}
+
+export const AIChat: React.FC<AIChatProps> = ({ engine }) => {
+    const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [progress, setProgress] = useState<string>('');
-    const [error, setError] = useState<string>('');
-    const tasks = useStore(state => state.tasks);
-    const chatEndRef = useRef<HTMLDivElement>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const { isDark } = useTheme();
 
-    const startEngine = async () => {
-        setLoading(true);
-        setError('');
-        try {
-            const eng = await initEngine((progress: any) => {
-                setProgress(progress.text);
-            });
-            setEngine(eng);
-            setLoading(false);
-        } catch (err: any) {
-            console.error(err);
-            setError(err.message || "Failed to initialize AI");
-            setLoading(false);
+    useEffect(() => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
-    };
+    }, [messages]);
 
-    const handleSend = async () => {
-        if (!input.trim() || !engine) return;
+    const sendMessage = async () => {
+        if (!input.trim() || !engine || isLoading) return;
 
-        const userMsg = { role: 'user', content: input };
-        const newMessages = [...messages, userMsg];
-        setMessages(newMessages);
+        const userMessage: Message = { role: 'user', content: input.trim() };
+        setMessages(prev => [...prev, userMessage]);
         setInput('');
-
-        // Contextualize with tasks
-        const context = `Given my current tasks: ${JSON.stringify(tasks.map(t => ({ text: t.text, done: t.completed })))}. `;
+        setIsLoading(true);
 
         try {
-            const tempMessages = [...newMessages, { role: 'assistant', content: '...' }];
-            // Update UI immediately
-            setMessages(tempMessages);
-
             const completion = await engine.chat.completions.create({
                 messages: [
-                    { role: "system", content: "You are a productivity coach. Be concise, motivating, and helpful." },
-                    ...newMessages.map(m => m.role === 'user' ? { ...m, content: context + m.content } : m)
+                    { role: 'system', content: 'You are a helpful productivity coach. Keep responses concise and actionable.' },
+                    ...messages.map(m => ({ role: m.role, content: m.content })),
+                    { role: 'user', content: input.trim() }
                 ],
+                temperature: 0.7,
             });
 
-            const reply = completion.choices[0]?.message?.content || "";
-            // Replace '...' with reply
-            setMessages([...newMessages, { role: 'assistant', content: reply }]);
+            const responseText = completion.choices[0]?.message?.content || "I couldn't generate a response.";
+            setMessages(prev => [...prev, { role: 'assistant', content: responseText }]);
         } catch (err) {
-            console.error(err);
-            setMessages(prev => [...prev.slice(0, prev.length - 1), { role: 'assistant', content: "Sorry, I encountered an error generating a response." }]);
+            setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
+        } finally {
+            setIsLoading(false);
         }
     };
-
-    // Auto-scroll
-    useEffect(() => {
-        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
 
     if (!engine) {
         return (
-            <div className="flex flex-col items-center justify-center h-full p-6 text-center text-white">
-                <div className="bg-gray-800 p-4 rounded-full mb-4">
-                    <Bot size={48} className="text-blue-400" />
+            <div className="glass-card-static rounded-2xl p-8 text-center animate-fade-in-up">
+                <div className="p-4 rounded-full inline-block mb-4 animate-float" style={{ background: 'var(--bg-elevated)' }}>
+                    <MessageCircle size={32} style={{ color: 'var(--text-muted)' }} />
                 </div>
-                <h3 className="text-xl font-bold mb-2">AI Productivity Coach</h3>
-                <p className="text-gray-400 mb-6 max-w-xs">
-                    Analyze your tasks privacy-first. The model runs locally on your device.
-                </p>
-                {loading ? (
-                    <div className="w-full max-w-md">
-                        <div className="flex items-center justify-center gap-2 text-blue-400 mb-2">
-                            <Loader2 size={20} className="animate-spin" />
-                            <span>Loading Model...</span>
-                        </div>
-                        <p className="text-xs text-gray-500 font-mono truncate">{progress}</p>
-                    </div>
-                ) : (
-                    <button
-                        onClick={startEngine}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold transition-all flex items-center gap-2 cursor-pointer"
-                    >
-                        <Sparkles size={20} />
-                        Activate AI Coach
-                    </button>
-                )}
-                {error && (
-                    <div className="mt-4 p-3 bg-red-900/50 border border-red-700 rounded-lg flex items-center gap-2 text-red-200 text-sm">
-                        <AlertTriangle size={16} />
-                        {error}
-                    </div>
-                )}
+                <h3 className="font-display font-bold text-lg mb-2" style={{ color: 'var(--text-secondary)' }}>AI Chat Unavailable</h3>
+                <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Activate the AI engine first to use the productivity coach.</p>
             </div>
         );
     }
 
     return (
-        <div className="flex flex-col h-full bg-gray-900/50 rounded-2xl overflow-hidden border border-gray-800">
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="glass-card-static rounded-2xl overflow-hidden flex flex-col h-[500px] animate-fade-in-up">
+            {/* Header */}
+            <div className="px-4 py-3 flex items-center gap-3" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
+                <Bot size={20} style={{ color: 'var(--accent)' }} />
+                <h3 className="font-display font-bold" style={{ color: 'var(--text-primary)' }}>AI Coach</h3>
+                <div className="ml-auto flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Online</span>
+                </div>
+            </div>
+
+            {/* Messages */}
+            <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
                 {messages.length === 0 && (
-                    <div className="text-center text-gray-500 mt-10">
-                        <p>Ask me to analyze your tasks or for productivity tips!</p>
+                    <div className="flex flex-col items-center justify-center h-full text-center animate-fade-in">
+                        <Bot size={48} style={{ color: 'var(--text-muted)', opacity: 0.3 }} className="mb-4" />
+                        <p className="font-medium" style={{ color: 'var(--text-secondary)' }}>Start a conversation</p>
+                        <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Ask about productivity tips, time management, or goal setting.</p>
                     </div>
                 )}
-                {messages.map((m, i) => (
-                    <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${m.role === 'user'
-                                ? 'bg-blue-600 text-white rounded-br-none'
-                                : 'bg-gray-800 text-gray-200 rounded-bl-none'
-                            }`}>
-                            {m.content}
+                {messages.map((msg, idx) => (
+                    <div key={idx} className={`flex gap-3 animate-fade-in-up ${msg.role === 'user' ? 'justify-end' : ''}`}>
+                        {msg.role === 'assistant' && (
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(99,102,241,0.15)' }}>
+                                <Bot size={14} style={{ color: '#818cf8' }} />
+                            </div>
+                        )}
+                        <div
+                            className="max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed"
+                            style={{
+                                background: msg.role === 'user'
+                                    ? 'linear-gradient(135deg, var(--accent), var(--accent-dark))'
+                                    : 'var(--bg-elevated)',
+                                color: msg.role === 'user' ? '#fff' : 'var(--text-secondary)',
+                                border: msg.role === 'user' ? 'none' : '1px solid var(--border-secondary)',
+                            }}
+                        >
+                            {msg.content}
                         </div>
+                        {msg.role === 'user' && (
+                            <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'var(--accent-glow)' }}>
+                                <User size={14} style={{ color: 'var(--accent)' }} />
+                            </div>
+                        )}
                     </div>
                 ))}
-                <div ref={chatEndRef} />
+                {isLoading && (
+                    <div className="flex gap-3 animate-fade-in">
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.15)' }}>
+                            <Bot size={14} style={{ color: '#818cf8' }} />
+                        </div>
+                        <div className="px-4 py-3 rounded-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-secondary)' }}>
+                            <Loader2 size={16} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
+                        </div>
+                    </div>
+                )}
             </div>
-            <div className="p-3 bg-gray-800 border-t border-gray-700 flex gap-2">
-                <input
-                    className="flex-1 bg-gray-900 border border-gray-700 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500 placeholder:text-gray-500"
-                    placeholder="Ask AI..."
-                    value={input}
-                    onChange={e => setInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && handleSend()}
-                />
-                <button
-                    onClick={handleSend}
-                    disabled={!input.trim()}
-                    className="p-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
-                >
-                    <Send size={20} />
-                </button>
+
+            {/* Input */}
+            <div className="p-3" style={{ borderTop: '1px solid var(--border-secondary)' }}>
+                <div className="flex gap-2">
+                    <input
+                        type="text"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                        placeholder="Ask your AI coach..."
+                        className="flex-1 rounded-xl px-4 py-2.5 text-sm focus:outline-none transition-all duration-200"
+                        style={{
+                            background: 'var(--bg-input)',
+                            border: '1px solid var(--border-input)',
+                            color: 'var(--text-primary)',
+                        }}
+                        onFocus={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 0 0 3px var(--accent-glow)'; }}
+                        onBlur={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-input)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
+                    />
+                    <button
+                        onClick={sendMessage}
+                        disabled={!input.trim() || isLoading}
+                        className="p-2.5 rounded-xl disabled:opacity-40 transition-all duration-200 hover:scale-105"
+                        style={{
+                            background: 'linear-gradient(135deg, var(--accent), var(--accent-dark))',
+                            color: '#fff',
+                            boxShadow: input.trim() ? '0 4px 12px var(--accent-glow)' : 'none',
+                        }}
+                    >
+                        <Send size={18} />
+                    </button>
+                </div>
             </div>
         </div>
     );

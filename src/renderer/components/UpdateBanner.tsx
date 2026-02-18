@@ -1,59 +1,54 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRight, X, RefreshCw } from 'lucide-react';
-
-interface UpdateInfo {
-    updateAvailable: boolean;
-    latestVersion?: string;
-    currentVersion: string;
-    releaseUrl?: string;
-}
+import { Info, ExternalLink, X } from 'lucide-react';
+import { useTheme } from './ThemeProvider';
 
 export const UpdateBanner: React.FC = () => {
-    const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+    const [updateInfo, setUpdateInfo] = useState<any>(null);
     const [dismissed, setDismissed] = useState(false);
+    const { isDark } = useTheme();
 
     useEffect(() => {
-        const check = async () => {
-            try {
-                const info = await (window as any).electronAPI.checkForUpdates();
-                if (info?.updateAvailable) {
-                    setUpdateInfo(info);
-                }
-            } catch {
-                // Silently fail — no banner shown
-            }
-        };
-        check();
+        (window as any).electronAPI?.checkForUpdates?.()
+            .then((info: any) => {
+                if (info) setUpdateInfo(info);
+            })
+            .catch(() => {});
     }, []);
 
-    if (!updateInfo?.updateAvailable || dismissed) return null;
+    if (!updateInfo || dismissed) return null;
 
     return (
-        <div className="bg-indigo-600/20 border border-indigo-500/30 text-indigo-200 px-4 py-2.5 flex items-center justify-between text-sm rounded-lg mx-8 mt-4">
-            <div className="flex items-center gap-2">
-                <RefreshCw size={14} className="text-indigo-400" />
-                <span>
-                    A new version <strong className="text-white">v{updateInfo.latestVersion}</strong> is available!
-                    <span className="text-indigo-400 ml-1">(current: v{updateInfo.currentVersion})</span>
-                </span>
-            </div>
-            <div className="flex items-center gap-2">
-                <a
-                    href={updateInfo.releaseUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-md font-medium transition-colors"
-                >
-                    Download
-                    <ArrowUpRight size={14} />
-                </a>
-                <button
-                    onClick={() => setDismissed(true)}
-                    className="p-1 text-indigo-400 hover:text-white transition-colors rounded"
-                >
-                    <X size={16} />
-                </button>
-            </div>
+        <div
+            className="px-4 py-2.5 flex items-center gap-3 text-sm animate-fade-in"
+            style={{
+                background: isDark ? 'linear-gradient(90deg, rgba(37,99,235,0.15), rgba(99,102,241,0.1))' : 'linear-gradient(90deg, rgba(37,99,235,0.08), rgba(99,102,241,0.05))',
+                borderBottom: '1px solid rgba(37,99,235,0.2)',
+            }}
+        >
+            <Info size={16} style={{ color: 'var(--accent-light)' }} />
+            <span style={{ color: 'var(--text-secondary)' }}>
+                <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>v{updateInfo.version}</span> is available.
+            </span>
+            <a
+                href={updateInfo.url || '#'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 font-semibold transition-colors"
+                style={{ color: 'var(--accent)' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--accent-light)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--accent)'; }}
+            >
+                Download <ExternalLink size={12} />
+            </a>
+            <button
+                onClick={() => setDismissed(true)}
+                className="ml-auto p-1 rounded transition-colors"
+                style={{ color: 'var(--text-muted)' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'; }}
+            >
+                <X size={14} />
+            </button>
         </div>
     );
 };

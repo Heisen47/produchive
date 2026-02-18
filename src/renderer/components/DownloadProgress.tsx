@@ -1,116 +1,108 @@
-import React, { useEffect, useState } from 'react';
-import { Download, Loader2, Cpu, CheckCircle2 } from 'lucide-react';
+import React from 'react';
+import { Download, Cpu, Zap, Loader2 } from 'lucide-react';
+import { useTheme } from './ThemeProvider';
 
 interface DownloadProgressProps {
-    progress: {
-        text: string;
-        progress?: number; 
-        timeElapsed?: number;
-        loaded?: number;
-        total?: number;
-    };
+    progress: { text: string; progress?: number };
 }
 
 export const DownloadProgress: React.FC<DownloadProgressProps> = ({ progress }) => {
-    const [startTime] = useState<number>(Date.now());
-    const [estimatedTime, setEstimatedTime] = useState<string>('Calculating...');
+    const { isDark } = useTheme();
+    const pct = typeof progress.progress === 'number' ? Math.round(progress.progress * 100) : null;
 
-    const percentage = progress.progress !== undefined
-        ? Math.round(progress.progress * 100)
-        : null;
+    // Detect stage from text
+    const isDownloading = progress.text.toLowerCase().includes('download');
+    const isCompiling = progress.text.toLowerCase().includes('compil');
 
-    // Calculate estimated time remaining
-    useEffect(() => {
-        if (percentage !== null && percentage > 0) {
-            const elapsed = (Date.now() - startTime) / 1000; // seconds
-            const rate = percentage / elapsed; // % per second
-            const remaining = (100 - percentage) / rate;
-
-            if (remaining < 60) {
-                setEstimatedTime(`~${Math.round(remaining)}s remaining`);
-            } else if (remaining < 3600) {
-                setEstimatedTime(`~${Math.round(remaining / 60)}m remaining`);
-            } else {
-                setEstimatedTime(`~${Math.round(remaining / 3600)}h remaining`);
-            }
-        }
-    }, [percentage, startTime]);
-
-    // Detect phase from text
-    const isDownloading = progress.text?.toLowerCase().includes('loading') ||
-        progress.text?.toLowerCase().includes('fetch') ||
-        progress.text?.toLowerCase().includes('download');
-    const isCompiling = progress.text?.toLowerCase().includes('shader') ||
-        progress.text?.toLowerCase().includes('compil');
-    const isInitializing = progress.text?.toLowerCase().includes('initializ');
-
-    const getPhaseIcon = () => {
-        if (isCompiling) return <Cpu size={20} className="text-purple-400" />;
-        if (isDownloading) return <Download size={20} className="text-blue-400" />;
-        return <Loader2 size={20} className="animate-spin text-blue-400" />;
-    };
-
-    const getPhaseColor = () => {
-        if (isCompiling) return 'from-purple-600 to-indigo-600';
-        return 'from-blue-600 to-cyan-600';
-    };
-
-    const getBackgroundColor = () => {
-        if (isCompiling) return 'bg-purple-900/20 border-purple-800/50';
-        return 'bg-blue-900/20 border-blue-800/50';
-    };
+    const stageIcon = isCompiling ? <Cpu size={20} /> : isDownloading ? <Download size={20} /> : <Zap size={20} />;
+    const stageColor = isCompiling ? '#f472b6' : isDownloading ? '#60a5fa' : '#4ade80';
 
     return (
-        <div className={`${getBackgroundColor()} border rounded-xl p-5 space-y-4`}>
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    {getPhaseIcon()}
-                    <div>
-                        <h4 className="font-semibold text-gray-100">
-                            {isCompiling ? 'Compiling Shaders' : isDownloading ? 'Downloading Model' : 'Initializing AI'}
-                        </h4>
-                        <p className="text-sm text-gray-400">{progress.text || 'Please wait...'}</p>
-                    </div>
+        <div
+            className="rounded-2xl p-6 animate-fade-in-up glass-card-static"
+            style={{
+                borderColor: `${stageColor}33`,
+            }}
+        >
+            <div className="flex items-center gap-4 mb-4">
+                <div
+                    className="p-2.5 rounded-xl"
+                    style={{ background: `${stageColor}15`, color: stageColor }}
+                >
+                    {stageIcon}
                 </div>
-                {percentage !== null && (
-                    <div className="text-right">
-                        <span className="text-2xl font-bold text-gray-100">{percentage}%</span>
-                        <p className="text-xs text-gray-500">{estimatedTime}</p>
-                    </div>
+                <div className="flex-1">
+                    <h4 className="font-display font-bold" style={{ color: 'var(--text-primary)' }}>
+                        {isCompiling ? 'Compiling Model' : isDownloading ? 'Downloading Model' : 'Initializing AI'}
+                    </h4>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{progress.text}</p>
+                </div>
+                {pct !== null && (
+                    <span className="text-xl font-display font-bold" style={{ color: stageColor }}>
+                        {pct}%
+                    </span>
                 )}
             </div>
 
-            {/* Progress Bar */}
-            {percentage !== null && (
-                <div className="space-y-2">
-                    <div className="h-3 w-full bg-gray-800 rounded-full overflow-hidden">
+            {/* Progress Track */}
+            <div
+                className="h-2 w-full rounded-full overflow-hidden relative"
+                style={{ background: isDark ? 'rgba(30,41,59,0.5)' : 'rgba(168,162,158,0.2)' }}
+            >
+                {pct !== null ? (
+                    <div
+                        className="h-full rounded-full transition-all duration-700 ease-out relative overflow-hidden"
+                        style={{
+                            width: `${pct}%`,
+                            background: `linear-gradient(90deg, ${stageColor}, ${stageColor}aa)`,
+                            boxShadow: `0 0 20px ${stageColor}40`,
+                        }}
+                    >
+                        {/* Shimmer effect */}
                         <div
-                            className={`h-full bg-gradient-to-r ${getPhaseColor()} transition-all duration-300 ease-out`}
-                            style={{ width: `${percentage}%` }}
-                        >
-                            <div className="h-full w-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-pulse" />
-                        </div>
+                            className="absolute inset-0 animate-shimmer"
+                            style={{
+                                background: `linear-gradient(90deg, transparent, ${stageColor}30, transparent)`,
+                            }}
+                        />
                     </div>
-                </div>
-            )}
+                ) : (
+                    <div
+                        className="h-full rounded-full animate-pulse"
+                        style={{ width: '40%', background: stageColor, opacity: 0.4 }}
+                    />
+                )}
+            </div>
 
             {/* Stage Indicators */}
-            <div className="flex items-center justify-between text-xs text-gray-500 pt-2">
-                <div className={`flex items-center gap-1.5 ${isDownloading || isCompiling ? 'text-green-400' : 'text-gray-500'}`}>
-                    <CheckCircle2 size={12} className={isDownloading || isCompiling ? '' : 'opacity-30'} />
-                    <span>Initialize</span>
-                </div>
-                <div className="h-px flex-1 mx-2 bg-gray-700" />
-                <div className={`flex items-center gap-1.5 ${isDownloading ? 'text-blue-400' : isCompiling ? 'text-green-400' : 'text-gray-500'}`}>
-                    <Download size={12} className={isDownloading ? 'animate-pulse' : isCompiling ? '' : 'opacity-30'} />
-                    <span>Download</span>
-                </div>
-                <div className="h-px flex-1 mx-2 bg-gray-700" />
-                <div className={`flex items-center gap-1.5 ${isCompiling ? 'text-purple-400' : 'text-gray-500'}`}>
-                    <Cpu size={12} className={isCompiling ? 'animate-pulse' : 'opacity-30'} />
-                    <span>Compile</span>
-                </div>
+            <div className="flex justify-between mt-3">
+                {['Initialize', 'Download', 'Compile'].map((stage, i) => {
+                    const isActive = (i === 0 && !isDownloading && !isCompiling) ||
+                                     (i === 1 && isDownloading && !isCompiling) ||
+                                     (i === 2 && isCompiling);
+                    const isPast = (i === 0 && (isDownloading || isCompiling)) ||
+                                   (i === 1 && isCompiling);
+                    return (
+                        <div key={stage} className="flex items-center gap-1.5">
+                            <div
+                                className="w-2 h-2 rounded-full transition-all duration-300"
+                                style={{
+                                    background: isActive ? stageColor : isPast ? stageColor : 'var(--text-muted)',
+                                    opacity: isActive || isPast ? 1 : 0.3,
+                                    boxShadow: isActive ? `0 0 8px ${stageColor}60` : 'none',
+                                }}
+                            />
+                            <span
+                                className="text-xs font-medium"
+                                style={{
+                                    color: isActive ? stageColor : isPast ? 'var(--text-secondary)' : 'var(--text-muted)',
+                                }}
+                            >
+                                {stage}
+                            </span>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );

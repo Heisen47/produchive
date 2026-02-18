@@ -1,49 +1,63 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useStore } from '../lib/store';
 import { Check, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
+import { useTheme } from './ThemeProvider';
 
-export const TaskList = () => {
-    const { tasks, loadTasks, toggleTask, deleteTask } = useStore();
+export const TaskList: React.FC = () => {
+    const { tasks, toggleTask, deleteTask } = useStore();
+    const { isDark } = useTheme();
 
-    useEffect(() => {
-        loadTasks();
-    }, []);
-
-    if (tasks.length === 0) {
-        return (
-            <div className="text-center text-gray-500 py-10">
-                <p>No tasks yet. Start planning your productivity!</p>
-            </div>
-        );
-    }
+    if (tasks.length === 0) return null;
 
     return (
-        <div className="flex flex-col gap-3 mt-6 text-white text-base">
-            {tasks.map((task) => (
+        <div className="space-y-2">
+            {tasks.map((task, idx) => (
                 <div
                     key={task.id}
-                    className="flex items-center justify-between bg-gray-800/50 p-4 rounded-xl border border-gray-700/50 hover:border-gray-600 transition-all group"
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group animate-fade-in-up"
+                    style={{
+                        background: 'var(--bg-elevated)',
+                        border: '1px solid var(--border-secondary)',
+                        animationDelay: `${idx * 50}ms`,
+                        opacity: task.completed ? 0.6 : 1,
+                    }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-hover)'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-secondary)'; }}
                 >
-                    <div className="flex items-center gap-3 flex-1">
-                        <button
-                            onClick={() => toggleTask(task.id)}
-                            className={clsx(
-                                "p-1 rounded-full border-2 transition-colors cursor-pointer",
-                                task.completed ? "bg-green-500 border-green-500 text-black" : "border-gray-500 hover:border-green-500 text-transparent"
-                            )}
-                        >
-                            <Check size={14} className={clsx(task.completed ? "opacity-100" : "opacity-0")} />
-                        </button>
-                        <span className={clsx("text-lg transition-all", task.completed ? "text-gray-500 line-through" : "text-gray-200")}>
-                            {task.text}
-                        </span>
-                    </div>
+                    {/* Checkbox */}
+                    <button
+                        onClick={() => toggleTask(task.id)}
+                        className="w-5 h-5 rounded-md flex items-center justify-center transition-all duration-200 shrink-0"
+                        style={{
+                            background: task.completed ? 'var(--accent)' : 'transparent',
+                            border: task.completed ? '1px solid var(--accent)' : '1px solid var(--border-input)',
+                            color: task.completed ? '#fff' : 'transparent',
+                        }}
+                    >
+                        {task.completed && <Check size={12} />}
+                    </button>
+
+                    {/* Text */}
+                    <span
+                        className={clsx(
+                            'flex-1 text-sm transition-all duration-200',
+                            task.completed && 'line-through'
+                        )}
+                        style={{ color: task.completed ? 'var(--text-muted)' : 'var(--text-primary)' }}
+                    >
+                        {task.text}
+                    </span>
+
+                    {/* Delete */}
                     <button
                         onClick={() => deleteTask(task.id)}
-                        className="text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all p-2 cursor-pointer"
+                        className="p-1.5 rounded-lg opacity-100 sm:opacity-0 group-hover:opacity-100 transition-all duration-200"
+                        style={{ color: 'var(--text-muted)' }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = '#f87171'; (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.1)'; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'; (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
                     >
-                        <Trash2 size={18} />
+                        <Trash2 size={14} />
                     </button>
                 </div>
             ))}

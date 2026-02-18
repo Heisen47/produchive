@@ -7,6 +7,7 @@ import {
     Hourglass
 } from 'lucide-react';
 import { useStore } from '../lib/store';
+import { useTheme } from './ThemeProvider';
 
 // Helper for formatting duration
 const formatDuration = (seconds: number) => {
@@ -18,29 +19,48 @@ const formatDuration = (seconds: number) => {
 };
 
 // Metric Card Component
-const MetricCard = ({ title, value, subtext, icon: Icon, trend }: any) => (
-    <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 transition-all hover:border-gray-700">
-        <div className="flex items-start justify-between mb-4">
-            <div className="p-2.5 rounded-lg bg-gray-800/50 text-gray-400">
-                <Icon size={20} />
-            </div>
-            {trend && (
-                <div className="flex items-center gap-1 text-xs font-medium text-green-400 bg-green-900/20 px-2 py-1 rounded-full border border-green-900/50">
-                    <ArrowUpRight size={12} />
-                    {trend}
+const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any) => {
+    const { isDark } = useTheme();
+    return (
+        <div
+            className="glass-card rounded-2xl p-6 group cursor-default animate-fade-in-up"
+            style={{ animationDelay: `${delay}ms` }}
+        >
+            <div className="flex items-start justify-between mb-4">
+                <div
+                    className="p-2.5 rounded-xl transition-all duration-300 group-hover:scale-110"
+                    style={{
+                        background: 'var(--accent-glow)',
+                        color: 'var(--accent)',
+                    }}
+                >
+                    <Icon size={20} />
                 </div>
-            )}
+                {trend && (
+                    <div className="flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full"
+                        style={{
+                            color: '#4ade80',
+                            background: 'rgba(34, 197, 94, 0.1)',
+                            border: '1px solid rgba(34, 197, 94, 0.2)',
+                        }}
+                    >
+                        <ArrowUpRight size={12} />
+                        {trend}
+                    </div>
+                )}
+            </div>
+            <div>
+                <h3 className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>{title}</h3>
+                <p className="text-2xl font-display font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>{value}</p>
+                {subtext && <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>{subtext}</p>}
+            </div>
         </div>
-        <div>
-            <h3 className="text-sm font-medium text-gray-400 mb-1">{title}</h3>
-            <p className="text-2xl font-bold text-gray-100 tracking-tight">{value}</p>
-            {subtext && <p className="text-xs text-gray-500 mt-2">{subtext}</p>}
-        </div>
-    </div>
-);
+    );
+};
 
 export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
     const { activities, isMonitoring, setMonitoring } = useStore();
+    const { isDark } = useTheme();
 
     const stats = useMemo(() => {
         const appUsage: Record<string, number> = {};
@@ -89,42 +109,52 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     value={formatDuration(stats.totalDuration)}
                     subtext="Today's activity"
                     icon={Clock}
+                    delay={0}
                 />
                 <MetricCard
                     title="Most Used App"
                     value={stats.mostUsed ? stats.mostUsed.name : '-'}
                     subtext={stats.mostUsed ? formatDuration(stats.mostUsed.duration) : 'No data'}
                     icon={Zap}
+                    delay={100}
                 />
                 <MetricCard
                     title="Active Sessions"
                     value={stats.activeCount}
                     subtext="Distinct activities logged"
-                    icon={ActivityIcon} 
+                    icon={ActivityIcon}
+                    delay={200}
                 />
             </div>
 
             {/* Main Section: Activity Feed / Table */}
-            <div className="bg-gray-900/50 border border-gray-800 rounded-xl overflow-hidden">
-                <div className="p-6 border-b border-gray-800 flex items-center justify-between">
+            <div className="glass-card-static rounded-2xl overflow-hidden">
+                <div className="p-6 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
                     <div>
-                        <h3 className="text-lg font-bold text-gray-100">Activity Summary</h3>
-                        <p className="text-sm text-gray-400">Aggregated usage by application</p>
+                        <h3 className="text-lg font-display font-bold" style={{ color: 'var(--text-primary)' }}>Activity Summary</h3>
+                        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Aggregated usage by application</p>
                     </div>
                     <div className="flex gap-3">
                         <button
                             onClick={() => onNavigate && onNavigate('ai')}
-                            className="px-4 py-2 bg-purple-600/10 text-purple-400 hover:bg-purple-600/20 border border-purple-600/50 rounded-lg text-sm font-medium transition-all flex items-center gap-2"
+                            className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2 hover:scale-105"
+                            style={{
+                                background: 'rgba(147, 51, 234, 0.1)',
+                                color: '#c084fc',
+                                border: '1px solid rgba(147, 51, 234, 0.2)',
+                            }}
                         >
                             <Zap size={16} />
                             Analyze with AI
                         </button>
                         <button
                             onClick={handleToggleMonitoring}
-                            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${isMonitoring
-                                    ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/50'
-                                    : 'bg-green-500/10 text-green-400 hover:bg-green-500/20 border border-green-500/50'
-                                }`}
+                            className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105"
+                            style={{
+                                background: isMonitoring ? 'rgba(239, 68, 68, 0.1)' : 'rgba(34, 197, 94, 0.1)',
+                                color: isMonitoring ? '#f87171' : '#4ade80',
+                                border: `1px solid ${isMonitoring ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)'}`,
+                            }}
                         >
                             {isMonitoring ? 'Stop Monitoring' : 'Start Monitoring'}
                         </button>
@@ -132,47 +162,75 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                 </div>
 
                 {/* Table Header */}
-                <div className="flex items-center justify-between px-4 sm:px-6 py-3 bg-gray-900/80 border-b border-gray-800 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <div
+                    className="flex items-center justify-between px-4 sm:px-6 py-3 text-xs font-semibold uppercase tracking-wider"
+                    style={{
+                        background: isDark ? 'rgba(15,23,42,0.5)' : 'rgba(237,232,223,0.5)',
+                        color: 'var(--text-muted)',
+                        borderBottom: '1px solid var(--border-secondary)',
+                    }}
+                >
                     <div className="flex-1">Application</div>
                     <div className="w-24 sm:w-32 text-right">Duration</div>
                 </div>
 
                 {/* Table Body */}
-                <div className="divide-y divide-gray-800/50">
+                <div>
                     {stats.topApps.length > 0 ? (
                         stats.topApps.map((app, idx) => (
-                            <div key={idx} className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 hover:bg-gray-800/30 transition-colors group">
+                            <div
+                                key={idx}
+                                className="flex items-center justify-between px-4 sm:px-6 py-3 sm:py-4 transition-all duration-200 group animate-fade-in-up"
+                                style={{
+                                    borderBottom: '1px solid var(--border-secondary)',
+                                    animationDelay: `${idx * 50}ms`,
+                                }}
+                                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)'; }}
+                                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                            >
                                 {/* Application Info */}
                                 <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
-                                    <div className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0 rounded-lg bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-400 font-bold text-xs">
+                                    <div
+                                        className="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0 rounded-xl flex items-center justify-center font-bold text-xs transition-all duration-300 group-hover:scale-110"
+                                        style={{
+                                            background: 'var(--accent-glow)',
+                                            color: 'var(--accent)',
+                                            border: '1px solid var(--border-primary)',
+                                        }}
+                                    >
                                         {app.name.charAt(0).toUpperCase()}
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                        <p className="text-sm font-medium text-gray-200 truncate">{app.name}</p>
-                                        <div className="h-1 w-full max-w-[120px] bg-gray-800 rounded-full mt-1 overflow-hidden">
+                                        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{app.name}</p>
+                                        <div className="h-1 w-full max-w-[120px] rounded-full mt-1 overflow-hidden" style={{ background: isDark ? 'rgba(30,41,59,0.5)' : 'rgba(168,162,158,0.2)' }}>
                                             <div
-                                                className="h-full bg-blue-500/60 rounded-full"
-                                                style={{ width: `${Math.min(100, (app.duration / Math.max(stats.totalDuration, 1)) * 100)}%` }}
+                                                className="h-full rounded-full transition-all duration-1000 ease-out"
+                                                style={{
+                                                    width: `${Math.min(100, (app.duration / Math.max(stats.totalDuration, 1)) * 100)}%`,
+                                                    background: 'linear-gradient(90deg, var(--accent), var(--accent-light))',
+                                                }}
                                             />
                                         </div>
                                     </div>
                                 </div>
                                 {/* Duration */}
                                 <div className="w-24 sm:w-32 flex-shrink-0 text-right">
-                                    <span className="text-sm text-gray-300 font-mono">
+                                    <span className="text-sm font-mono" style={{ color: 'var(--text-secondary)' }}>
                                         {formatDuration(app.duration)}
                                     </span>
-                                    <span className="text-xs text-gray-600 group-hover:text-gray-500 transition-colors ml-1 sm:ml-2">
+                                    <span className="text-xs ml-1 sm:ml-2 transition-colors" style={{ color: 'var(--text-muted)' }}>
                                         {((app.duration / Math.max(stats.totalDuration, 1)) * 100).toFixed(0)}%
                                     </span>
                                 </div>
                             </div>
                         ))
                     ) : (
-                        <div className="p-8 text-center text-gray-500">
-                            <Hourglass size={32} className="mx-auto mb-3 opacity-50" />
-                            <p>No activity recorded today yet.</p>
-                            <p className="text-xs mt-1">Start monitoring to track your work.</p>
+                        <div className="p-12 text-center animate-fade-in-up">
+                            <div className="animate-float inline-block mb-4">
+                                <Hourglass size={40} style={{ color: 'var(--text-muted)', opacity: 0.4 }} />
+                            </div>
+                            <p className="font-medium" style={{ color: 'var(--text-secondary)' }}>No activity recorded today yet.</p>
+                            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Start monitoring to track your work.</p>
                         </div>
                     )}
                 </div>

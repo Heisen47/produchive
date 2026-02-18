@@ -8,6 +8,7 @@ import { SystemLog } from './components/SystemLog';
 import { GoalOnboarding } from './components/GoalOnboarding';
 import { ErrorModal } from './components/ErrorModal';
 import { Navbar } from './components/Navbar';
+import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { initEngine } from './lib/ai';
 import { useStore } from './lib/store';
 import {
@@ -28,13 +29,26 @@ const viewIcons: Record<string, React.ElementType> = {
     ai: Brain
 };
 
+const viewLabels: Record<string, string> = {
+    dashboard: 'Dashboard',
+    monitor: 'Live Monitor',
+    ai: 'Goals & AI',
+};
 
-const App = () => {
+const AppContent = () => {
     const { addActivity, goals, setError, error } = useStore();
+    const { isDark } = useTheme();
     const [currentView, setCurrentView] = useState('dashboard');
     const [isSidebarOpen, setSidebarOpen] = useState(true);
     const [showOnboarding, setShowOnboarding] = useState(true);
     const [isDataLoaded, setDataLoaded] = useState(false);
+    const [viewKey, setViewKey] = useState(0);
+
+    // Animate on view change
+    const handleViewChange = (view: string) => {
+        setCurrentView(view);
+        setViewKey(prev => prev + 1);
+    };
 
     // Listen for activity updates
     useEffect(() => {
@@ -97,62 +111,93 @@ const App = () => {
 
     if (!isDataLoaded) {
         return (
-            <div className="h-screen w-screen bg-gray-950 flex items-center justify-center">
-                <div className="flex flex-col items-center gap-4">
-                    <Loader2 size={32} className="animate-spin text-blue-500" />
-                    <p className="text-gray-400 font-medium">Loading your workspace...</p>
+            <div className="h-screen w-screen flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
+                <div className="flex flex-col items-center gap-4 animate-fade-in-up">
+                    <div className="relative">
+                        <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'var(--accent-glow)' }}>
+                            <Loader2 size={24} className="animate-spin" style={{ color: 'var(--accent)' }} />
+                        </div>
+                        <div className="absolute inset-0 rounded-2xl animate-glow-pulse" />
+                    </div>
+                    <p className="font-medium" style={{ color: 'var(--text-secondary)' }}>Loading your workspace...</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="h-screen w-screen bg-gray-950 text-gray-100 flex overflow-hidden font-sans selection:bg-blue-500/30">
+        <div className="h-screen w-screen flex overflow-hidden font-sans selection:bg-blue-500/30" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
             <ErrorModal />
             {showOnboarding && <GoalOnboarding onClose={() => setShowOnboarding(false)} />}
 
             {/* Sidebar */}
             <Navbar
                 currentView={currentView}
-                setCurrentView={setCurrentView}
+                setCurrentView={handleViewChange}
                 isSidebarOpen={isSidebarOpen}
                 setSidebarOpen={setSidebarOpen}
                 isAIActive={!!engine}
             />
 
             {/* Main Content */}
-            <main className="flex-1 flex flex-col min-w-0 bg-gray-950 relative">
+            <main className="flex-1 flex flex-col min-w-0 relative" style={{ background: 'var(--bg-primary)' }}>
                 <UpdateBanner />
+
                 {/* Header */}
-                <header className="h-16 border-b border-gray-800 flex items-center justify-between px-8 bg-gray-950/50 backdrop-blur-sm sticky top-0 z-10">
+                <header
+                    className="h-16 flex items-center justify-between px-8 sticky top-0 z-10"
+                    style={{
+                        background: isDark ? 'rgba(10, 14, 26, 0.8)' : 'rgba(245, 240, 232, 0.8)',
+                        backdropFilter: 'blur(20px)',
+                        borderBottom: '1px solid var(--border-secondary)',
+                    }}
+                >
                     <div className="flex items-center gap-3">
                         {(() => {
                             const Icon = viewIcons[currentView];
-                            return Icon ? <Icon size={22} className="text-blue-400" /> : null;
+                            return Icon ? <Icon size={22} style={{ color: 'var(--accent)' }} /> : null;
                         })()}
-                        <h2 className="text-xl font-semibold capitalize">{currentView}</h2>
-
+                        <h2 className="text-xl font-display font-semibold" style={{ color: 'var(--text-primary)' }}>
+                            {viewLabels[currentView] || currentView}
+                        </h2>
                     </div>
                     <div className="flex items-center gap-4">
                         {loading ? (
                             <button
                                 onClick={cancelEngine}
-                                className="text-sm bg-red-900/20 hover:bg-red-900/40 text-red-400 border border-red-900/50 px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2"
+                                className="text-sm px-4 py-2 rounded-xl font-medium transition-all duration-300 flex items-center gap-2 hover:scale-105"
+                                style={{
+                                    background: 'rgba(239, 68, 68, 0.1)',
+                                    color: '#f87171',
+                                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                                }}
                             >
                                 <XCircle size={16} />
                                 Stop
                             </button>
                         ) : engine ? (
-                            <div className="flex items-center gap-2 text-sm text-green-400 bg-green-900/20 border border-green-800/50 px-3 py-1.5 rounded-lg">
+                            <div
+                                className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-xl"
+                                style={{
+                                    background: 'rgba(34, 197, 94, 0.1)',
+                                    color: '#4ade80',
+                                    border: '1px solid rgba(34, 197, 94, 0.2)',
+                                }}
+                            >
                                 <Sparkles size={14} />
                                 <span className="font-medium">{modelName.split('-')[0]}</span>
                             </div>
                         ) : (
                             <button
                                 onClick={startEngine}
-                                className="text-sm bg-gray-800 hover:bg-gray-700 text-gray-200 px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 disabled:opacity-50"
+                                className="text-sm px-4 py-2 rounded-xl font-medium transition-all duration-300 flex items-center gap-2 glow-ring hover:scale-105"
+                                style={{
+                                    background: 'var(--bg-elevated)',
+                                    color: 'var(--text-primary)',
+                                    border: '1px solid var(--border-primary)',
+                                }}
                             >
-                                <Sparkles size={16} />
+                                <Sparkles size={16} style={{ color: 'var(--accent)' }} />
                                 Activate AI
                             </button>
                         )}
@@ -167,24 +212,26 @@ const App = () => {
                             <DownloadProgress progress={progress} />
                         )}
 
-                        {/* Views */}
-                        {currentView === 'dashboard' && <Dashboard onNavigate={setCurrentView} />}
+                        {/* Views with animation */}
+                        <div key={viewKey} className="animate-fade-in-up">
+                            {currentView === 'dashboard' && <Dashboard onNavigate={handleViewChange} />}
 
-                        {currentView === 'monitor' && (
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                <SystemLog />
-                                <ActivityMonitor />
-                            </div>
-                        )}
+                            {currentView === 'monitor' && (
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    <SystemLog />
+                                    <ActivityMonitor />
+                                </div>
+                            )}
 
-                        {currentView === 'ai' && (
-                            <div className="space-y-6">
-                                <GoalSetter />
-                                <ProductivityJudge engine={engine} />
-                            </div>
-                        )}
+                            {currentView === 'ai' && (
+                                <div className="space-y-6">
+                                    <GoalSetter />
+                                    <ProductivityJudge engine={engine} />
+                                </div>
+                            )}
+                        </div>
 
-                        <div className="space-y-6 pt-8 border-t border-gray-800">
+                        <div className="space-y-6 pt-8" style={{ borderTop: '1px solid var(--border-secondary)' }}>
                             <DebugPanel />
                         </div>
                     </div>
@@ -192,6 +239,14 @@ const App = () => {
                 <Footer />
             </main>
         </div>
+    );
+};
+
+const App = () => {
+    return (
+        <ThemeProvider>
+            <AppContent />
+        </ThemeProvider>
     );
 };
 

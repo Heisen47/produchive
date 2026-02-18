@@ -1,186 +1,130 @@
-import React, { useState, useEffect } from 'react';
-import { Bug, FolderOpen, FileText, Database, Info, Copy, Check } from 'lucide-react';
-import type { SystemInfo } from '../global';
+import React, { useState } from 'react';
+import { Bug, ChevronDown, ChevronUp, HardDrive, FolderOpen, FileText, Database, Settings } from 'lucide-react';
+import { useTheme } from './ThemeProvider';
 
-export const DebugPanel = () => {
-    const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
-    const [dbContents, setDbContents] = useState<any>(null);
-    const [copied, setCopied] = useState<string | null>(null);
+export const DebugPanel: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
-
-    useEffect(() => {
-        if (isOpen) {
-            loadSystemInfo();
-        }
-    }, [isOpen]);
+    const [systemInfo, setSystemInfo] = useState<any>(null);
+    const [dbContents, setDbContents] = useState<any>(null);
+    const { isDark } = useTheme();
 
     const loadSystemInfo = async () => {
-        const info = await window.electronAPI.getSystemInfo();
-        setSystemInfo(info);
+        try {
+            const info = await window.electronAPI.getSystemInfo();
+            setSystemInfo(info);
+        } catch {}
     };
 
     const loadDbContents = async () => {
-        const contents = await window.electronAPI.getDbContents();
-        setDbContents(contents);
+        try {
+            const contents = await (window.electronAPI as any).getDbContents();
+            setDbContents(contents);
+        } catch {}
     };
 
-    const openUserDataFolder = async () => {
-        await window.electronAPI.openUserDataFolder();
-    };
-
-    const openLogFile = async () => {
-        await window.electronAPI.openLogFile();
-    };
-
-    const copyToClipboard = (text: string, label: string) => {
-        navigator.clipboard.writeText(text);
-        setCopied(label);
-        setTimeout(() => setCopied(null), 2000);
+    const handleToggle = () => {
+        const newOpen = !isOpen;
+        setIsOpen(newOpen);
+        if (newOpen && !systemInfo) {
+            loadSystemInfo();
+        }
     };
 
     if (!isOpen) {
         return (
             <button
-                onClick={() => setIsOpen(true)}
-                className="fixed bottom-4 right-4 p-3 bg-gray-800 hover:bg-gray-700 text-white rounded-full shadow-lg border border-gray-700 cursor-pointer transition-all z-50"
-                title="Open Debug Panel"
+                onClick={handleToggle}
+                className="fixed bottom-20 right-4 p-3 rounded-full transition-all duration-300 z-30 hover:scale-110"
+                style={{
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border-card)',
+                    color: 'var(--text-muted)',
+                    boxShadow: 'var(--shadow-card)',
+                    backdropFilter: 'blur(20px)',
+                }}
+                title="Debug Panel"
+                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--accent)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-hover)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-card)'; }}
             >
-                <Bug size={20} />
+                <Bug size={18} />
             </button>
         );
     }
 
     return (
-        <div className="fixed bottom-4 right-4 w-[500px] max-h-[600px] bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl overflow-hidden z-50 flex flex-col">
+        <div
+            className="fixed bottom-20 right-4 w-96 max-h-[70vh] rounded-2xl overflow-hidden flex flex-col z-30 animate-scale-in glass-card-static"
+            style={{
+                boxShadow: isDark ? '0 25px 60px rgba(0,0,0,0.5)' : '0 15px 40px rgba(0,0,0,0.1)',
+            }}
+        >
             {/* Header */}
-            <div className="bg-gray-800 p-4 border-b border-gray-700 flex items-center justify-between">
+            <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
                 <div className="flex items-center gap-2">
-                    <Bug size={20} className="text-orange-400" />
-                    <h3 className="font-bold text-white">Debug Panel</h3>
+                    <Settings size={16} style={{ color: 'var(--accent)' }} className="animate-spin" />
+                    <h3 className="font-display font-bold text-sm" style={{ color: 'var(--text-primary)' }}>Debug Panel</h3>
                 </div>
                 <button
                     onClick={() => setIsOpen(false)}
-                    className="text-gray-400 hover:text-white cursor-pointer"
+                    className="p-1 rounded-lg transition-colors"
+                    style={{ color: 'var(--text-muted)' }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)'; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'; }}
                 >
-                    ✕
+                    <ChevronDown size={16} />
                 </button>
             </div>
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
-                {/* Quick Actions */}
-                <div className="space-y-2">
-                    <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">Quick Actions</h4>
-                    <div className="grid grid-cols-2 gap-2">
-                        <button
-                            onClick={openUserDataFolder}
-                            className="p-3 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-700/50 rounded-lg text-left cursor-pointer transition-all"
-                        >
-                            <FolderOpen size={16} className="text-blue-400 mb-1" />
-                            <div className="text-xs text-white font-medium">Open Data Folder</div>
-                        </button>
-                        <button
-                            onClick={openLogFile}
-                            className="p-3 bg-purple-900/30 hover:bg-purple-900/50 border border-purple-700/50 rounded-lg text-left cursor-pointer transition-all"
-                        >
-                            <FileText size={16} className="text-purple-400 mb-1" />
-                            <div className="text-xs text-white font-medium">Open Log File</div>
-                        </button>
-                        <button
-                            onClick={loadDbContents}
-                            className="p-3 bg-green-900/30 hover:bg-green-900/50 border border-green-700/50 rounded-lg text-left cursor-pointer transition-all"
-                        >
-                            <Database size={16} className="text-green-400 mb-1" />
-                            <div className="text-xs text-white font-medium">View Database</div>
-                        </button>
-                        <button
-                            onClick={loadSystemInfo}
-                            className="p-3 bg-orange-900/30 hover:bg-orange-900/50 border border-orange-700/50 rounded-lg text-left cursor-pointer transition-all"
-                        >
-                            <Info size={16} className="text-orange-400 mb-1" />
-                            <div className="text-xs text-white font-medium">Refresh Info</div>
-                        </button>
-                    </div>
-                </div>
-
+            <div className="p-4 overflow-y-auto custom-scrollbar space-y-3">
                 {/* System Info */}
                 {systemInfo && (
-                    <div className="space-y-2">
-                        <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">System Information</h4>
-                        <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3 space-y-2 text-xs">
-                            <InfoRow
-                                label="User Data Path"
-                                value={systemInfo.userDataPath}
-                                onCopy={() => copyToClipboard(systemInfo.userDataPath, 'userData')}
-                                copied={copied === 'userData'}
-                            />
-                            <InfoRow
-                                label="Database Path"
-                                value={systemInfo.dbPath}
-                                onCopy={() => copyToClipboard(systemInfo.dbPath, 'db')}
-                                copied={copied === 'db'}
-                            />
-                            <InfoRow
-                                label="Log Path"
-                                value={systemInfo.logPath}
-                                onCopy={() => copyToClipboard(systemInfo.logPath, 'log')}
-                                copied={copied === 'log'}
-                            />
-                            <div className="pt-2 border-t border-gray-700">
-                                <div className="text-gray-400 mb-1">Versions</div>
-                                <div className="text-gray-300 space-y-1 pl-2">
-                                    <div>Electron: {systemInfo.versions.electron}</div>
-                                    <div>Chrome: {systemInfo.versions.chrome}</div>
-                                    <div>Node: {systemInfo.versions.node}</div>
-                                </div>
-                            </div>
-                            <div className="pt-2 border-t border-gray-700">
-                                <div className="text-gray-400">Platform: <span className="text-gray-300">{systemInfo.platform} ({systemInfo.arch})</span></div>
-                            </div>
+                    <div className="rounded-xl p-3 text-xs font-mono space-y-1" style={{ background: isDark ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.05)', border: '1px solid var(--border-secondary)' }}>
+                        <div className="flex items-center gap-2 mb-2">
+                            <HardDrive size={12} style={{ color: 'var(--accent)' }} />
+                            <span className="font-sans font-bold text-xs" style={{ color: 'var(--text-primary)' }}>System</span>
                         </div>
+                        {Object.entries(systemInfo).map(([key, value]) => (
+                            <div key={key} className="flex justify-between" style={{ color: 'var(--text-muted)' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>{key}</span>
+                                <span className="truncate max-w-[200px]">{String(value)}</span>
+                            </div>
+                        ))}
                     </div>
                 )}
 
-                {/* Database Contents */}
+                {/* Action Buttons */}
+                <div className="grid grid-cols-2 gap-2">
+                    {[
+                        { label: 'User Data', icon: FolderOpen, onClick: () => (window.electronAPI as any).openUserDataFolder?.() },
+                        { label: 'Log File', icon: FileText, onClick: () => (window.electronAPI as any).openLogFile?.() },
+                        { label: 'Load DB', icon: Database, onClick: loadDbContents },
+                        { label: 'Refresh Info', icon: HardDrive, onClick: loadSystemInfo },
+                    ].map((btn, i) => (
+                        <button
+                            key={i}
+                            onClick={btn.onClick}
+                            className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all duration-200"
+                            style={{
+                                background: 'var(--bg-elevated)',
+                                color: 'var(--text-secondary)',
+                                border: '1px solid var(--border-secondary)',
+                            }}
+                            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-hover)'; (e.currentTarget as HTMLElement).style.color = 'var(--accent)'; }}
+                            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-secondary)'; (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)'; }}
+                        >
+                            <btn.icon size={14} />
+                            {btn.label}
+                        </button>
+                    ))}
+                </div>
+
+                {/* DB Contents */}
                 {dbContents && (
-                    <div className="space-y-2">
-                        <h4 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">Database Contents</h4>
-                        <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3 space-y-2 text-xs">
-                            <div className="text-gray-400">
-                                Tasks: <span className="text-white font-medium">{dbContents.tasks?.length || 0}</span>
-                            </div>
-                            <div className="text-gray-400">
-                                Activities: <span className="text-white font-medium">{dbContents.activities?.length || 0}</span>
-                            </div>
-                            <div className="text-gray-400">
-                                Goal: <span className="text-white font-medium">{dbContents.goal || 'Not set'}</span>
-                            </div>
-                            <details className="mt-2">
-                                <summary className="cursor-pointer text-blue-400 hover:text-blue-300">View Raw JSON</summary>
-                                <pre className="mt-2 p-2 bg-black/30 rounded text-[10px] overflow-x-auto text-gray-300">
-                                    {JSON.stringify(dbContents, null, 2)}
-                                </pre>
-                            </details>
-                        </div>
+                    <div className="rounded-xl p-3 text-xs font-mono overflow-x-auto custom-scrollbar" style={{ background: isDark ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.05)', border: '1px solid var(--border-secondary)' }}>
+                        <pre style={{ color: 'var(--text-muted)' }}>{JSON.stringify(dbContents, null, 2)}</pre>
                     </div>
                 )}
             </div>
         </div>
     );
 };
-
-const InfoRow = ({ label, value, onCopy, copied }: { label: string; value: string; onCopy: () => void; copied: boolean }) => (
-    <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-            <div className="text-gray-400">{label}</div>
-            <div className="text-gray-300 font-mono text-[10px] truncate" title={value}>{value}</div>
-        </div>
-        <button
-            onClick={onCopy}
-            className="p-1 hover:bg-gray-700 rounded cursor-pointer transition-colors flex-shrink-0"
-            title="Copy to clipboard"
-        >
-            {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} className="text-gray-400" />}
-        </button>
-    </div>
-);

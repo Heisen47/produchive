@@ -9,6 +9,10 @@ import {
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 
+import { TotoroBg } from './TotoroBg';
+import { NoFaceBg } from './NoFaceBg';
+import { SootSpriteBg } from './SootSpriteBg';
+
 // Helper for formatting duration
 const formatDuration = (seconds: number) => {
     if (seconds < 60) return `${Math.floor(seconds)}s`;
@@ -23,6 +27,11 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any
     const { isDark } = useTheme();
     const cardRef = useRef<HTMLDivElement>(null);
     const shimmerRef = useRef<HTMLDivElement>(null);
+
+    let BgComponent = null;
+    if (title === 'Total Time Tracked') BgComponent = TotoroBg;
+    if (title === 'Most Used App') BgComponent = NoFaceBg;
+    if (title === 'Active Sessions') BgComponent = SootSpriteBg;
 
     const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         const card = cardRef.current;
@@ -65,6 +74,8 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any
                 willChange: 'transform',
             }}
         >
+            {BgComponent && <BgComponent className="opacity-30 dark:opacity-20 transition-opacity duration-500 group-hover:opacity-40 dark:group-hover:opacity-30" />}
+
             {/* Shimmer overlay */}
             <div
                 ref={shimmerRef}

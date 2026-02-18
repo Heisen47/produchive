@@ -132,19 +132,24 @@ const renderCustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, name, p
 };
 
 import { TotoroBg } from './TotoroBg';
+import { NoFaceBg } from './NoFaceBg';
+import { CalciferBg } from './CalciferBg';
 
 // ... (other imports)
 
 // ─── Metric Card ───
 const MetricCard = ({ title, value, subtext, icon: Icon, delay = 0 }: any) => {
-    const showTotoro = title === 'Total Time' || title === 'Most Used App';
+    let BgComponent = null;
+    if (title === 'Total Time' || title === 'Most Used App') BgComponent = TotoroBg;
+    if (title === 'Apps Tracked') BgComponent = NoFaceBg;
+    if (title === 'Avg AI Rating') BgComponent = CalciferBg;
     
     return (
         <div
             className="glass-card rounded-2xl p-6 group cursor-default animate-fade-in-up relative overflow-hidden"
             style={{ animationDelay: `${delay}ms` }}
         >
-            {showTotoro && <TotoroBg className="opacity-10 dark:opacity-20 transition-opacity duration-500 group-hover:opacity-20 dark:group-hover:opacity-30" />}
+            {BgComponent && <BgComponent className="opacity-30 dark:opacity-20 transition-opacity duration-500 group-hover:opacity-40 dark:group-hover:opacity-30" />}
             
             <div className="relative z-10">
                 <div className="flex items-start justify-between mb-4">

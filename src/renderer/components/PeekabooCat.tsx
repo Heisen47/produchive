@@ -59,7 +59,7 @@ export const PeekabooCat: React.FC<PeekabooCatProps> = ({ isSidebarOpen }) => {
         const interval = setInterval(() => {
             // Remove randomness to guarantee showing up
             triggerCat();
-        }, 5000); // More frequent for verification 
+        }, 8000); // More frequent for verification 
 
         return () => {
             clearTimeout(initialTimer);

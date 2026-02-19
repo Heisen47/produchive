@@ -256,7 +256,7 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
                             </div>
                             
                             {/* Bad Cat for low scores */}
-                            {(typeof analysis.rating === 'number' && analysis.rating < 5) && (
+                            {(typeof analysis.rating === 'number' && analysis.rating <= 5) && (
                                 <div className="w-24 h-24">
                                     <Lottie animationData={badCatAnimation} loop={true} />
                                 </div>

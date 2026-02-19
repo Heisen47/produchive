@@ -32,6 +32,8 @@ const viewIcons: Record<string, React.ElementType> = {
     monitor: Activity,
     ai: Brain
 };
+import { PeekabooCat } from './components/PeekabooCat';
+
 
 const viewLabels: Record<string, string> = {
     dashboard: 'Dashboard',
@@ -49,6 +51,13 @@ const AppContent = () => {
     const [showWelcome, setShowWelcome] = useState(false); // Loaded from DB
     const [isDataLoaded, setDataLoaded] = useState(false);
     const [viewKey, setViewKey] = useState(0);
+    const [isCatEnabled, setCatEnabled] = useState(true);
+
+    const toggleCat = async () => {
+        const newValue = !isCatEnabled;
+        setCatEnabled(newValue);
+        await window.electronAPI.setSetting('catEnabled', newValue);
+    };
 
     // Animate on view change
     const handleViewChange = (view: string) => {
@@ -76,6 +85,11 @@ const AppContent = () => {
                 if (!settings?.welcomeDismissed) {
                     setShowWelcome(true);
                 }
+                
+                // Load cat setting
+                if (settings?.catEnabled !== undefined) {
+                    setCatEnabled(settings.catEnabled);
+                }
             } catch (e: any) {
                 setError("Failed to load initial data: " + e.message);
             }
@@ -83,7 +97,7 @@ const AppContent = () => {
         };
         init();
     }, [addActivity, setError]);
-
+    
     const [engine, setEngine] = useState<any>(null);
     const [modelName, setModelName] = useState<string>('');
     const [loading, setLoading] = useState(false);
@@ -142,6 +156,8 @@ const AppContent = () => {
             <ErrorModal />
             {showWelcome && <WelcomeGuide onClose={() => setShowWelcome(false)} />}
             {!showWelcome && showOnboarding && <GoalOnboarding onClose={() => setShowOnboarding(false)} />}
+            
+            {isCatEnabled && <PeekabooCat isSidebarOpen={isSidebarOpen} />}
 
             {/* Sidebar */}
             <Navbar
@@ -251,7 +267,7 @@ const AppContent = () => {
                         </div>
                     </div>
                 </div>
-                <Footer />
+                <Footer isCatEnabled={isCatEnabled} toggleCat={toggleCat} />
             </main>
         </div>
     );

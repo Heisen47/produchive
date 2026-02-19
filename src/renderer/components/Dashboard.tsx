@@ -13,6 +13,7 @@ import { TotoroBg } from './TotoroBg';
 import { NoFaceBg } from './NoFaceBg';
 import { SootSpriteBg } from './SootSpriteBg';
 import { TotoroBusStopBg } from './TotoroBusStopBg';
+import { PeekabooCat } from './PeekabooCat';
 
 // Helper for formatting duration
 const formatDuration = (seconds: number) => {

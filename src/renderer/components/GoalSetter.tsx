@@ -4,16 +4,9 @@ import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { LuffyBg } from './LuffyBg';
 
-const GOAL_SUGGESTIONS = [
-    'Complete coding project',
-    'Study for 2 hours',
-    'Write documentation',
-    'Review pull requests',
-    'Practice DSA problems',
-    'Work on side project',
-    'Design new feature',
-    'Fix outstanding bugs',
-];
+import { GOAL_SUGGESTIONS_BY_ROLE, GoalRole } from '../lib/GoalSuggestions';
+
+const DEFAULT_SUGGESTIONS = GOAL_SUGGESTIONS_BY_ROLE['Software Engineer'];
 
 export const GoalSetter = () => {
     const [inputGoal, setInputGoal] = useState('');
@@ -21,7 +14,9 @@ export const GoalSetter = () => {
     const [editValue, setEditValue] = useState('');
     const { isDark } = useTheme();
 
-    const { goals, addGoal, removeGoal, editGoal } = useStore();
+    const { goals, addGoal, removeGoal, editGoal, selectedRole } = useStore();
+    
+    const suggestions = GOAL_SUGGESTIONS_BY_ROLE[(selectedRole as GoalRole) || 'Software Engineer'] || DEFAULT_SUGGESTIONS;
 
     const handleAddGoal = () => {
         if (inputGoal.trim().length > 2 && goals.length < 5) {
@@ -140,7 +135,7 @@ export const GoalSetter = () => {
                                 ✨ Quick suggestions
                             </p>
                             <div className="flex flex-wrap gap-2">
-                                {GOAL_SUGGESTIONS.map((suggestion) => (
+                                {suggestions.slice(0, 8).map((suggestion) => (
                                     <button
                                         key={suggestion}
                                         onClick={() => { if (goals.length < 5) addGoal(suggestion); }}

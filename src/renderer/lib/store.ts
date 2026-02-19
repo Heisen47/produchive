@@ -32,6 +32,10 @@ interface Store {
     selectedModelId: string | null;
     setSelectedModel: (modelId: string) => void;
 
+    // User Settings
+    selectedRole: string | null;
+    setSelectedRole: (role: string) => void;
+
     // Global Error Handling
     error: string | null;
     setError: (error: string | null) => void;
@@ -43,7 +47,12 @@ export const useStore = create<Store>((set, get) => ({
     activities: [],
     ratings: [],
     stats: { streak: 0 },
+    selectedRole: 'Software Engineer', // Default
     selectedModelId: localStorage.getItem('selectedModelId'),
+    setSelectedRole: (role: string) => {
+        set({ selectedRole: role });
+        window.electronAPI.setSetting('selectedRole', role);
+    },
     setSelectedModel: (modelId: string) => {
         set({ selectedModelId: modelId });
         localStorage.setItem('selectedModelId', modelId);
@@ -52,12 +61,15 @@ export const useStore = create<Store>((set, get) => ({
     setError: (error) => set({ error }),
     loadTasks: async () => {
         const { tasks, activities, goals, ratings, stats } = await window.electronAPI.getTasks() as any;
+        const settings = await window.electronAPI.getSettings();
+        
         set({
             tasks: tasks || [],
             activities: activities || [],
             goals: goals || [],
             ratings: ratings || [],
-            stats: stats || { streak: 0 }
+            stats: stats || { streak: 0 },
+            selectedRole: settings.selectedRole || 'Software Engineer' // Default if not set
         });
     },
     addTask: async (text: string) => {

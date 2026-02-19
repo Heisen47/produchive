@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Target, Plus, X, ArrowRight, Sparkles } from 'lucide-react';
+import { Target, Plus, X, ArrowRight, Sparkles, Briefcase, GraduationCap, Stethoscope, Scale, Wrench } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 
@@ -7,52 +7,51 @@ interface GoalOnboardingProps {
     onClose: () => void;
 }
 
-const DEFAULT_SUGGESTIONS = [
-    'Complete coding project',
-    'Study for 2 hours',
-    'Write documentation',
-    'Review pull requests',
-    'Read technical articles',
-    'Practice DSA problems',
-    'Work on side project',
-    'Clear email inbox',
-    'Design new feature',
-    'Fix outstanding bugs',
-];
+import { GOAL_ROLES, GOAL_SUGGESTIONS_BY_ROLE, GoalRole } from '../lib/GoalSuggestions';
+
+const DEFAULT_SUGGESTIONS = GOAL_SUGGESTIONS_BY_ROLE['Software Engineer'];
 
 export const GoalOnboarding: React.FC<GoalOnboardingProps> = ({ onClose }) => {
-    const { goals, addGoal, removeGoal, ratings } = useStore();
+    const { goals, addGoal, removeGoal, ratings, selectedRole, setSelectedRole } = useStore();
     const [inputGoal, setInputGoal] = useState('');
     const { isDark } = useTheme();
 
-    // Extract past goals from ratings history (ratings may contain goals array)
-    const pastGoals: string[] = React.useMemo(() => {
-        const seen = new Set<string>();
-        const result: string[] = [];
-        // Collect from ratings (each rating may have a goals field)
+    // Extract past goals from ratings history and count frequency
+    const pastGoalsMap = React.useMemo(() => {
+        const counts = new Map<string, number>();
+        
         ratings.forEach((r: any) => {
             if (Array.isArray(r.goals)) {
                 r.goals.forEach((g: string) => {
-                    if (g && !seen.has(g)) {
-                        seen.add(g);
-                        result.push(g);
+                    if (g) {
+                        counts.set(g, (counts.get(g) || 0) + 1);
                     }
                 });
             }
         });
-        return result;
+        return counts;
     }, [ratings]);
+
+    const pastGoals = React.useMemo(() => {
+        return Array.from(pastGoalsMap.keys()).sort((a, b) => {
+            return (pastGoalsMap.get(b) || 0) - (pastGoalsMap.get(a) || 0);
+        });
+    }, [pastGoalsMap]);
 
     // Suggestions: past goals first, then defaults to fill up
     const suggestions = React.useMemo(() => {
         const currentSet = new Set(goals);
         const pastFiltered = pastGoals.filter(g => !currentSet.has(g));
         if (pastFiltered.length >= 6) return pastFiltered.slice(0, 8);
-        const defaultFiltered = DEFAULT_SUGGESTIONS.filter(
+        
+        // Get suggestions based on selected role
+        const roleSuggestions = GOAL_SUGGESTIONS_BY_ROLE[(selectedRole as GoalRole) || 'Software Engineer'];
+        
+        const defaultFiltered = roleSuggestions.filter(
             g => !currentSet.has(g) && !pastFiltered.includes(g)
         );
         return [...pastFiltered, ...defaultFiltered].slice(0, 8);
-    }, [pastGoals, goals]);
+    }, [pastGoals, goals, selectedRole]);
 
     const hasPastGoals = pastGoals.length > 0;
 
@@ -92,6 +91,36 @@ export const GoalOnboarding: React.FC<GoalOnboardingProps> = ({ onClose }) => {
                     </div>
                     <h2 className="text-2xl font-display font-bold mb-2" style={{ color: 'var(--text-primary)' }}>Welcome to Produchive</h2>
                     <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Set your goals to get personalized productivity insights.</p>
+                </div>
+
+                {/* Role Selection */}
+                <div className="mb-6">
+                    <label className="text-xs font-semibold uppercase tracking-wider mb-3 block" style={{ color: 'var(--text-muted)' }}>
+                        I am a...
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                        {GOAL_ROLES.map((role) => {
+                            const isSelected = selectedRole === role;
+                            return (
+                                <button
+                                    key={role}
+                                    onClick={() => setSelectedRole(role)}
+                                    className="px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 hover:scale-105 active:scale-95"
+                                    style={{
+                                        background: isSelected
+                                            ? 'linear-gradient(135deg, rgba(99,102,241,0.3), rgba(147,51,234,0.3))'
+                                            : 'var(--bg-elevated)',
+                                        border: isSelected
+                                            ? '1px solid rgba(99,102,241,0.5)'
+                                            : '1px solid var(--border-secondary)',
+                                        color: isSelected ? '#818cf8' : 'var(--text-secondary)',
+                                    }}
+                                >
+                                    {role}
+                                </button>
+                            );
+                        })}
+                    </div>
                 </div>
 
                 {/* Goals List */}

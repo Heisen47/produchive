@@ -6,6 +6,7 @@ import { HistoricalReports } from './HistoricalReports';
 import { useTheme } from './ThemeProvider';
 import confetti from 'canvas-confetti';
 import badCatAnimation from '../assets/bad_cat.json';
+import danceAnimation from '../assets/dance.json';
 
 interface ProductivityAnalysis {
     rating: number | string; // 1-10 or "NA"
@@ -123,8 +124,8 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
             addRating(analysisResult);
             
             // Check for confetti condition (>= 8)
-            if (typeof analysisResult.rating === 'number' && analysisResult.rating >= 8) {
-                setTimeout(() => triggerConfetti(), 500); // Small delay to ensure render
+            if (typeof analysisResult.rating === 'number' && analysisResult.rating >= 6) {
+                setTimeout(() => triggerConfetti(), 500); 
             }
             
         } catch (error) {
@@ -259,6 +260,13 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
                             {(typeof analysis.rating === 'number' && analysis.rating <= 5) && (
                                 <div className="w-24 h-24">
                                     <Lottie animationData={badCatAnimation} loop={true} />
+                                </div>
+                            )}
+
+                            {/* Dance for high scores */}
+                            {(typeof analysis.rating === 'number' && analysis.rating >= 6) && (
+                                <div className="w-24 h-24">
+                                    <Lottie animationData={danceAnimation} loop={true} />
                                 </div>
                             )}
                         </div>

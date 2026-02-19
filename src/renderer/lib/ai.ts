@@ -15,8 +15,29 @@ export const AVAILABLE_MODELS: AIModel[] = [
         id: "gemma-2-2b-it-q4f32_1-MLC",
         name: "Gemma 2 2B",
         size: "1.3GB",
-        description: "Google's lightweight model. Fast & follows instructions well.",
+        description: "Google's lightweight model. Good balance, but can be basic.",
         family: "gemma"
+    },
+    {
+        id: "Qwen2.5-1.5B-Instruct-q4f32_1-MLC",
+        name: "Qwen 2.5 1.5B",
+        size: "1.0GB",
+        description: "Alibaba's model. Very smart for its size, outperforms Gemma 2B.",
+        family: "qwen"
+    },
+    {
+        id: "DeepSeek-R1-Distill-Qwen-1.5B-q4f32_1-MLC",
+        name: "DeepSeek R1 1.5B",
+        size: "1.0GB",
+        description: "Reasoning-focused model. Excellent for analyzing productivity data.",
+        family: "qwen"
+    },
+    {
+        id: "SmolLM2-1.7B-Instruct-q4f16_1-MLC",
+        name: "SmolLM2 1.7B",
+        size: "1.1GB",
+        description: "HuggingFace's highly optimized small model. Fast & capable.",
+        family: "llama"
     },
     {
         id: "Phi-3.5-mini-instruct-q4f16_1-MLC",

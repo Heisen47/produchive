@@ -21,7 +21,7 @@ interface ProductivityAnalysis {
 }
 
 export const ProductivityJudge = ({ engine }: { engine: any }) => {
-    const { goals, activities, addRating } = useStore();
+    const { goals, activities, addRating, selectedRole } = useStore();
     const { isDark } = useTheme();
     const goal = goals.length > 0 ? goals[0] : null;
     const [analyzing, setAnalyzing] = useState(false);
@@ -55,7 +55,7 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
 
     const analyzeProductivity = async () => {
         setError(null);
-        
+
         if (!engine || goals.length === 0 || activities.length === 0) {
             console.log('[ProductivityJudge] Cannot generate report:', {
                 hasEngine: !!engine,
@@ -97,11 +97,51 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
             console.log('  Goals:', goalsText);
             console.log('  Activity Summary:', activitySummary);
 
-            const prompt = `User Goals:\n${goalsText}\n\nActivities Log (App - Title (Duration)):\n${activitySummary}\n\nAnalyze the user's productivity for the day based on their stated goals.\n\nIMPORTANT: Goals like "Coding", "Study", "Work", "Exercise", "Reading", "Learning" are VALID goals - they are common productivity objectives. Only reject goals if they are literal gibberish like "asdfgh", "aaaaa", or random keyboard mashes.\n\nDISTINCTION GUIDANCE:\n- Prioritize ACTIVE work (e.g. IDEs like VS Code, LeetCode, writing documents ,) over PASSIVE consumption (e.g. YouTube tutorials, social media).\n- Watching coding tutorials on YouTube is OKAY but should be scored lower than actual coding practice. Entertainment YouTube is DISTRACTING unless "Relax" is a goal.\n- Be specific in your verdict justification.\n\nProvide the output in STRICT JSON format:\n{\n  "rating": <number 1-10> (use string "NA" if invalid),\n  "verdict": "<productive|neutral|unproductive|NA>",\n  "explanation": "<2-3 sentence summary>",\n  "tips": ["<actionable advice 1>", "<actionable advice 2>", "<actionable advice 3>"],\n  "categorization": {\n    "productive": ["<app name 1>", ...],\n    "neutral": ["<app name 1>", ...],\n    "distracting": ["<app name 1>", ...]\n  }\n}\nDo not include any markdown formatting or text outside the JSON.`;
+            // const prompti = `User Goals:\n${goalsText}\n\nActivities Log (App - Title (Duration)):\n${activitySummary}\n\nAnalyze the user's productivity for the day based on their stated goals.\n\nIMPORTANT: Goals like "Coding", "Study", "Work", "Exercise", "Reading", "Learning" are VALID goals - they are common productivity objectives. Only reject goals if they are literal gibberish like "asdfgh", "aaaaa", or random keyboard mashes.\n\nDISTINCTION GUIDANCE:\n- Prioritize ACTIVE work (e.g. IDEs like VS Code, LeetCode, writing documents ,) over PASSIVE consumption (e.g. YouTube tutorials, social media).\n- Watching coding tutorials on YouTube is OKAY but should be scored lower than actual coding practice. Entertainment YouTube is DISTRACTING unless "Relax" is a goal.\n- Be specific in your verdict justification.\n\nProvide the output in STRICT JSON format:\n{\n  "rating": <number 1-10> (use string "NA" if invalid),\n  "verdict": "<productive|neutral|unproductive|NA>",\n  "explanation": "<2-3 sentence summary>",\n  "tips": ["<actionable advice 1>", "<actionable advice 2>", "<actionable advice 3>"],\n  "categorization": {\n    "productive": ["<app name 1>", ...],\n    "neutral": ["<app name 1>", ...],\n    "distracting": ["<app name 1>", ...]\n  }\n}\nDo not include any markdown formatting or text outside the JSON.`;
+
+
+            const prompt = `You are a kind, encouraging, and supportive tutor and guide. Your role is to evaluate a student's progress based on their activity relative to their selected goal, and provide a rating out of 10 along with helpful feedback. You HAVE to generate a report when user has a valid goal setup .
+
+You will receive:
+- goal: The student's selected goal
+- activity: A description of what the student has done
+
+Your behavior rules:
+1. If the goal is unintelligible, nonsensical, random characters, return 'Please set a valid goal'
+2. If the goal is valid, evaluate the activity against it and rate the student from 1 to 10.
+3. Be kind, encouraging, and constructive in all feedback — never harsh or discouraging.
+4. Offer specific guidance on what the student did well and what they can improve.
+5. You MUST return ONLY valid JSON. No markdown, no code blocks, no extra text outside the JSON.
+
+DISTINCTION GUIDANCE:
+- **Role Context**: The user is a **${selectedRole || 'General Student'}**. Evaluate productivity based on this role.
+- **Active vs Passive**: Prioritize ACTIVE work (creation, solving problems, writing , reading questions/articles) over PASSIVE consumption (watching videos, scrolling).
+- **App Context**: Apps should be judged based on the goal and role. For example:
+    - IDEs/Terminal are productive for Software Engineers.
+    - Word/Docs/PDF Readers are productive for Law/Medical students/General students/engineering students.
+    - Creative tools (Figma, Blender) are productive for Designers.
+- **YouTube/Content**: Educational content is "Neutral" or "Productive" ONLY if it directly aligns with the goal. Entertainment is "Distracting".
+
+Output format:
+{
+  "rating": <number 1-10> (use string "NA" if invalid),
+  "verdict": "<productive|neutral|unproductive|NA>",
+  "explanation": "<2-3 sentences. Be encouraging! Summarize performance and strengths.>",
+  "tips": ["<specific, kind improvement 1>", "<specific, kind improvement 2>", "<motivating closing message>"],
+  "categorization": {
+    "productive": ["<app name 1>", ...],
+    "neutral": ["<app name 1>", ...],
+    "distracting": ["<app name 1>", ...]
+  }
+}
+
+Student input:
+Goal: \n${goalsText}\n\n
+Activity: \n${activitySummary}\n\n`
 
             const completion = await engine.chat.completions.create({
                 messages: [
-                    { role: "system", content: "You are a strict but helpful productivity coach. Analyze the provided activity log against the user's goals." },
+                    { role: "system", content: "You are a kind but helpful productivity coach. Analyze the provided activity log against the user's goals." },
                     { role: "user", content: prompt }
                 ],
                 temperature: 0.5,
@@ -122,12 +162,12 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
 
             setAnalysis(analysisResult);
             addRating(analysisResult);
-            
+
             // Check for confetti condition (>= 8)
             if (typeof analysisResult.rating === 'number' && analysisResult.rating >= 6) {
-                setTimeout(() => triggerConfetti(), 500); 
+                setTimeout(() => triggerConfetti(), 500);
             }
-            
+
         } catch (error) {
             setAnalysis({
                 rating: 5,
@@ -197,20 +237,20 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
                         </>
                     )}
                 </button>
-                
+
                 {!isEnoughData && (
                     <div className="absolute top-full left-0 right-0 mt-2 text-center animate-fade-in">
-                        <span className="text-xs font-medium px-3 py-1.5 rounded-full inline-block" 
-                              style={{ 
-                                  background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-                                  color: 'var(--text-secondary)'
-                              }}>
+                        <span className="text-xs font-medium px-3 py-1.5 rounded-full inline-block"
+                            style={{
+                                background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                                color: 'var(--text-secondary)'
+                            }}>
                             Please use the app for at least 3 minutes to unlock analysis
                         </span>
                     </div>
                 )}
             </div>
-            
+
 
 
             {analysis && (() => {
@@ -224,19 +264,19 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
                             backdropFilter: 'blur(20px)',
                         }}
                     >
-                        <canvas 
-                            ref={canvasRef} 
-                            style={{ 
-                                position: 'absolute', 
-                                top: 0, 
-                                left: 0, 
-                                width: '100%', 
-                                height: '100%', 
-                                pointerEvents: 'none', 
-                                zIndex: 10 
-                            }} 
+                        <canvas
+                            ref={canvasRef}
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                height: '100%',
+                                pointerEvents: 'none',
+                                zIndex: 10
+                            }}
                         />
-                        
+
                         {/* Header: Score & Verdict */}
                         <div className="flex items-center justify-between mb-6 pb-6" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
                             <div className="flex items-center gap-4">
@@ -255,7 +295,7 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
                                     <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Based on your activity history</p>
                                 </div>
                             </div>
-                            
+
                             {/* Bad Cat for low scores */}
                             {(typeof analysis.rating === 'number' && analysis.rating <= 5) && (
                                 <div className="w-24 h-24">

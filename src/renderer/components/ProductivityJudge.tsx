@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import Lottie from 'lottie-react';
 import { useStore } from '../lib/store';

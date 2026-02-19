@@ -28,6 +28,10 @@ interface Store {
     // Debug / Testing
     setStreak: (streak: number) => void;
 
+    // AI Settings
+    selectedModelId: string | null;
+    setSelectedModel: (modelId: string) => void;
+
     // Global Error Handling
     error: string | null;
     setError: (error: string | null) => void;
@@ -39,6 +43,11 @@ export const useStore = create<Store>((set, get) => ({
     activities: [],
     ratings: [],
     stats: { streak: 0 },
+    selectedModelId: localStorage.getItem('selectedModelId'),
+    setSelectedModel: (modelId: string) => {
+        set({ selectedModelId: modelId });
+        localStorage.setItem('selectedModelId', modelId);
+    },
     error: null,
     setError: (error) => set({ error }),
     loadTasks: async () => {

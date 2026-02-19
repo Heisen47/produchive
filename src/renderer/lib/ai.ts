@@ -2,11 +2,43 @@
 import { CreateMLCEngine } from "@mlc-ai/web-llm";
 
 
-const MODEL_LIST = [
-    "gemma-2-2b-it-q4f32_1-MLC",               // Primary: Gemma 2B - good instruction following
-    "Phi-3.5-mini-instruct-q4f16_1-MLC",       // Fallback 1: Phi 3.5 mini
-    "Llama-3.2-1B-Instruct-q4f32_1-MLC",       // Fallback 2: Llama 3.2 1B
-    "TinyLlama-1.1B-Chat-v1.0-q4f32_1-MLC",    // Fallback 3: TinyLlama
+export interface AIModel {
+    id: string;
+    name: string;
+    size: string;
+    description: string;
+    family: string;
+}
+
+export const AVAILABLE_MODELS: AIModel[] = [
+    {
+        id: "gemma-2-2b-it-q4f32_1-MLC",
+        name: "Gemma 2 2B",
+        size: "1.3GB",
+        description: "Google's lightweight model. Fast & follows instructions well.",
+        family: "gemma"
+    },
+    {
+        id: "Phi-3.5-mini-instruct-q4f16_1-MLC",
+        name: "Phi 3.5 Mini",
+        size: "2.2GB",
+        description: "Microsoft's powerful small model. Great reasoning capabilities.",
+        family: "phi"
+    },
+    {
+        id: "Llama-3.2-1B-Instruct-q4f32_1-MLC",
+        name: "Llama 3.2 1B",
+        size: "800MB",
+        description: "Meta's highly efficient small model. Fastest download.",
+        family: "llama"
+    },
+    {
+        id: "TinyLlama-1.1B-Chat-v1.0-q4f32_1-MLC",
+        name: "TinyLlama 1.1B",
+        size: "650MB",
+        description: "Extremely compact model for older devices.",
+        family: "llama"
+    },
 ];
 
 const MAX_RETRIES = 2;
@@ -20,9 +52,42 @@ const log = (level: 'info' | 'warn' | 'error', ...args: any[]) => {
     console[level](`[${timestamp}] [AI]`, ...args);
 };
 
-export const initEngine = async (progressCallback: (report: any) => void) => {
+// Cache Management Helper
+export const hasModelInCache = async (modelId: string): Promise<boolean> => {
+    try {
+        const cache = await caches.open('webllm/model');
+        const keys = await cache.keys();
+        // Check if any key contains the modelId (basic check)
+        return keys.some(req => req.url.includes(modelId));
+    } catch (e) {
+        return false;
+    }
+};
+
+export const deleteModelFromCache = async (modelId: string): Promise<void> => {
+    try {
+        log('info', `Attempting to delete model: ${modelId}`);
+        const cache = await caches.open('webllm/model');
+        const keys = await cache.keys();
+        
+        const deletions = keys
+            .filter(req => req.url.includes(modelId))
+            .map(req => cache.delete(req));
+        
+        await Promise.all(deletions);
+        log('info', `Deleted ${deletions.length} files for ${modelId}`);
+    } catch (e) {
+        log('error', 'Failed to delete model from cache', e);
+        throw e;
+    }
+};
+
+export const initEngine = async (
+    progressCallback: (report: any) => void,
+    selectedModelId?: string
+) => {
     log('info', '========================================');
-    log('info', 'Starting AI Engine Initialization');
+    log('info', `Starting AI Engine Initialization. Selected: ${selectedModelId || 'Auto'}`);
     log('info', '========================================');
 
     // Check if WebGPU is available
@@ -30,47 +95,20 @@ export const initEngine = async (progressCallback: (report: any) => void) => {
         log('error', 'WebGPU is NOT supported on this device');
         throw new Error("WebGPU is not supported on this device.");
     }
-    log('info', 'WebGPU is available');
 
-    // Verify GPU adapter and device are accessible
-    try {
-        log('info', 'Requesting GPU adapter...');
-        const adapter = await navigator.gpu.requestAdapter();
-        if (!adapter) {
-            log('error', 'No WebGPU adapter found');
-            throw new Error("No WebGPU adapter found. Please check your GPU drivers.");
-        }
+    // Determine which models to try
+    // If a specific model is selected, try ONLY that one.
+    // Otherwise, fall back to the list.
+    const modelsToTry = selectedModelId 
+        ? [selectedModelId] 
+        : AVAILABLE_MODELS.map(m => m.id);
 
-        const adapterInfo = (adapter as any).requestAdapterInfo ? await (adapter as any).requestAdapterInfo() : { vendor: 'unknown' };
-        log('info', 'GPU Adapter found:', adapterInfo);
-
-        log('info', 'Requesting GPU device...');
-        const device = await adapter.requestDevice();
-        if (!device) {
-            log('error', 'Failed to acquire WebGPU device');
-            throw new Error("Failed to acquire WebGPU device.");
-        }
-        log('info', 'GPU device acquired successfully');
-
-        // Release the test device
-        device.destroy();
-        log('info', 'Test device released');
-    } catch (e: any) {
-        log('error', 'WebGPU initialization failed:', e.message);
-        throw new Error(`WebGPU initialization failed: ${e.message}`);
-    }
-
-    // Try each model in the fallback list
-    for (let modelIndex = 0; modelIndex < MODEL_LIST.length; modelIndex++) {
-        const currentModel = MODEL_LIST[modelIndex];
-        log('info', `========================================`);
-        log('info', `Trying model ${modelIndex + 1}/${MODEL_LIST.length}: ${currentModel}`);
-        log('info', `========================================`);
-
+    // Try each model
+    for (let modelIndex = 0; modelIndex < modelsToTry.length; modelIndex++) {
+        const currentModel = modelsToTry[modelIndex];
+        
         progressCallback({
-            text: modelIndex > 0
-                ? `Trying fallback model: ${currentModel}`
-                : `Loading model: ${currentModel}`,
+            text: `Initializing ${currentModel}...`,
             progress: 0
         });
 
@@ -96,7 +134,6 @@ export const initEngine = async (progressCallback: (report: any) => void) => {
                 );
 
                 log('info', `✅ Model ${currentModel} loaded successfully!`);
-                log('info', '========================================');
                 return { engine, modelName: currentModel };
 
             } catch (e: any) {
@@ -112,16 +149,10 @@ export const initEngine = async (progressCallback: (report: any) => void) => {
                         continue;
                     }
                 }
-
-                // If last retry for this model, try next model
-                if (attempt === MAX_RETRIES) {
-                    log('warn', `All retries exhausted for ${currentModel}`);
-                    if (modelIndex < MODEL_LIST.length - 1) {
-                        log('info', 'Trying next fallback model...');
-                        progressCallback({ text: `${currentModel} failed. Trying fallback...` });
-                        await sleep(1000);
-                    }
-                    break; // Move to next model
+                
+                // If specific model was requested and failed, throw immediately
+                if (selectedModelId) {
+                    throw new Error(`Failed to load ${currentModel}: ${errorMsg}`);
                 }
             }
         }
@@ -129,8 +160,7 @@ export const initEngine = async (progressCallback: (report: any) => void) => {
 
     // All models failed
     log('error', '❌ All models failed to load');
-    log('error', 'Tried models:', MODEL_LIST);
-    throw new Error("Failed to initialize AI engine. All models failed. Please check your GPU drivers and internet connection.");
+    throw new Error("Failed to initialize AI engine. Please check your connection or try a different model.");
 };
 
 export const generateCompletion = async (

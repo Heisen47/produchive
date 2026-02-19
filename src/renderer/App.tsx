@@ -33,6 +33,7 @@ const viewIcons: Record<string, React.ElementType> = {
     ai: Brain
 };
 import { PeekabooCat } from './components/PeekabooCat';
+import { ModelManager } from './components/ModelManager';
 
 
 const viewLabels: Record<string, string> = {
@@ -43,7 +44,7 @@ const viewLabels: Record<string, string> = {
 };
 
 const AppContent = () => {
-    const { addActivity, goals, setError, error } = useStore();
+    const { addActivity, goals, setError, error, selectedModelId } = useStore();
     const { isDark } = useTheme();
     const [currentView, setCurrentView] = useState('dashboard');
     const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -102,7 +103,20 @@ const AppContent = () => {
     const [modelName, setModelName] = useState<string>('');
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<{ text: string; progress?: number }>({ text: '' });
+    const [showModelSelector, setShowModelSelector] = useState(false);
     const loadingRef = useRef(false);
+    const selectorRef = useRef<HTMLDivElement>(null);
+
+    // Close selector when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (selectorRef.current && !selectorRef.current.contains(event.target as Node)) {
+                setShowModelSelector(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const startEngine = async () => {
         loadingRef.current = true;
@@ -115,7 +129,7 @@ const AppContent = () => {
                     text: progress.text || '',
                     progress: progress.progress
                 });
-            });
+            }, selectedModelId || undefined);
             if (loadingRef.current) {
                 setEngine(result.engine);
                 setModelName(result.modelName);
@@ -205,16 +219,59 @@ const AppContent = () => {
                                 Stop
                             </button>
                         ) : engine ? (
-                            <div
-                                className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-xl"
-                                style={{
-                                    background: 'rgba(34, 197, 94, 0.1)',
-                                    color: '#4ade80',
-                                    border: '1px solid rgba(34, 197, 94, 0.2)',
-                                }}
-                            >
-                                <Sparkles size={14} />
-                                <span className="font-medium">{modelName.split('-')[0]}</span>
+                            <div className="relative" ref={selectorRef}>
+                                <button
+                                    onClick={() => setShowModelSelector(!showModelSelector)}
+                                    className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-xl transition-all hover:bg-green-500/20 active:scale-95 cursor-pointer"
+                                    style={{
+                                        background: 'rgba(34, 197, 94, 0.1)',
+                                        color: '#4ade80',
+                                        border: '1px solid rgba(34, 197, 94, 0.2)',
+                                    }}
+                                >
+                                    <Sparkles size={14} />
+                                    <span className="font-medium">{modelName.split('-')[0]}</span>
+                                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse ml-1" />
+                                </button>
+
+                                {showModelSelector && (
+                                    <div 
+                                        className="absolute top-full right-0 mt-2 w-80 p-4 rounded-xl shadow-2xl border animate-fade-in z-50 overflow-hidden"
+                                        style={{
+                                            background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                                            borderColor: 'var(--border-secondary)',
+                                            backdropFilter: 'blur(20px)'
+                                        }}
+                                    >
+                                        <div className="flex justify-between items-center mb-4 pb-2 border-b border-white/10">
+                                            <h4 className="font-bold text-sm">Select Model</h4>
+                                            <button 
+                                                onClick={() => setShowModelSelector(false)}
+                                                className="text-xs opacity-60 hover:opacity-100 p-1"
+                                            >
+                                                Close
+                                            </button>
+                                        </div>
+                                        <div className="max-h-[60vh] overflow-y-auto custom-scrollbar">
+                                            <ModelManager />
+                                        </div>
+                                        <div className="mt-4 pt-3 border-t border-white/10 text-center">
+                                            <button
+                                                onClick={() => {
+                                                    // Trigger reload if model changed
+                                                    if (selectedModelId && selectedModelId !== modelName) {
+                                                        cancelEngine();
+                                                        setTimeout(() => startEngine(), 100);
+                                                    }
+                                                    setShowModelSelector(false);
+                                                }}
+                                                className="w-full py-2 rounded-lg text-xs font-bold transition-colors hover:bg-white/10 bg-white/5"
+                                            >
+                                                Apply & Reload Engine
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <button

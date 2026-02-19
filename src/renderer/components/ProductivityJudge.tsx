@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import Lottie from 'lottie-react';
 import { useStore } from '../lib/store';
 import { HistoricalReports } from './HistoricalReports';
 import { useTheme } from './ThemeProvider';
-import { AnimationOverlay } from './AnimationOverlay';
+import confetti from 'canvas-confetti';
+import badCatAnimation from '../assets/bad_cat.json';
 
 interface ProductivityAnalysis {
     rating: number | string; // 1-10 or "NA"
@@ -23,8 +25,8 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
     const goal = goals.length > 0 ? goals[0] : null;
     const [analyzing, setAnalyzing] = useState(false);
     const [analysis, setAnalysis] = useState<ProductivityAnalysis | null>(null);
-    const [showResultAnimation, setShowResultAnimation] = useState(false);
-
+    const [error, setError] = useState<string | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
 
     const formatDuration = (ms: number) => {
         const seconds = Math.floor(ms / 1000);
@@ -36,7 +38,23 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
         return `${seconds}s`;
     };
 
+    const triggerConfetti = () => {
+        if (canvasRef.current) {
+            const myConfetti = confetti.create(canvasRef.current, {
+                resize: true,
+                useWorker: true
+            });
+            myConfetti({
+                particleCount: 100,
+                spread: 160,
+                origin: { y: 0.6 }
+            });
+        }
+    };
+
     const analyzeProductivity = async () => {
+        setError(null);
+        
         if (!engine || goals.length === 0 || activities.length === 0) {
             console.log('[ProductivityJudge] Cannot generate report:', {
                 hasEngine: !!engine,
@@ -103,7 +121,12 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
 
             setAnalysis(analysisResult);
             addRating(analysisResult);
-            setShowResultAnimation(true);
+            
+            // Check for confetti condition (>= 8)
+            if (typeof analysisResult.rating === 'number' && analysisResult.rating >= 8) {
+                setTimeout(() => triggerConfetti(), 500); // Small delay to ensure render
+            }
+            
         } catch (error) {
             setAnalysis({
                 rating: 5,
@@ -140,44 +163,79 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
 
     if (goals.length === 0) return null;
 
+    // Check total usage time (3 minutes = 180000ms)
+    // We check this on render to disable the button
+    const totalDuration = activities.reduce((sum, act) => sum + (act.duration || 0), 0);
+    const isEnoughData = totalDuration >= 180000;
+
     return (
         <div className="mt-6 space-y-6">
-            <button
-                onClick={analyzeProductivity}
-                disabled={analyzing || !engine || activities.length === 0}
-                className="w-full px-6 py-4 rounded-2xl font-bold transition-all duration-300 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                style={{
-                    background: 'linear-gradient(135deg, #6366f1, #8b5cf6, #6366f1)',
-                    backgroundSize: '200% 200%',
-                    color: '#fff',
-                    boxShadow: analyzing ? 'none' : '0 8px 30px rgba(99,102,241,0.4)',
-                    animation: !analyzing ? 'gradientShift 3s ease infinite' : undefined,
-                }}
-            >
-                {analyzing ? (
-                    <>
-                        <Loader2 size={24} className="animate-spin" />
-                        Analyzing Your Day...
-                    </>
-                ) : (
-                    <>
-                        <Brain size={24} />
-                        Generate AI Report
-                    </>
+            <div className="relative">
+                <button
+                    onClick={analyzeProductivity}
+                    disabled={analyzing || !engine || activities.length === 0 || !isEnoughData}
+                    className="w-full px-6 py-4 rounded-2xl font-bold transition-all duration-300 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                    style={{
+                        background: 'linear-gradient(135deg, #6366f1, #8b5cf6, #6366f1)',
+                        backgroundSize: '200% 200%',
+                        color: '#fff',
+                        boxShadow: analyzing || !isEnoughData ? 'none' : '0 8px 30px rgba(99,102,241,0.4)',
+                        animation: !analyzing && isEnoughData ? 'gradientShift 3s ease infinite' : undefined,
+                        filter: !isEnoughData ? 'grayscale(1)' : 'none',
+                    }}
+                >
+                    {analyzing ? (
+                        <>
+                            <Loader2 size={24} className="animate-spin" />
+                            Analyzing Your Day...
+                        </>
+                    ) : (
+                        <>
+                            <Brain size={24} />
+                            Generate AI Report
+                        </>
+                    )}
+                </button>
+                
+                {!isEnoughData && (
+                    <div className="absolute top-full left-0 right-0 mt-2 text-center animate-fade-in">
+                        <span className="text-xs font-medium px-3 py-1.5 rounded-full inline-block" 
+                              style={{ 
+                                  background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
+                                  color: 'var(--text-secondary)'
+                              }}>
+                            Please use the app for at least 3 minutes to unlock analysis
+                        </span>
+                    </div>
                 )}
-            </button>
+            </div>
+            
+
 
             {analysis && (() => {
                 const style = getVerdictStyle(analysis.verdict);
                 return (
                     <div
-                        className="rounded-2xl p-6 animate-fade-in-up"
+                        className="rounded-2xl p-6 animate-fade-in-up relative overflow-hidden"
                         style={{
                             background: style.bg,
                             border: `1px solid ${style.border}`,
                             backdropFilter: 'blur(20px)',
                         }}
                     >
+                        <canvas 
+                            ref={canvasRef} 
+                            style={{ 
+                                position: 'absolute', 
+                                top: 0, 
+                                left: 0, 
+                                width: '100%', 
+                                height: '100%', 
+                                pointerEvents: 'none', 
+                                zIndex: 10 
+                            }} 
+                        />
+                        
                         {/* Header: Score & Verdict */}
                         <div className="flex items-center justify-between mb-6 pb-6" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
                             <div className="flex items-center gap-4">
@@ -196,6 +254,13 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
                                     <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Based on your activity history</p>
                                 </div>
                             </div>
+                            
+                            {/* Bad Cat for low scores */}
+                            {(typeof analysis.rating === 'number' && analysis.rating < 5) && (
+                                <div className="w-24 h-24">
+                                    <Lottie animationData={badCatAnimation} loop={true} />
+                                </div>
+                            )}
                         </div>
 
                         {/* Explanation */}
@@ -261,19 +326,6 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
 
             {/* Historical Reports Section */}
             <HistoricalReports engine={engine} />
-
-            {showResultAnimation && analysis && (
-                <AnimationOverlay
-                    type={
-                        (typeof analysis.rating === 'number' && analysis.rating >= 8) ? 'rating-high' :
-                            (typeof analysis.rating === 'number' && analysis.rating >= 5) ? 'rating-mid' :
-                                'rating-low'
-                    }
-                    rating={typeof analysis.rating === 'number' ? analysis.rating : 0}
-                    goal={goals[0]}
-                    onComplete={() => setShowResultAnimation(false)}
-                />
-            )}
         </div>
     );
 };

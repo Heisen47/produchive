@@ -25,6 +25,9 @@ interface Store {
     addSystemEvent: (event: any) => void;
     clearSystemEvents: () => void;
 
+    // Debug / Testing
+    setStreak: (streak: number) => void;
+
     // Global Error Handling
     error: string | null;
     setError: (error: string | null) => void;
@@ -127,6 +130,10 @@ export const useStore = create<Store>((set, get) => ({
         // Keep last 100 events
         const newEvents = [...systemEvents, event].slice(-100);
         set({ systemEvents: newEvents });
+    },
+    setStreak: (streak: number) => {
+        const { stats } = get();
+        set({ stats: { ...stats, streak } });
     },
     clearSystemEvents: () => set({ systemEvents: [] }),
 }));

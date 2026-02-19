@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Bug, ChevronDown, ChevronUp, HardDrive, FolderOpen, FileText, Database, Settings } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
+import { useStore } from '../lib/store';
 
 export const DebugPanel: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -117,6 +118,25 @@ export const DebugPanel: React.FC = () => {
                         </button>
                     ))}
                 </div>
+
+                {/* Debug Controls */}
+                
+                {/* <div className="rounded-xl p-3 space-y-2" style={{ background: isDark ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.05)', border: '1px solid var(--border-secondary)' }}>
+                    <h4 className="text-xs font-bold uppercase tracking-wider opacity-70" style={{ color: 'var(--text-muted)' }}>Debug Controls</h4>
+                    <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Force Streak:</span>
+                        <input
+                            type="number"
+                            className="w-20 px-2 py-1 rounded text-xs text-right"
+                            style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-input)' }}
+                            onChange={(e) => {
+                                const val = parseInt(e.target.value);
+                                if (!isNaN(val)) useStore.getState().setStreak(val);
+                            }}
+                            placeholder="Days"
+                        />
+                    </div>
+                </div> */}
 
                 {/* DB Contents */}
                 {dbContents && (

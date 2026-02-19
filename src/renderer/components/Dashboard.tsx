@@ -14,6 +14,7 @@ import { NoFaceBg } from './NoFaceBg';
 import { SootSpriteBg } from './SootSpriteBg';
 import { TotoroBusStopBg } from './TotoroBusStopBg';
 import { PeekabooCat } from './PeekabooCat';
+import { StreakCard } from './StreakCard';
 
 // Helper for formatting duration
 const formatDuration = (seconds: number) => {
@@ -173,7 +174,6 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
         }
     }, []);
 
-    // ... existing code ...
 
     return (
         <div className="space-y-8">
@@ -209,19 +209,9 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     <span className="text-sm italic opacity-80" style={{ color: 'var(--text-secondary)' }}>Let's make today count together</span>
                 </div>
 
-                {/* Streak Red Box */}
-                <div className="flex flex-col items-center justify-center px-4 py-2 rounded-xl border animate-fade-in"
-                    style={{
-                        background: 'rgba(239, 68, 68, 0.1)',
-                        borderColor: 'rgba(239, 68, 68, 0.2)',
-                        color: '#ef4444'
-                    }}
-                >
-                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-80">Streak</span>
-                    <div className="flex items-center gap-1">
-                        <span className="text-xl font-bold">{userStats?.streak || 1}</span>
-                        <span className="text-lg">🔥</span>
-                    </div>
+                {/* Streak Card */}
+                <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
+                    <StreakCard streak={userStats?.streak || 1} />
                 </div>
             </div>
 

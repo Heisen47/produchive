@@ -1,4 +1,5 @@
 const { MakerSquirrel } = require('@electron-forge/maker-squirrel');
+const { MakerMSIX } = require('@electron-forge/maker-msix');
 const { MakerZIP } = require('@electron-forge/maker-zip');
 const { MakerDeb } = require('@electron-forge/maker-deb');
 const { MakerRpm } = require('@electron-forge/maker-rpm');
@@ -27,6 +28,30 @@ const config = {
     },
     rebuildConfig: {},
     hooks: {
+        prePackage: async () => {
+            // Generate a self-signed dev certificate for local MSIX builds.
+            // When submitting to the Microsoft Store, Microsoft re-signs the package
+            // for free — so this cert is only needed for local sideload testing.
+            if (process.platform === 'win32') {
+                const certFile = path.join(process.cwd(), 'dev-cert.pfx');
+                if (!fs.existsSync(certFile)) {
+                    console.log('Generating self-signed dev certificate for MSIX...');
+                    try {
+                        execSync(
+                            `powershell -Command "$cert = New-SelfSignedCertificate -Type Custom -Subject 'CN=Rishi' -KeyUsage DigitalSignature -FriendlyName 'Produchive Dev Cert' -CertStoreLocation 'Cert:\\CurrentUser\\My' -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}'); $pwd = ConvertTo-SecureString -String 'devpass123' -Force -AsPlainText; Export-PfxCertificate -Cert $cert -FilePath '${certFile}' -Password $pwd"`,
+                            { stdio: 'inherit' }
+                        );
+                        console.log('Dev certificate generated: dev-cert.pfx');
+                    } catch (e) {
+                        console.warn('Could not generate dev cert (may need to run as Administrator once):', e.message);
+                    }
+                }
+
+                // Pass the certificate file and password to the MSIX maker via environment variables
+                process.env.WINDOWS_CERTIFICATE_FILE = certFile;
+                process.env.WINDOWS_CERTIFICATE_PASSWORD = 'devpass123';
+            }
+        },
         postPackage: async (forgeConfig, options) => {
             const outputDir = options.outputPaths[0];
 
@@ -120,6 +145,23 @@ const config = {
     },
     makers: [
         new MakerSquirrel({}),
+        // ─── Microsoft Store / MSIX ───────────────────────────────────────────
+        // Before submitting to the Store:
+        //   1. Create a free Microsoft Partner Center account at https://partner.microsoft.com
+        //   2. Reserve your app name → copy the Identity Name + Publisher CN shown there
+        //   3. Replace the two placeholder values below with your real Partner Center values
+        //   4. Remove the windowsSignOptions block (Microsoft re-signs the package for free)
+        //   5. Run: npm run make -- --targets @electron-forge/maker-msix
+        new MakerMSIX({
+            manifestVariables: {
+                identityName: 'PLACEHOLDER.Produchive', // ← replace with Partner Center Identity Name
+                publisher: 'CN=Rishi',                  // ← replace with Partner Center Publisher CN
+                publisherDisplayName: 'Rishi',
+            },
+            // electron-windows-msix fails to read windowsSignOptions from the Forge config directly
+            // due to a bug, so we pass sign: true and use environment variables instead.
+            sign: true,
+        }),
         new MakerZIP({}, ['darwin', 'win32']),
         new MakerRpm({
             options: {

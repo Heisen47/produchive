@@ -90,3 +90,6 @@ typings/
 
 # Electron-Forge
 out/
+
+# MSIX dev signing cert (auto-generated, machine-specific)
+dev-cert.pfx

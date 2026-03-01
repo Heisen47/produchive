@@ -1,3 +1,9 @@
+
+
+
+
+https://github.com/user-attachments/assets/c838f4f3-b312-4251-b68a-fe9d2e8584bb
+
 # Produchive 
 
 Produchive is a self-hosted, offline-first productivity application that helps you stay focused. It monitors your activity and uses a local AI to judge your performance based on your goals.

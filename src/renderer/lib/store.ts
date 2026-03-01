@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { Task, Activity } from '../global';
 
+
+
 interface Store {
     tasks: Task[];
     goals: string[];

@@ -680,38 +680,45 @@ function registerIpcHandlers() {
     return enabled;
   });
 
-  // Update checker — compares package.json version against latest GitHub release
+  // Native Auto-Updater setup using update-electron-app
+  // This automatically checks GitHub Releases, downloads the update in the background,
+  // and notifies the renderer process via IPC when it's ready.
   ipcMain.handle('check-for-updates', async () => {
-    const currentVersion = app.getVersion();
-    try {
-      const response = await net.fetch('https://api.github.com/repos/Heisen47/produchive/releases/latest', {
-        headers: { 'User-Agent': 'produchive-app' }
-      });
+    // update-electron-app automatically handles checking, downloading, and prompting.
+    // We just return the current version to the frontend so it knows what it's running.
+    return { updateAvailable: false, currentVersion: app.getVersion() };
+  });
 
-      if (!response.ok) {
-        logger.warn(`GitHub API returned ${response.status}`);
-        return { updateAvailable: false, currentVersion };
-      }
+  // The actual background auto-updater from update-electron-app
+  try {
+    require('update-electron-app')({
+      repo: 'Heisen47/produchive',
+      updateInterval: '1 hour',
+      logger: require('electron-log')
+    });
+  } catch (e) {
+    logger.error('Failed to initialize auto-updater:', e);
+  }
 
-      const data = await response.json() as any;
-      const latestVersion = (data.tag_name || '').replace(/^v/, '');
-      const releaseUrl = data.html_url || 'https://github.com/Heisen47/produchive/releases';
+  // Optional: Listen for the native auto-updater events if you want to send them to the renderer
+  const { autoUpdater } = require('electron');
 
-      // Simple semver comparison: split by dots and compare numerically
-      const current = currentVersion.split('.').map(Number);
-      const latest = latestVersion.split('.').map(Number);
-      let updateAvailable = false;
-      for (let i = 0; i < 3; i++) {
-        if ((latest[i] || 0) > (current[i] || 0)) { updateAvailable = true; break; }
-        if ((latest[i] || 0) < (current[i] || 0)) break;
-      }
-
-      logger.info(`Update check: current=${currentVersion}, latest=${latestVersion}, updateAvailable=${updateAvailable}`);
-      return { updateAvailable, latestVersion, currentVersion, releaseUrl };
-    } catch (error) {
-      logger.error('Failed to check for updates:', error);
-      return { updateAvailable: false, currentVersion };
+  autoUpdater.on('update-available', () => {
+    logger.info('Auto-updater: Update available, downloading...');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-status', { status: 'downloading' });
     }
+  });
+
+  autoUpdater.on('update-downloaded', (event: any, releaseNotes: any, releaseName: any) => {
+    logger.info(`Auto-updater: Update downloaded ${releaseName}`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-status', { status: 'ready', version: releaseName });
+    }
+  });
+
+  ipcMain.handle('install-update', () => {
+    autoUpdater.quitAndInstall();
   });
 
   // App settings (persisted in DB)

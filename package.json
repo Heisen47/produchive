@@ -1,7 +1,7 @@
 {
   "name": "produchive",
   "productName": "produchive",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Produchive - A self-hosted productivity app",
   "main": ".vite/build/main.js",
   "private": true,
@@ -25,6 +25,7 @@
     "@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
     "@electron-forge/plugin-fuses": "^7.11.1",
     "@electron-forge/plugin-vite": "^7.11.1",
+    "@electron-forge/publisher-github": "^7.11.1",
     "@electron/fuses": "^1.8.0",
     "@types/canvas-confetti": "^1.9.0",
     "@types/electron-squirrel-startup": "^1.0.2",
@@ -56,6 +57,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "recharts": "^3.7.0",
+    "update-electron-app": "^3.1.2",
     "zustand": "^5.0.10"
   }
 }

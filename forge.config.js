@@ -206,6 +206,19 @@ const config = {
             [FuseV1Options.OnlyLoadAppFromAsar]: true,
         }),
     ],
+    publishers: [
+        {
+            name: '@electron-forge/publisher-github',
+            config: {
+                repository: {
+                    owner: 'Heisen47',
+                    name: 'produchive'
+                },
+                prerelease: false,
+                draft: true // We'll make it a draft first so they can verify before publishing
+            }
+        }
+    ]
 };
 
 module.exports = config;

@@ -3,19 +3,30 @@ import { Info, ExternalLink, X } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 
 export const UpdateBanner: React.FC = () => {
-    const [updateInfo, setUpdateInfo] = useState<any>(null);
+    const [updateStatus, setUpdateStatus] = useState<'checking' | 'downloading' | 'ready' | null>(null);
+    const [version, setVersion] = useState<string>('');
     const [dismissed, setDismissed] = useState(false);
     const { isDark } = useTheme();
 
     useEffect(() => {
-        (window as any).electronAPI?.checkForUpdates?.()
-            .then((info: any) => {
-                if (info) setUpdateInfo(info);
-            })
-            .catch(() => {});
+        // Listen for native update events from update-electron-app
+        const autoUpdaterAPI = (window as any).electronAPI;
+        if (autoUpdaterAPI?.onUpdateStatus) {
+            autoUpdaterAPI.onUpdateStatus((statusObj: any) => {
+                setUpdateStatus(statusObj.status);
+                if (statusObj.version) setVersion(statusObj.version);
+            });
+        }
     }, []);
 
-    if (!updateInfo?.updateAvailable || dismissed) return null;
+    if (!updateStatus || dismissed) return null;
+
+    const handleInstall = (e: React.MouseEvent) => {
+        e.preventDefault();
+        if (updateStatus === 'ready') {
+            (window as any).electronAPI?.installUpdate();
+        }
+    };
 
     return (
         <div
@@ -27,19 +38,22 @@ export const UpdateBanner: React.FC = () => {
         >
             <Info size={16} style={{ color: 'var(--accent-light)' }} />
             <span style={{ color: 'var(--text-secondary)' }}>
-                <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>A new version {updateInfo.version}</span> is available.
+                {updateStatus === 'downloading' ? (
+                    <>Downloading a <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>new background update</span>...</>
+                ) : (
+                    <><span className="font-semibold" style={{ color: 'var(--text-primary)' }}>Update {version}</span> is ready to install.</>
+                )}
             </span>
-            <a
-                href={updateInfo.url || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 font-semibold transition-colors"
-                style={{ color: 'var(--accent)' }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--accent-light)'; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--accent)'; }}
-            >
-                Download <ExternalLink size={12} />
-            </a>
+
+            {updateStatus === 'ready' && (
+                <button
+                    onClick={handleInstall}
+                    className="flex items-center gap-1 font-semibold transition-colors bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded"
+                >
+                    Restart to Install
+                </button>
+            )}
+
             <button
                 onClick={() => setDismissed(true)}
                 className="ml-auto p-1 rounded transition-colors"

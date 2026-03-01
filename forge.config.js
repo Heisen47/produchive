@@ -144,7 +144,10 @@ const config = {
         },
     },
     makers: [
-        new MakerSquirrel({}),
+        new MakerSquirrel({
+            setupIcon: './resources/icon.ico',
+            iconUrl: 'https://raw.githubusercontent.com/Heisen47/produchive/main/resources/icon.ico'
+        }),
         // ─── Microsoft Store / MSIX ───────────────────────────────────────────
         // Before submitting to the Store:
         //   1. Create a free Microsoft Partner Center account at https://partner.microsoft.com

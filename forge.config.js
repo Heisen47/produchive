@@ -35,7 +35,7 @@ const config = {
             // for free — so this cert is only needed for local sideload testing.
             if (process.platform === 'win32') {
                 const certFile = path.join(process.cwd(), 'dev-cert.pfx');
-                if (!fs.existsSync(certFile)) {
+                if (!fs.existsSync(certFile) && !process.env.CI) {
                     console.log('Generating self-signed dev certificate for MSIX...');
                     try {
                         execSync(
@@ -48,9 +48,11 @@ const config = {
                     }
                 }
 
-                // Pass the certificate file and password to the MSIX maker via environment variables
-                process.env.WINDOWS_CERTIFICATE_FILE = certFile;
-                process.env.WINDOWS_CERTIFICATE_PASSWORD = 'devpass123';
+                // Pass the certificate file and password to the MSIX maker only if it exists
+                if (fs.existsSync(certFile)) {
+                    process.env.WINDOWS_CERTIFICATE_FILE = certFile;
+                    process.env.WINDOWS_CERTIFICATE_PASSWORD = 'devpass123';
+                }
             }
         },
         postPackage: async (forgeConfig, options) => {
@@ -164,7 +166,7 @@ const config = {
             },
             // electron-windows-msix fails to read windowsSignOptions from the Forge config directly
             // due to a bug, so we pass sign: true and use environment variables instead.
-            sign: true,
+            sign: !process.env.CI,
         }),
         new MakerZIP({}, ['darwin', 'win32']),
         new MakerRpm({

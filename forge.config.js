@@ -3,7 +3,7 @@ const { MakerMSIX } = require('@electron-forge/maker-msix');
 const { MakerZIP } = require('@electron-forge/maker-zip');
 const { MakerDeb } = require('@electron-forge/maker-deb');
 const { MakerRpm } = require('@electron-forge/maker-rpm');
-const { MakerMSIX } = require('@electron-forge/maker-msix');
+
 const { VitePlugin } = require('@electron-forge/plugin-vite');
 const { AutoUnpackNativesPlugin } = require('@electron-forge/plugin-auto-unpack-natives');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
@@ -176,17 +176,6 @@ const config = {
             options: {
                 icon: './resources/icon.png'
             }
-        }),
-        new MakerMSIX({
-            // Publisher identity — must match your signing certificate's subject
-            // For a self-signed dev cert: 'CN=YourName'
-            // For Microsoft Store: your Partner Center publisher identity
-            publisher: 'CN=Rishi',
-            // Optional: provide signing certificate for Store or trusted sideloading
-            // windowsSignOptions: {
-            //     certificateFile: 'path/to/your-certificate.pfx',
-            //     certificatePassword: 'your-password',
-            // },
         }),
     ],
     plugins: [

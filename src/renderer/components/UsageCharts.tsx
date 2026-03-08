@@ -176,7 +176,6 @@ const getVerdictColor = (verdict: string) => {
     switch (verdict) {
         case 'productive': return '#4ade80';
         case 'unproductive': return '#f87171';
-        case 'NA': return '#94a3b8';
         default: return '#fbbf24';
     }
 };

@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, ChevronDown, ChevronUp, Loader2, AlertCircle, FileText } from 'lucide-react';
 import { generateCompletion } from '../lib/ai';
 import { useTheme } from './ThemeProvider';
+import { ShareCard } from './ShareCard';
 
 interface ProductivityAnalysis {
     rating: number | string;
-    verdict: 'productive' | 'neutral' | 'unproductive' | 'NA';
+    verdict: 'productive' | 'neutral' | 'unproductive';
     explanation: string;
     tips: string[];
     categorization: {
@@ -272,15 +273,22 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
                                         )}
                                     </div>
                                 </div>
-                                <div
-                                    className="px-4 py-2 rounded-xl flex items-center justify-center text-lg font-bold"
-                                    style={{
-                                        background: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.6)',
-                                        color: 'var(--text-primary)',
-                                        border: '1px solid var(--border-primary)',
-                                    }}
-                                >
-                                    {typeof aggregatedReport.rating === 'number' ? `${aggregatedReport.rating}/10` : aggregatedReport.rating}
+                                <div className="flex items-center gap-3">
+                                    <div
+                                        className="px-4 py-2 rounded-xl flex items-center justify-center text-lg font-bold"
+                                        style={{
+                                            background: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.6)',
+                                            color: 'var(--text-primary)',
+                                            border: '1px solid var(--border-primary)',
+                                        }}
+                                    >
+                                        {typeof aggregatedReport.rating === 'number' ? `${aggregatedReport.rating}/10` : aggregatedReport.rating}
+                                    </div>
+                                    <ShareCard
+                                        analysis={aggregatedReport}
+                                        goals={dateGoals}
+                                        dateLabel={formatDate(selectedDate)}
+                                    />
                                 </div>
                             </div>
 

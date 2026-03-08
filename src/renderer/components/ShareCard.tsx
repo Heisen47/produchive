@@ -10,6 +10,9 @@ const XLogo = ({ size = 16 }: { size?: number }) => (
 );
 import { useTheme } from './ThemeProvider';
 
+// Import the app logo (Vite resolves this to a URL)
+import logoSrc from '../../../resources/icon.png';
+
 interface ProductivityAnalysis {
     rating: number | string;
     verdict: 'productive' | 'neutral' | 'unproductive';
@@ -44,14 +47,7 @@ const getVerdictGradient = (verdict: string): [string, string, string] => {
     }
 };
 
-const getVerdictEmoji = (verdict: string): string => {
-    switch (verdict) {
-        case 'productive': return '🚀';
-        case 'unproductive': return '😴';
-        case 'neutral': return '⚡';
-        default: return '📊';
-    }
-};
+
 
 // Draw verdict icon on canvas
 function drawVerdictIcon(ctx: CanvasRenderingContext2D, x: number, y: number, verdict: string, size: number) {
@@ -170,7 +166,8 @@ function renderShareImage(
     canvas: HTMLCanvasElement,
     analysis: ProductivityAnalysis,
     goals: string[],
-    dateLabel?: string
+    dateLabel?: string,
+    logoImg?: HTMLImageElement | null
 ) {
     const ctx = canvas.getContext('2d')!;
     const dpr = 2;
@@ -228,27 +225,42 @@ function renderShareImage(
 
     let cursorY = 80;
 
-    // ─── Brand header ───
-    ctx.font = '600 18px Inter, system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.textAlign = 'left';
-    ctx.fillText('produchive', 80, cursorY);
+    // ─── Brand header with logo ───
+    const logoSize = 40;
+    const logoPadding = 80;
+
+    if (logoImg && logoImg.complete && logoImg.naturalWidth > 0) {
+        // Draw rounded logo
+        ctx.save();
+        drawRoundedRect(ctx, logoPadding, cursorY - logoSize + 6, logoSize, logoSize, 10);
+        ctx.clip();
+        ctx.drawImage(logoImg, logoPadding, cursorY - logoSize + 6, logoSize, logoSize);
+        ctx.restore();
+
+        // Brand name next to logo
+        ctx.font = '600 20px Inter, system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('produchive', logoPadding + logoSize + 12, cursorY - logoSize / 2 + 6);
+    } else {
+        // Fallback: text-only brand
+        ctx.font = '600 20px Inter, system-ui, sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText('produchive', logoPadding, cursorY);
+    }
 
     ctx.textAlign = 'right';
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.font = '400 16px Inter, system-ui, sans-serif';
+    ctx.textBaseline = 'alphabetic';
     const dateText = dateLabel || new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     ctx.fillText(dateText, CARD_WIDTH - 80, cursorY);
     ctx.textAlign = 'left';
 
     cursorY += 60;
-
-    // ─── Main verdict section ───
-    // Emoji
-    ctx.font = '72px serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(getVerdictEmoji(analysis.verdict), CARD_WIDTH / 2, cursorY + 60);
-    cursorY += 100;
 
     // Score Circle
     const circleX = CARD_WIDTH / 2;
@@ -347,7 +359,7 @@ function renderShareImage(
         ctx.font = 'bold 14px Inter, system-ui, sans-serif';
         ctx.fillStyle = '#818cf8';
         ctx.textAlign = 'left';
-        ctx.fillText('🎯  MY GOALS', 110, cursorY);
+        ctx.fillText('MY GOALS', 110, cursorY);
         cursorY += 28;
 
         ctx.font = '400 18px Inter, system-ui, sans-serif';
@@ -362,9 +374,9 @@ function renderShareImage(
 
     // ─── Categorization ───
     const categories = [
-        { title: 'PRODUCTIVE', items: analysis.categorization.productive, color: '#4ade80', icon: '✅' },
-        { title: 'NEUTRAL', items: analysis.categorization.neutral, color: '#fbbf24', icon: '⚡' },
-        { title: 'DISTRACTING', items: analysis.categorization.distracting, color: '#f87171', icon: '🚫' },
+        { title: 'PRODUCTIVE', items: analysis.categorization.productive, color: '#4ade80', icon: '+' },
+        { title: 'NEUTRAL', items: analysis.categorization.neutral, color: '#fbbf24', icon: '~' },
+        { title: 'DISTRACTING', items: analysis.categorization.distracting, color: '#f87171', icon: '!' },
     ];
 
     const catWidth = (CARD_WIDTH - 160 - 32) / 3;
@@ -419,7 +431,7 @@ function renderShareImage(
         ctx.font = 'bold 14px Inter, system-ui, sans-serif';
         ctx.fillStyle = '#93c5fd';
         ctx.textAlign = 'left';
-        ctx.fillText('💡  TIPS & INSIGHTS', 110, cursorY);
+        ctx.fillText('TIPS & INSIGHTS', 110, cursorY);
         cursorY += 30;
 
         ctx.font = '400 17px Inter, system-ui, sans-serif';
@@ -479,9 +491,22 @@ export const ShareCard: React.FC<ShareCardProps> = ({ analysis, goals, dateLabel
 
     const generateImage = useCallback(() => {
         if (!canvasRef.current) return;
-        const outputCanvas = renderShareImage(canvasRef.current, analysis, goals, dateLabel);
-        const url = outputCanvas.toDataURL('image/png', 1.0);
-        setImageUrl(url);
+
+        // Preload the logo, then render
+        const logo = new Image();
+        logo.crossOrigin = 'anonymous';
+        logo.onload = () => {
+            const outputCanvas = renderShareImage(canvasRef.current!, analysis, goals, dateLabel, logo);
+            const url = outputCanvas.toDataURL('image/png', 1.0);
+            setImageUrl(url);
+        };
+        logo.onerror = () => {
+            // Render without logo if it fails to load
+            const outputCanvas = renderShareImage(canvasRef.current!, analysis, goals, dateLabel, null);
+            const url = outputCanvas.toDataURL('image/png', 1.0);
+            setImageUrl(url);
+        };
+        logo.src = logoSrc;
     }, [analysis, goals, dateLabel]);
 
     useEffect(() => {
@@ -518,7 +543,7 @@ export const ShareCard: React.FC<ShareCardProps> = ({ analysis, goals, dateLabel
     const handleShareX = useCallback(() => {
         const rating = typeof analysis.rating === 'number' ? analysis.rating : '?';
         const text = encodeURIComponent(
-            `${getVerdictEmoji(analysis.verdict)} My productivity score today: ${rating}/10 \u2014 ${analysis.verdict.toUpperCase()} day!\n\nTracked with Produchive \ud83d\udcca\n#productivity #produchive`
+            `My productivity score today: ${rating}/10 — ${analysis.verdict.toUpperCase()} day!\n\nTracked with Produchive\n#productivity #produchive`
         );
         window.open(`https://twitter.com/intent/tweet?text=${text}`, '_blank');
     }, [analysis]);

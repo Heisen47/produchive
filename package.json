@@ -1,7 +1,7 @@
 {
   "name": "produchive",
   "productName": "produchive",
-  "version": "1.0.6",
+  "version": "1.1.0",
   "description": "Produchive - A self-hosted productivity app",
   "main": ".vite/build/main.js",
   "private": true,

@@ -23,9 +23,15 @@ interface Store {
     // Monitoring
     isMonitoring: boolean;
     systemEvents: any[];
+    blockedActivities: Activity[];
     setMonitoring: (status: boolean) => void;
     addSystemEvent: (event: any) => void;
     clearSystemEvents: () => void;
+    
+    // Blocking
+    loadBlockedActivities: () => Promise<void>;
+    blockActivity: (activity: Activity) => Promise<void>;
+    unblockActivity: (activity: Activity) => Promise<void>;
 
     // Debug / Testing
     setStreak: (streak: number) => void;
@@ -73,6 +79,7 @@ export const useStore = create<Store>((set, get) => ({
             stats: stats || { streak: 0 },
             selectedRole: settings.selectedRole || 'Software Engineer' // Default if not set
         });
+        get().loadBlockedActivities();
     },
     addTask: async (text: string) => {
         const newTask: Task = {
@@ -147,6 +154,7 @@ export const useStore = create<Store>((set, get) => ({
     // Monitoring State
     isMonitoring: false,
     systemEvents: [],
+    blockedActivities: [],
     setMonitoring: (isMonitoring: boolean) => set({ isMonitoring }),
     addSystemEvent: (event: any) => {
         const { systemEvents } = get();
@@ -159,4 +167,17 @@ export const useStore = create<Store>((set, get) => ({
         set({ stats: { ...stats, streak } });
     },
     clearSystemEvents: () => set({ systemEvents: [] }),
+
+    loadBlockedActivities: async () => {
+        const blockedActivities = await window.electronAPI.getBlockedActivities();
+        set({ blockedActivities });
+    },
+    blockActivity: async (activity: Activity) => {
+        const blockedActivities = await window.electronAPI.blockActivity(activity);
+        set({ blockedActivities });
+    },
+    unblockActivity: async (activity: Activity) => {
+        const blockedActivities = await window.electronAPI.unblockActivity(activity);
+        set({ blockedActivities });
+    },
 }));

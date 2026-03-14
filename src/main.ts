@@ -15,6 +15,7 @@ import started from "electron-squirrel-startup";
 import { createLogger, getLogPath } from "./lib/logger";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import { execSync, exec } from "node:child_process";
 import { getAutoUpdater } from "./lib/autoUpdater";
 
 const logger = createLogger("Main");
@@ -257,6 +258,89 @@ const createWindow = () => {
 let monitoringInterval: NodeJS.Timeout | null = null;
 let lastActivity: any = null;
 
+const blockedActivities = new Map<string, any>();
+let blockEnforcementInterval: NodeJS.Timeout | null = null;
+
+function execAsync(script: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    exec(script, (error, stdout, stderr) => {
+      if (error) {
+        logger.error(`[BlockMode] Script error: ${error.message}`, stderr);
+        reject(error);
+      } else {
+        resolve(stdout);
+      }
+    });
+  });
+}
+
+async function applyBlockMode(activity: any, block: boolean) {
+  if (process.platform !== "darwin") return;
+
+  // Normalize app name for System Events
+  let appName = activity.owner.name;
+  if (appName === "Chrome") appName = "Google Chrome";
+  if (appName === "Brave") appName = "Brave Browser";
+  if (appName === "Edge") appName = "Microsoft Edge";
+
+  logger.info(
+    `[BlockMode] ${block ? "BLOCK" : "UNBLOCK"} "${appName}"`,
+  );
+
+  try {
+    if (block) {
+      // Two-step hide: set visible to false AND push to back
+      const script = `osascript -e '
+        tell application "System Events"
+          if exists process "${appName}" then
+            set visible of process "${appName}" to false
+            set frontmost of process "${appName}" to false
+          end if
+        end tell'`;
+      await execAsync(script);
+      logger.info(`[BlockMode] Successfully hidden: ${appName}`);
+    } else {
+      const script = `osascript -e '
+        tell application "System Events"
+          if exists process "${appName}" then
+            set visible of process "${appName}" to true
+          end if
+        end tell'`;
+      await execAsync(script);
+      logger.info(`[BlockMode] Successfully shown: ${appName}`);
+    }
+  } catch (e: any) {
+    logger.error(`[BlockMode] Failed to ${block ? "hide" : "show"} ${appName}:`, e.message);
+  }
+}
+
+// Fast enforcement loop — re-hides blocked apps every 200ms so they can't briefly appear
+function startBlockEnforcement() {
+  if (blockEnforcementInterval) return; // already running
+  logger.info("[BlockMode] Starting fast enforcement loop (200ms)");
+  blockEnforcementInterval = setInterval(() => {
+    for (const activity of blockedActivities.values()) {
+      applyBlockMode(activity, true);
+    }
+  }, 200);
+}
+
+function stopBlockEnforcement() {
+  if (blockEnforcementInterval) {
+    clearInterval(blockEnforcementInterval);
+    blockEnforcementInterval = null;
+    logger.info("[BlockMode] Stopped fast enforcement loop");
+  }
+}
+
+function updateBlockEnforcement() {
+  if (blockedActivities.size > 0) {
+    startBlockEnforcement();
+  } else {
+    stopBlockEnforcement();
+  }
+}
+
 const stopMonitoring = () => {
   if (monitoringInterval) {
     clearInterval(monitoringInterval);
@@ -361,6 +445,11 @@ const startMonitoring = async (): Promise<boolean> => {
             result.title.toLowerCase().includes("leetcode")
           ) {
             result.title = "LeetCode";
+          }
+
+          // Enforce blocking if this app is blocked
+          if (blockedActivities.has(result.owner.name)) {
+            applyBlockMode(result, true);
           }
 
           const timestamp = Date.now();
@@ -489,6 +578,29 @@ const startMonitoring = async (): Promise<boolean> => {
 };
 
 function registerIpcHandlers() {
+  // Blocking handlers
+  ipcMain.handle("get-blocked-activities", () => {
+    return Array.from(blockedActivities.values());
+  });
+
+  ipcMain.handle("block-activity", async (event, activity) => {
+    const key = activity.owner.name;
+    blockedActivities.set(key, activity);
+    await applyBlockMode(activity, true);
+    updateBlockEnforcement();
+    logger.info(`[BlockMode] Blocked app: ${key}. Total blocked: ${blockedActivities.size}`);
+    return Array.from(blockedActivities.values());
+  });
+
+  ipcMain.handle("unblock-activity", async (event, activity) => {
+    const key = activity.owner.name;
+    blockedActivities.delete(key);
+    updateBlockEnforcement(); // Stop loop first if no more blocked apps
+    await applyBlockMode(activity, false);
+    logger.info(`[BlockMode] Unblocked app: ${key}. Total blocked: ${blockedActivities.size}`);
+    return Array.from(blockedActivities.values());
+  });
+
   // Task management handlers
   ipcMain.handle("get-tasks", async () => {
     try {
@@ -902,6 +1014,27 @@ app.on("activate", () => {
   } else if (!isAppReady) {
     logger.info("App activated but not yet ready/initialized. Waiting...");
   }
+});
+
+app.on("before-quit", () => {
+  logger.info("Restoring blocked activities before quit...");
+  stopBlockEnforcement();
+  for (const activity of blockedActivities.values()) {
+    try {
+      if (process.platform === "darwin") {
+        let appName = activity.owner.name;
+        if (appName === "Chrome") appName = "Google Chrome";
+        if (appName === "Brave") appName = "Brave Browser";
+        if (appName === "Edge") appName = "Microsoft Edge";
+        const script = `osascript -e 'tell application "System Events" to set visible of process "${appName}" to true'`;
+        execSync(script);
+        logger.info(`[BlockMode] Restored on quit: ${appName}`);
+      }
+    } catch(e) {
+      // Best effort — don't block quit
+    }
+  }
+  blockedActivities.clear();
 });
 
 app.on("will-quit", () => {});

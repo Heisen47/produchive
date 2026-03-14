@@ -305,9 +305,9 @@ const AppContent = () => {
                             {currentView === 'analytics' && <UsageCharts />}
 
                             {currentView === 'monitor' && (
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                    <SystemLog />
+                                <div className="space-y-6">
                                     <ActivityMonitor />
+                                    <SystemLog />
                                 </div>
                             )}
 

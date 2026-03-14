@@ -45,6 +45,11 @@ declare global {
       startMonitoring: () => Promise<boolean>;
       onSystemEvent: (callback: (event: any) => void) => void;
 
+      // Blocking Control
+      getBlockedActivities: () => Promise<Activity[]>;
+      blockActivity: (activity: Activity) => Promise<Activity[]>;
+      unblockActivity: (activity: Activity) => Promise<Activity[]>;
+
       // Debug and system info
       getSystemInfo: () => Promise<SystemInfo>;
       openUserDataFolder: () => Promise<string>;

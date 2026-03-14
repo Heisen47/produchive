@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onSystemEvent: (callback: (event: any) => void) =>
     ipcRenderer.on("system-event", (_event, value) => callback(value)),
 
+  // Blocking Control
+  getBlockedActivities: () => ipcRenderer.invoke("get-blocked-activities"),
+  blockActivity: (activity: any) => ipcRenderer.invoke("block-activity", activity),
+  unblockActivity: (activity: any) => ipcRenderer.invoke("unblock-activity", activity),
+
   // Debug and system info
   getSystemInfo: () => ipcRenderer.invoke("get-system-info"),
   openUserDataFolder: () => ipcRenderer.invoke("open-user-data-folder"),

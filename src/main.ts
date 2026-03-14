@@ -274,40 +274,85 @@ function execAsync(script: string): Promise<string> {
   });
 }
 
-async function applyBlockMode(activity: any, block: boolean) {
-  if (process.platform !== "darwin") return;
+let psProc: any = null;
+function getPowerShell() {
+  if (psProc) return psProc;
+  const { spawn } = require("child_process");
+  psProc = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "-"]);
+  
+  psProc.stdin.write(`
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public class Win {
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
+`);
+  psProc.on('error', (err: any) => logger.error('[BlockMode] PowerShell error:', err));
+  return psProc;
+}
 
-  // Normalize app name for System Events
+async function applyBlockMode(activity: any, block: boolean) {
+  const isMac = process.platform === "darwin";
+  const isWin = process.platform === "win32";
+  if (!isMac && !isWin) return;
+
   let appName = activity.owner.name;
-  if (appName === "Chrome") appName = "Google Chrome";
-  if (appName === "Brave") appName = "Brave Browser";
-  if (appName === "Edge") appName = "Microsoft Edge";
+
+  if (isMac) {
+    if (appName === "Chrome") appName = "Google Chrome";
+    if (appName === "Brave") appName = "Brave Browser";
+    if (appName === "Edge") appName = "Microsoft Edge";
+  }
 
   logger.info(
-    `[BlockMode] ${block ? "BLOCK" : "UNBLOCK"} "${appName}"`,
+    `[BlockMode] ${block ? "BLOCK" : "UNBLOCK"} "${appName}"`
   );
 
   try {
-    if (block) {
-      // Two-step hide: set visible to false AND push to back
-      const script = `osascript -e '
-        tell application "System Events"
-          if exists process "${appName}" then
-            set visible of process "${appName}" to false
-            set frontmost of process "${appName}" to false
-          end if
-        end tell'`;
-      await execAsync(script);
-      logger.info(`[BlockMode] Successfully hidden: ${appName}`);
-    } else {
-      const script = `osascript -e '
-        tell application "System Events"
-          if exists process "${appName}" then
-            set visible of process "${appName}" to true
-          end if
-        end tell'`;
-      await execAsync(script);
-      logger.info(`[BlockMode] Successfully shown: ${appName}`);
+    if (isMac) {
+      if (block) {
+        // Two-step hide: set visible to false AND push to back
+        const script = `osascript -e '
+          tell application "System Events"
+            if exists process "${appName}" then
+              set visible of process "${appName}" to false
+              set frontmost of process "${appName}" to false
+            end if
+          end tell'`;
+        await execAsync(script);
+        logger.info(`[BlockMode] Successfully hidden: ${appName}`);
+      } else {
+        const script = `osascript -e '
+          tell application "System Events"
+            if exists process "${appName}" then
+              set visible of process "${appName}" to true
+            end if
+          end tell'`;
+        await execAsync(script);
+        logger.info(`[BlockMode] Successfully shown: ${appName}`);
+      }
+    } else if (isWin) {
+      const ps = getPowerShell();
+      const safeAppName = appName.replace(/'/g, "''");
+      const cmd = block ? 6 : 9; // 6 = SW_MINIMIZE, 9 = SW_RESTORE
+      
+      const scriptItem = `
+$procs = Get-Process -Name '${safeAppName}' -ErrorAction SilentlyContinue
+if (-not $procs) {
+  $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Description -match '${safeAppName}' }
+}
+if ($procs) {
+  foreach ($p in $procs) {
+    if ($p.MainWindowHandle -ne 0) {
+      [Win]::ShowWindow($p.MainWindowHandle, ${cmd})
+    }
+  }
+}
+`;
+      ps.stdin.write(scriptItem + "\\n");
     }
   } catch (e: any) {
     logger.error(`[BlockMode] Failed to ${block ? "hide" : "show"} ${appName}:`, e.message);
@@ -1125,13 +1170,18 @@ app.on("before-quit", () => {
   stopBlockEnforcement();
   for (const activity of blockedActivities.values()) {
     try {
+      let appName = activity.owner.name;
       if (process.platform === "darwin") {
-        let appName = activity.owner.name;
         if (appName === "Chrome") appName = "Google Chrome";
         if (appName === "Brave") appName = "Brave Browser";
         if (appName === "Edge") appName = "Microsoft Edge";
         const script = `osascript -e 'tell application "System Events" to set visible of process "${appName}" to true'`;
         execSync(script);
+        logger.info(`[BlockMode] Restored on quit: ${appName}`);
+      } else if (process.platform === "win32") {
+        const safeAppName = appName.replace(/'/g, "''");
+        const script = `Add-Type -TypeDefinition "using System; using System.Runtime.InteropServices; public class Win { [DllImport(\\"user32.dll\\")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); }"; $p = Get-Process -Name '${safeAppName}' -ErrorAction SilentlyContinue; if (-not $p) { $p = Get-Process -ErrorAction SilentlyContinue | ? { $_.Description -match '${safeAppName}' } }; if ($p) { foreach ($x in $p) { if ($x.MainWindowHandle -ne 0) { [Win]::ShowWindow($x.MainWindowHandle, 9) } } }`;
+        execSync(`powershell.exe -WindowStyle Hidden -NoProfile -NonInteractive -Command "${script}"`);
         logger.info(`[BlockMode] Restored on quit: ${appName}`);
       }
     } catch(e) {
@@ -1139,6 +1189,11 @@ app.on("before-quit", () => {
     }
   }
   blockedActivities.clear();
+  if (psProc) {
+    psProc.stdin.end();
+    psProc.kill();
+    psProc = null;
+  }
 });
 
 app.on("will-quit", () => {});

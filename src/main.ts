@@ -1,12 +1,23 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, systemPreferences, Tray, Menu, nativeImage, net } from 'electron';
-import path from 'node:path';
-import started from 'electron-squirrel-startup';
-import { createLogger, getLogPath } from './lib/logger';
-import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+  dialog,
+  systemPreferences,
+  Tray,
+  Menu,
+  nativeImage,
+  net,
+} from "electron";
+import path from "node:path";
+import started from "electron-squirrel-startup";
+import { createLogger, getLogPath } from "./lib/logger";
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import { getAutoUpdater } from "./lib/autoUpdater";
 
-
-const logger = createLogger('Main');
+const logger = createLogger("Main");
 
 if (started) {
   app.quit();
@@ -17,7 +28,7 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on("second-instance", () => {
     // Someone tried to open a second instance — focus our window
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
@@ -27,18 +38,18 @@ if (!gotTheLock) {
   });
 }
 
-app.commandLine.appendSwitch('disable-gpu-watchdog');
-app.commandLine.appendSwitch('force_high_performance_gpu');
+app.commandLine.appendSwitch("disable-gpu-watchdog");
+app.commandLine.appendSwitch("force_high_performance_gpu");
 let db: any = { data: { tasks: [], goals: [], ratings: [] } };
 let dbFilePath: string;
 
 // Daily Activity DB
 let activityDb: any;
-let currentActivityDate: string = '';
+let currentActivityDate: string = "";
 let isAppReady = false;
 
 async function getActivityDb() {
-  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
 
   // If we already have a DB for today, return it
   if (activityDb && currentActivityDate === today) {
@@ -46,11 +57,11 @@ async function getActivityDb() {
   }
 
   // Initialize new daily DB
-  const { Low } = await import('lowdb');
-  const { JSONFile } = await import('lowdb/node');
-  const fs = await import('node:fs/promises');
+  const { Low } = await import("lowdb");
+  const { JSONFile } = await import("lowdb/node");
+  const fs = await import("node:fs/promises");
 
-  const logsDir = path.join(app.getPath('userData'), 'activity_logs');
+  const logsDir = path.join(app.getPath("userData"), "activity_logs");
 
   // Ensure logs directory exists
   try {
@@ -69,12 +80,15 @@ async function getActivityDb() {
   if (!activityDb.data.goals) activityDb.data.goals = [];
 
   // Streak Logic: If streak is missing for today, calculate it from yesterday
-  if (typeof activityDb.data.streak === 'undefined') {
+  if (typeof activityDb.data.streak === "undefined") {
     try {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split('T')[0];
-      const yesterdayFilePath = path.join(logsDir, `activity-${yesterdayStr}.json`);
+      const yesterdayStr = yesterday.toISOString().split("T")[0];
+      const yesterdayFilePath = path.join(
+        logsDir,
+        `activity-${yesterdayStr}.json`,
+      );
 
       await fs.access(yesterdayFilePath); // Check if yesterday's file exists
 
@@ -89,7 +103,9 @@ async function getActivityDb() {
     } catch (e) {
       // Yesterday's file doesn't exist or error reading it -> Streak broken/reset
       activityDb.data.streak = 1;
-      logger.info(`[Streak] No activity yesterday (or error), resetting streak to 1`);
+      logger.info(
+        `[Streak] No activity yesterday (or error), resetting streak to 1`,
+      );
     }
     await activityDb.write();
   }
@@ -101,12 +117,12 @@ async function getActivityDb() {
 }
 
 async function initDB() {
-  logger.info('Initializing main database...');
+  logger.info("Initializing main database...");
   try {
-    const { Low } = await import('lowdb');
-    const { JSONFile } = await import('lowdb/node');
+    const { Low } = await import("lowdb");
+    const { JSONFile } = await import("lowdb/node");
 
-    dbFilePath = path.join(app.getPath('userData'), 'db.json');
+    dbFilePath = path.join(app.getPath("userData"), "db.json");
     logger.info(`Database file location: ${dbFilePath}`);
 
     const adapter = new JSONFile(dbFilePath);
@@ -146,10 +162,13 @@ async function initDB() {
     // Initialize Activity DB immediately to ensure folder structure
     await getActivityDb();
 
-    logger.info('Database initialized successfully');
+    logger.info("Database initialized successfully");
   } catch (error) {
-    logger.error('Failed to initialize database:', error);
-    dialog.showErrorBox('Database Initialization Error', `Failed to load database: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error("Failed to initialize database:", error);
+    dialog.showErrorBox(
+      "Database Initialization Error",
+      `Failed to load database: ${error instanceof Error ? error.message : String(error)}`,
+    );
     throw error;
   }
 }
@@ -164,35 +183,35 @@ const createWindow = () => {
     width: 1200,
     height: 900,
     show: false, // Don't show until content is painted
-    backgroundColor: '#0a0e1a', // Match dark theme bg to prevent white flash
+    backgroundColor: "#0a0e1a", // Match dark theme bg to prevent white flash
     autoHideMenuBar: true, // Hide default menu bar (File, Edit, etc)
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: true,
-      partition: 'persist:main',
+      partition: "persist:main",
       backgroundThrottling: false, // Prevent renderer suspension when hidden
     },
     icon: (() => {
-      if (process.platform === 'darwin') {
+      if (process.platform === "darwin") {
         return app.isPackaged
-          ? path.join(process.resourcesPath, 'icon.icns')
-          : path.join(__dirname, '../../resources/icon.icns');
-      } else if (process.platform === 'win32') {
+          ? path.join(process.resourcesPath, "icon.icns")
+          : path.join(__dirname, "../../resources/icon.icns");
+      } else if (process.platform === "win32") {
         return app.isPackaged
-          ? path.join(process.resourcesPath, 'icon.ico')
-          : path.join(__dirname, '../../resources/icon.ico');
+          ? path.join(process.resourcesPath, "icon.ico")
+          : path.join(__dirname, "../../resources/icon.ico");
       } else {
         return app.isPackaged
-          ? path.join(process.resourcesPath, 'icon.png')
-          : path.join(__dirname, '../../resources/icon.png');
+          ? path.join(process.resourcesPath, "icon.png")
+          : path.join(__dirname, "../../resources/icon.png");
       }
     })(),
   });
 
   // Show window only after content is fully painted
-  mainWindow.once('ready-to-show', () => {
+  mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
   });
 
@@ -200,7 +219,10 @@ const createWindow = () => {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   } else {
-    const indexPath = path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`);
+    const indexPath = path.join(
+      __dirname,
+      `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`,
+    );
     mainWindow.loadFile(indexPath);
   }
 
@@ -209,15 +231,16 @@ const createWindow = () => {
     mainWindow.webContents.openDevTools();
   }
 
-  if (process.platform === 'darwin') {
-    app.dock.setIcon(app.isPackaged
-      ? path.join(process.resourcesPath, 'icon.png')
-      : path.join(__dirname, '../../resources/icon.png')
+  if (process.platform === "darwin") {
+    app.dock.setIcon(
+      app.isPackaged
+        ? path.join(process.resourcesPath, "icon.png")
+        : path.join(__dirname, "../../resources/icon.png"),
     );
   }
 
   // Minimize to tray instead of closing
-  mainWindow.on('close', (event) => {
+  mainWindow.on("close", (event) => {
     if (!isQuitting) {
       event.preventDefault();
       mainWindow?.hide();
@@ -226,7 +249,7 @@ const createWindow = () => {
   });
 
   // When restoring from tray, ensure content is visible before showing
-  mainWindow.on('show', () => {
+  mainWindow.on("show", () => {
     mainWindow?.webContents.invalidate(); // Force repaint
   });
 };
@@ -238,12 +261,12 @@ const stopMonitoring = () => {
   if (monitoringInterval) {
     clearInterval(monitoringInterval);
     monitoringInterval = null;
-    logger.info('Monitoring stopped');
+    logger.info("Monitoring stopped");
   }
 };
 
 const checkMacPermissions = () => {
-  if (process.platform !== 'darwin') return true;
+  if (process.platform !== "darwin") return true;
 
   // Check accessibility WITHOUT prompting system dialog (false = don't prompt)
   const isTrusted = systemPreferences.isTrustedAccessibilityClient(false);
@@ -251,16 +274,16 @@ const checkMacPermissions = () => {
     // Now prompt the system dialog by calling with true
     systemPreferences.isTrustedAccessibilityClient(true);
     dialog.showErrorBox(
-      'Accessibility Permission Required',
-      'Produchive needs Accessibility permissions to monitor active windows.\n\n' +
-      'Please enable it in System Settings > Privacy & Security > Accessibility.\n\n' +
-      'After enabling, you may need to restart the app.'
+      "Accessibility Permission Required",
+      "Produchive needs Accessibility permissions to monitor active windows.\n\n" +
+        "Please enable it in System Settings > Privacy & Security > Accessibility.\n\n" +
+        "After enabling, you may need to restart the app.",
     );
     return false;
   }
 
-  const screenAccess = systemPreferences.getMediaAccessStatus('screen');
-  if (screenAccess === 'denied' || screenAccess === 'not-determined') {
+  const screenAccess = systemPreferences.getMediaAccessStatus("screen");
+  if (screenAccess === "denied" || screenAccess === "not-determined") {
     logger.info(`Screen Recording permission status: ${screenAccess}`);
   }
 
@@ -269,7 +292,7 @@ const checkMacPermissions = () => {
 
 const startMonitoring = async (): Promise<boolean> => {
   if (monitoringInterval) {
-    logger.info('Monitoring already running');
+    logger.info("Monitoring already running");
     return true;
   }
 
@@ -278,26 +301,29 @@ const startMonitoring = async (): Promise<boolean> => {
   }
 
   if (!mainWindow) {
-    logger.error('Cannot start monitoring: No main window');
+    logger.error("Cannot start monitoring: No main window");
     return false;
   }
 
-  logger.info('Starting activity monitoring...');
+  logger.info("Starting activity monitoring...");
   try {
     let activeWin;
     if (app.isPackaged) {
-      const activeWinPath = path.join(process.resourcesPath, 'active-win');
+      const activeWinPath = path.join(process.resourcesPath, "active-win");
       activeWin = require(activeWinPath);
     } else {
-      activeWin = require('active-win');
+      activeWin = require("active-win");
     }
 
     // Test run to ensure it works immediately
     try {
       const testResult = await activeWin();
-      logger.info('Active-win test successful:', testResult ? 'got window data' : 'null result');
+      logger.info(
+        "Active-win test successful:",
+        testResult ? "got window data" : "null result",
+      );
     } catch (initialError: any) {
-      logger.error('Active-win test failed:', {
+      logger.error("Active-win test failed:", {
         message: initialError?.message,
         stderr: initialError?.stderr,
         stdout: initialError?.stdout,
@@ -308,7 +334,7 @@ const startMonitoring = async (): Promise<boolean> => {
 
     monitoringInterval = setInterval(async () => {
       if (!mainWindow || mainWindow.isDestroyed()) {
-        logger.warn('Main window destroyed, stopping monitoring');
+        logger.warn("Main window destroyed, stopping monitoring");
         stopMonitoring();
         return;
       }
@@ -318,13 +344,23 @@ const startMonitoring = async (): Promise<boolean> => {
         if (result) {
           // ... (same logic as before)
           const appName = result.owner.name.toLowerCase();
-          if (appName.includes('produchive') || appName.includes('electron')) {
+          if (appName.includes("produchive") || appName.includes("electron")) {
             return;
           }
 
-          const browsers = ['Google Chrome', 'Chrome', 'Brave', 'Safari', 'Firefox', 'Microsoft Edge'];
-          if (browsers.some(b => result.owner.name.includes(b)) && result.title.toLowerCase().includes('leetcode')) {
-            result.title = 'LeetCode';
+          const browsers = [
+            "Google Chrome",
+            "Chrome",
+            "Brave",
+            "Safari",
+            "Firefox",
+            "Microsoft Edge",
+          ];
+          if (
+            browsers.some((b) => result.owner.name.includes(b)) &&
+            result.title.toLowerCase().includes("leetcode")
+          ) {
+            result.title = "LeetCode";
           }
 
           const timestamp = Date.now();
@@ -336,33 +372,39 @@ const startMonitoring = async (): Promise<boolean> => {
             },
             timestamp,
             timestampReadable: new Date(timestamp).toLocaleString(),
-            duration: 0
+            duration: 0,
           };
 
-          if (!lastActivity || lastActivity.owner.name !== activity.owner.name) {
-            mainWindow.webContents.send('system-event', {
-              type: 'SYS_PROCESS_SWITCH',
-              content: `Process Context Switch: ${lastActivity?.owner?.name || 'init'} -> ${activity.owner.name}`,
+          if (
+            !lastActivity ||
+            lastActivity.owner.name !== activity.owner.name
+          ) {
+            mainWindow.webContents.send("system-event", {
+              type: "SYS_PROCESS_SWITCH",
+              content: `Process Context Switch: ${lastActivity?.owner?.name || "init"} -> ${activity.owner.name}`,
               timestamp,
-              details: { pid: result.owner.processId, path: result.owner.path }
+              details: { pid: result.owner.processId, path: result.owner.path },
             });
           }
 
           if (!lastActivity || lastActivity.title !== activity.title) {
-            mainWindow.webContents.send('system-event', {
-              type: 'SYS_WINDOW_FOCUS',
+            mainWindow.webContents.send("system-event", {
+              type: "SYS_WINDOW_FOCUS",
               content: `Window Focus Change: "${activity.title}"`,
-              timestamp
+              timestamp,
             });
           }
 
           const currentDb = await getActivityDb();
-          const existingActivity = currentDb.data.activities.find((a: any) =>
-            a.title === activity.title && a.owner.name === activity.owner.name
+          const existingActivity = currentDb.data.activities.find(
+            (a: any) =>
+              a.title === activity.title &&
+              a.owner.name === activity.owner.name,
           );
 
           if (existingActivity) {
-            if (typeof existingActivity.duration !== 'number') existingActivity.duration = 0;
+            if (typeof existingActivity.duration !== "number")
+              existingActivity.duration = 0;
             existingActivity.duration += 1000;
 
             activity.duration = existingActivity.duration;
@@ -370,80 +412,95 @@ const startMonitoring = async (): Promise<boolean> => {
 
             // Backfill readable timestamp if missing
             if (!existingActivity.timestampReadable) {
-              existingActivity.timestampReadable = new Date(existingActivity.timestamp).toLocaleString();
+              existingActivity.timestampReadable = new Date(
+                existingActivity.timestamp,
+              ).toLocaleString();
             }
             activity.timestampReadable = existingActivity.timestampReadable;
 
             if (timestamp % 10000 < 1500) {
-              currentDb.write().catch((e: any) => { });
+              currentDb.write().catch((e: any) => {});
             }
           } else {
             activity.duration = 1000;
             currentDb.data.activities.push(activity);
-            currentDb.write().catch((e: any) => logger.error('Failed to write activity to DB:', e));
+            currentDb
+              .write()
+              .catch((e: any) =>
+                logger.error("Failed to write activity to DB:", e),
+              );
           }
 
           lastActivity = activity;
-          mainWindow.webContents.send('activity-update', activity);
+          mainWindow.webContents.send("activity-update", activity);
         }
       } catch (error) {
         logger.error("Error getting active window:", error);
         stopMonitoring();
 
         let errorMessage = "Failed to access active window.";
-        if (process.platform === 'linux') {
-          errorMessage += "\n\nLinux Note: Ensure you have 'xprop' installed. If you are on Wayland, switch to X11/Xorg as Wayland blocks activity monitoring by design.";
+        if (process.platform === "linux") {
+          errorMessage +=
+            "\n\nLinux Note: Ensure you have 'xprop' installed. If you are on Wayland, switch to X11/Xorg as Wayland blocks activity monitoring by design.";
         }
-        dialog.showErrorBox("Activity Monitoring Failed", errorMessage + "\n\nDetails: " + String(error));
+        dialog.showErrorBox(
+          "Activity Monitoring Failed",
+          errorMessage + "\n\nDetails: " + String(error),
+        );
       }
     }, 1000);
 
-    logger.info('Activity monitoring started');
+    logger.info("Activity monitoring started");
     return true;
   } catch (e: any) {
     logger.error("Failed to start monitoring:", e);
     const errorMessage = e?.message || String(e);
-    const stderr = e?.stderr || '';
+    const stderr = e?.stderr || "";
 
     // Only show permission error if stderr explicitly mentions it
-    const isScreenRecordingError = process.platform === 'darwin' && (
-      stderr.includes('screen recording') ||
-      errorMessage.includes('active-win/main')  // Binary failed = likely permission issue
-    );
+    const isScreenRecordingError =
+      process.platform === "darwin" &&
+      (stderr.includes("screen recording") ||
+        errorMessage.includes("active-win/main")); // Binary failed = likely permission issue
 
     if (isScreenRecordingError) {
       dialog.showErrorBox(
         "Screen Recording Permission Required",
         "Produchive needs Screen Recording permission to monitor active windows.\n\n" +
-        "Please:\n" +
-        "1. Open System Settings → Privacy & Security → Screen Recording\n" +
-        "2. Enable the toggle for 'produchive'\n" +
-        "3. Quit and restart this app (Cmd+Q, then reopen)\n\n" +
-        "The permission won't take effect until you restart."
+          "Please:\n" +
+          "1. Open System Settings → Privacy & Security → Screen Recording\n" +
+          "2. Enable the toggle for 'produchive'\n" +
+          "3. Quit and restart this app (Cmd+Q, then reopen)\n\n" +
+          "The permission won't take effect until you restart.",
       );
     } else {
       // Show the actual error for debugging
       dialog.showErrorBox(
         "Monitoring Error",
         "Failed to start monitoring.\n\n" +
-        "Error: " + errorMessage + "\n\n" +
-        (stderr ? "Details: " + stderr : "")
+          "Error: " +
+          errorMessage +
+          "\n\n" +
+          (stderr ? "Details: " + stderr : ""),
       );
     }
     return false;
   }
 };
 
-
 function registerIpcHandlers() {
   // Task management handlers
-  ipcMain.handle('get-tasks', async () => {
+  ipcMain.handle("get-tasks", async () => {
     try {
-      const today = new Date().toISOString().split('T')[0];
-      const activityFilePath = path.join(app.getPath('userData'), 'activity_logs', `activity-${today}.json`);
+      const today = new Date().toISOString().split("T")[0];
+      const activityFilePath = path.join(
+        app.getPath("userData"),
+        "activity_logs",
+        `activity-${today}.json`,
+      );
 
-      logger.info('========================================');
-      logger.info('[get-tasks] Loading data for frontend');
+      logger.info("========================================");
+      logger.info("[get-tasks] Loading data for frontend");
       logger.info(`[get-tasks] Activity file: ${activityFilePath}`);
       logger.info(`[get-tasks] Main DB file: ${dbFilePath}`);
 
@@ -452,31 +509,38 @@ function registerIpcHandlers() {
       const todaysGoals = currentActivityDb?.data?.goals || [];
 
       logger.info(`[get-tasks] Goals loaded (today): ${todaysGoals.length}`);
-      logger.info(`[get-tasks] Activities loaded: ${currentActivityDb?.data?.activities?.length || 0}`);
-      logger.info(`[get-tasks] Ratings loaded: ${db.data.ratings?.length || 0}`);
-      logger.info('========================================');
+      logger.info(
+        `[get-tasks] Activities loaded: ${currentActivityDb?.data?.activities?.length || 0}`,
+      );
+      logger.info(
+        `[get-tasks] Ratings loaded: ${db.data.ratings?.length || 0}`,
+      );
+      logger.info("========================================");
 
       return {
         tasks: db.data.tasks,
         goals: todaysGoals,
         activities: currentActivityDb?.data?.activities || [],
         ratings: db.data.ratings || [],
-        stats: { streak: currentActivityDb?.data?.streak || 1 }
+        stats: { streak: currentActivityDb?.data?.streak || 1 },
       };
     } catch (e) {
-      logger.error('Failed in get-tasks', e);
-      dialog.showErrorBox('Data Loading Error', 'Failed to retrieve tasks and activities. ' + String(e));
+      logger.error("Failed in get-tasks", e);
+      dialog.showErrorBox(
+        "Data Loading Error",
+        "Failed to retrieve tasks and activities. " + String(e),
+      );
       return { tasks: [], goals: [], activities: [], ratings: [] };
     }
   });
 
-  ipcMain.handle('add-task', async (event, task) => {
+  ipcMain.handle("add-task", async (event, task) => {
     db.data.tasks.push(task);
     await db.write();
     return db.data.tasks;
   });
 
-  ipcMain.handle('update-task', async (event, updatedTask) => {
+  ipcMain.handle("update-task", async (event, updatedTask) => {
     const index = db.data.tasks.findIndex((t: any) => t.id === updatedTask.id);
     if (index !== -1) {
       db.data.tasks[index] = updatedTask;
@@ -485,13 +549,13 @@ function registerIpcHandlers() {
     return db.data.tasks;
   });
 
-  ipcMain.handle('delete-task', async (event, id) => {
+  ipcMain.handle("delete-task", async (event, id) => {
     db.data.tasks = db.data.tasks.filter((t: any) => t.id !== id);
     await db.write();
     return db.data.tasks;
   });
 
-  ipcMain.handle('save-goals', async (event, goals) => {
+  ipcMain.handle("save-goals", async (event, goals) => {
     if (Array.isArray(goals)) {
       // Save goals to the daily activity DB so they reset each day
       const currentActivityDb = await getActivityDb();
@@ -503,20 +567,20 @@ function registerIpcHandlers() {
     return [];
   });
 
-  ipcMain.handle('save-rating', async (event, rating) => {
+  ipcMain.handle("save-rating", async (event, rating) => {
     const newRating = {
       ...rating,
       timestamp: Date.now(),
       timestampReadable: new Date().toLocaleString(),
-      id: crypto.randomUUID()
+      id: crypto.randomUUID(),
     };
     db.data.ratings.push(newRating);
     await db.write();
     return newRating;
   });
 
-  ipcMain.handle('get-ratings-by-date', async (event, dateStr: string) => {
-    const [year, month, day] = dateStr.split('-').map(Number);
+  ipcMain.handle("get-ratings-by-date", async (event, dateStr: string) => {
+    const [year, month, day] = dateStr.split("-").map(Number);
     const dayStart = new Date(year, month - 1, day, 0, 0, 0, 0).getTime();
     const dayEnd = new Date(year, month - 1, day, 23, 59, 59, 999).getTime();
 
@@ -533,99 +597,117 @@ function registerIpcHandlers() {
   });
 
   // Get activity data for a specific date (includes goals and activities from that day)
-  ipcMain.handle('get-activity-data-by-date', async (event, dateStr: string) => {
-    try {
-      const activityFilePath = path.join(app.getPath('userData'), 'activity_logs', `activity-${dateStr}.json`);
-      logger.info(`[get-activity-data-by-date] Looking for file: ${activityFilePath}`);
-
-      const fs = await import('node:fs/promises');
-
+  ipcMain.handle(
+    "get-activity-data-by-date",
+    async (event, dateStr: string) => {
       try {
-        await fs.access(activityFilePath);
-      } catch {
-        logger.info(`[get-activity-data-by-date] No activity file for ${dateStr}`);
-        return { goals: [], activities: [], exists: false };
-      }
+        const activityFilePath = path.join(
+          app.getPath("userData"),
+          "activity_logs",
+          `activity-${dateStr}.json`,
+        );
+        logger.info(
+          `[get-activity-data-by-date] Looking for file: ${activityFilePath}`,
+        );
 
-      const { Low } = await import('lowdb');
-      const { JSONFile } = await import('lowdb/node');
-
-      const adapter = new JSONFile(activityFilePath);
-      const dateDb = new Low(adapter, { activities: [], goals: [] });
-      await dateDb.read();
-      const data = dateDb.data as any;
-      logger.info(`[get-activity-data-by-date] Found ${data.goals?.length || 0} goals and ${data.activities?.length || 0} activities for ${dateStr}`);
-
-      return {
-        goals: data.goals || [],
-        activities: data.activities || [],
-        exists: true
-      };
-    } catch (e) {
-      logger.error(`[get-activity-data-by-date] Error:`, e);
-      return { goals: [], activities: [], exists: false };
-    }
-  });
-
-  // Get activity data for a range of dates (for charts)
-  ipcMain.handle('get-activity-data-range', async (event, startDate: string, endDate: string) => {
-    try {
-      const fs = await import('node:fs/promises');
-      const { Low } = await import('lowdb');
-      const { JSONFile } = await import('lowdb/node');
-      const logsDir = path.join(app.getPath('userData'), 'activity_logs');
-
-      const result: Record<string, { activities: any[] }> = {};
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const dateStr = d.toISOString().split('T')[0];
-        const filePath = path.join(logsDir, `activity-${dateStr}.json`);
+        const fs = await import("node:fs/promises");
 
         try {
-          await fs.access(filePath);
-          const adapter = new JSONFile(filePath);
-          const dateDb = new Low(adapter, { activities: [], goals: [] });
-          await dateDb.read();
-          const data = dateDb.data as any;
-          result[dateStr] = { activities: data.activities || [] };
+          await fs.access(activityFilePath);
         } catch {
-          result[dateStr] = { activities: [] };
+          logger.info(
+            `[get-activity-data-by-date] No activity file for ${dateStr}`,
+          );
+          return { goals: [], activities: [], exists: false };
         }
-      }
 
-      logger.info(`[get-activity-data-range] Fetched ${Object.keys(result).length} days from ${startDate} to ${endDate}`);
-      return result;
-    } catch (e) {
-      logger.error(`[get-activity-data-range] Error:`, e);
-      return {};
-    }
-  });
+        const { Low } = await import("lowdb");
+        const { JSONFile } = await import("lowdb/node");
+
+        const adapter = new JSONFile(activityFilePath);
+        const dateDb = new Low(adapter, { activities: [], goals: [] });
+        await dateDb.read();
+        const data = dateDb.data as any;
+        logger.info(
+          `[get-activity-data-by-date] Found ${data.goals?.length || 0} goals and ${data.activities?.length || 0} activities for ${dateStr}`,
+        );
+
+        return {
+          goals: data.goals || [],
+          activities: data.activities || [],
+          exists: true,
+        };
+      } catch (e) {
+        logger.error(`[get-activity-data-by-date] Error:`, e);
+        return { goals: [], activities: [], exists: false };
+      }
+    },
+  );
+
+  // Get activity data for a range of dates (for charts)
+  ipcMain.handle(
+    "get-activity-data-range",
+    async (event, startDate: string, endDate: string) => {
+      try {
+        const fs = await import("node:fs/promises");
+        const { Low } = await import("lowdb");
+        const { JSONFile } = await import("lowdb/node");
+        const logsDir = path.join(app.getPath("userData"), "activity_logs");
+
+        const result: Record<string, { activities: any[] }> = {};
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const dateStr = d.toISOString().split("T")[0];
+          const filePath = path.join(logsDir, `activity-${dateStr}.json`);
+
+          try {
+            await fs.access(filePath);
+            const adapter = new JSONFile(filePath);
+            const dateDb = new Low(adapter, { activities: [], goals: [] });
+            await dateDb.read();
+            const data = dateDb.data as any;
+            result[dateStr] = { activities: data.activities || [] };
+          } catch {
+            result[dateStr] = { activities: [] };
+          }
+        }
+
+        logger.info(
+          `[get-activity-data-range] Fetched ${Object.keys(result).length} days from ${startDate} to ${endDate}`,
+        );
+        return result;
+      } catch (e) {
+        logger.error(`[get-activity-data-range] Error:`, e);
+        return {};
+      }
+    },
+  );
 
   // Debug and system info handlers
-  ipcMain.handle('get-system-info', async () => {
-    let distro = 'unknown';
-    if (process.platform === 'linux') {
+  ipcMain.handle("get-system-info", async () => {
+    let distro = "unknown";
+    if (process.platform === "linux") {
       try {
-        const osRelease = await fs.readFile('/etc/os-release', 'utf-8');
-        const lines = osRelease.split('\n');
-        const idLine = lines.find(line => line.startsWith('ID='));
-        const idLikeLine = lines.find(line => line.startsWith('ID_LIKE='));
+        const osRelease = await fs.readFile("/etc/os-release", "utf-8");
+        const lines = osRelease.split("\n");
+        const idLine = lines.find((line) => line.startsWith("ID="));
+        const idLikeLine = lines.find((line) => line.startsWith("ID_LIKE="));
 
         if (idLine) {
-          distro = idLine.split('=')[1].replace(/"/g, '').toLowerCase();
+          distro = idLine.split("=")[1].replace(/"/g, "").toLowerCase();
         }
-        if (distro === 'unknown' && idLikeLine) {
-          distro = idLikeLine.split('=')[1].replace(/"/g, '').toLowerCase();
+        if (distro === "unknown" && idLikeLine) {
+          distro = idLikeLine.split("=")[1].replace(/"/g, "").toLowerCase();
         }
       } catch (e) {
-        logger.error('Failed to read os-release', e);
+        logger.error("Failed to read os-release", e);
       }
     }
 
     return {
-      userDataPath: app.getPath('userData'),
+      userDataPath: app.getPath("userData"),
       appPath: app.getAppPath(),
       dbPath: dbFilePath,
       logPath: getLogPath(),
@@ -636,23 +718,23 @@ function registerIpcHandlers() {
       },
       platform: process.platform,
       arch: process.arch,
-      distro
+      distro,
     };
   });
 
-  ipcMain.handle('open-user-data-folder', () => {
-    const userDataPath = app.getPath('userData');
+  ipcMain.handle("open-user-data-folder", () => {
+    const userDataPath = app.getPath("userData");
     shell.openPath(userDataPath);
     return userDataPath;
   });
 
-  ipcMain.handle('open-log-file', () => {
+  ipcMain.handle("open-log-file", () => {
     const logPath = getLogPath();
     shell.openPath(path.dirname(logPath));
     return logPath;
   });
 
-  ipcMain.handle('get-db-contents', async () => {
+  ipcMain.handle("get-db-contents", async () => {
     const currentActivityDb = await getActivityDb();
     return {
       tasks: db.data.tasks,
@@ -661,72 +743,51 @@ function registerIpcHandlers() {
     };
   });
 
-  ipcMain.handle('start-monitoring', async () => {
+  ipcMain.handle("start-monitoring", async () => {
     return await startMonitoring();
   });
 
-  ipcMain.handle('stop-monitoring', () => {
+  ipcMain.handle("stop-monitoring", () => {
     stopMonitoring();
   });
 
   // Auto-launch (startup) handlers
-  ipcMain.handle('get-auto-launch', () => {
+  ipcMain.handle("get-auto-launch", () => {
     return app.getLoginItemSettings().openAtLogin;
   });
 
-  ipcMain.handle('set-auto-launch', (_event, enabled: boolean) => {
+  ipcMain.handle("set-auto-launch", (_event, enabled: boolean) => {
     app.setLoginItemSettings({ openAtLogin: enabled });
     logger.info(`Auto-launch set to: ${enabled}`);
     return enabled;
   });
 
-  // Native Auto-Updater setup using update-electron-app
-  // This automatically checks GitHub Releases, downloads the update in the background,
-  // and notifies the renderer process via IPC when it's ready.
-  ipcMain.handle('check-for-updates', async () => {
-    // update-electron-app automatically handles checking, downloading, and prompting.
-    // We just return the current version to the frontend so it knows what it's running.
-    return { updateAvailable: false, currentVersion: app.getVersion() };
+  // ─── Custom GitHub Releases Auto-Updater ───────────────────────────────
+  // Replaces update-electron-app with in-app download + restart flow
+  const updater = getAutoUpdater();
+
+  ipcMain.handle("check-for-updates", async () => {
+    return await updater.checkForUpdate();
   });
 
-  // The actual background auto-updater from update-electron-app
-  try {
-    require('update-electron-app')({
-      repo: 'Heisen47/produchive',
-      updateInterval: '1 hour',
-      logger: require('electron-log')
-    });
-  } catch (e) {
-    logger.error('Failed to initialize auto-updater:', e);
-  }
-
-  // Optional: Listen for the native auto-updater events if you want to send them to the renderer
-  const { autoUpdater } = require('electron');
-
-  autoUpdater.on('update-available', () => {
-    logger.info('Auto-updater: Update available, downloading...');
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('update-status', { status: 'downloading' });
-    }
+  ipcMain.handle("download-update", async () => {
+    const filePath = await updater.downloadUpdate();
+    return { success: !!filePath, filePath };
   });
 
-  autoUpdater.on('update-downloaded', (event: any, releaseNotes: any, releaseName: any) => {
-    logger.info(`Auto-updater: Update downloaded ${releaseName}`);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('update-status', { status: 'ready', version: releaseName });
-    }
-  });
-
-  ipcMain.handle('install-update', () => {
-    autoUpdater.quitAndInstall();
+  ipcMain.handle("install-update", async () => {
+    // IMPORTANT: Set isQuitting so the mainWindow 'close' handler
+    // doesn't trap the quit and hide the window instead of closing.
+    isQuitting = true;
+    await updater.applyUpdateAndRestart();
   });
 
   // App settings (persisted in DB)
-  ipcMain.handle('get-settings', async () => {
+  ipcMain.handle("get-settings", async () => {
     return db.data.settings || {};
   });
 
-  ipcMain.handle('set-setting', async (_event, key: string, value: any) => {
+  ipcMain.handle("set-setting", async (_event, key: string, value: any) => {
     db.data.settings ||= {};
     db.data.settings[key] = value;
     await db.write();
@@ -734,11 +795,11 @@ function registerIpcHandlers() {
     return db.data.settings;
   });
 
-  logger.info('All IPC handlers registered successfully');
+  logger.info("All IPC handlers registered successfully");
 }
 
-app.on('ready', async () => {
-  logger.info('=== Produchive Starting ===');
+app.on("ready", async () => {
+  logger.info("=== Produchive Starting ===");
   try {
     registerIpcHandlers();
 
@@ -749,95 +810,107 @@ app.on('ready', async () => {
     isAppReady = true;
     createWindow();
 
+    // 3b. Initialize auto-updater with the main window
+    if (mainWindow) {
+      const updater = getAutoUpdater();
+      updater.setMainWindow(mainWindow);
+      updater.startPeriodicChecks();
+    }
+
     // 4. Create system tray
     let trayIcon: Electron.NativeImage;
 
-    if (process.platform === 'darwin') {
+    if (process.platform === "darwin") {
       // Use dedicated monochrome "P" tray icon for macOS menu bar
       // The 'Template' suffix tells macOS to automatically tint for light/dark mode
       const trayIconPath = app.isPackaged
-        ? path.join(process.resourcesPath, 'trayIconTemplate.png')
-        : path.join(__dirname, '../../resources/trayIconTemplate.png');
+        ? path.join(process.resourcesPath, "trayIconTemplate.png")
+        : path.join(__dirname, "../../resources/trayIconTemplate.png");
       trayIcon = nativeImage.createFromPath(trayIconPath);
       trayIcon.setTemplateImage(true);
     } else {
-      const iconPath = process.platform === 'win32'
-        ? (app.isPackaged ? path.join(process.resourcesPath, 'icon.ico') : path.join(__dirname, '../../resources/icon.ico'))
-        : (app.isPackaged ? path.join(process.resourcesPath, 'icon.png') : path.join(__dirname, '../../resources/icon.png'));
+      const iconPath =
+        process.platform === "win32"
+          ? app.isPackaged
+            ? path.join(process.resourcesPath, "icon.ico")
+            : path.join(__dirname, "../../resources/icon.ico")
+          : app.isPackaged
+            ? path.join(process.resourcesPath, "icon.png")
+            : path.join(__dirname, "../../resources/icon.png");
       trayIcon = nativeImage.createFromPath(iconPath);
     }
     tray = new Tray(trayIcon);
-    tray.setToolTip('Produchive - Productivity Tracker');
+    tray.setToolTip("Produchive - Productivity Tracker");
 
     const contextMenu = Menu.buildFromTemplate([
       {
-        label: 'Show Produchive',
+        label: "Show Produchive",
         click: () => {
           mainWindow?.show();
           mainWindow?.focus();
-        }
+        },
       },
-      { type: 'separator' },
+      { type: "separator" },
       {
-        label: 'Start Monitoring',
+        label: "Start Monitoring",
         click: async () => {
           await startMonitoring();
-        }
+        },
       },
       {
-        label: 'Stop Monitoring',
+        label: "Stop Monitoring",
         click: () => {
           stopMonitoring();
-        }
+        },
       },
-      { type: 'separator' },
+      { type: "separator" },
       {
-        label: 'Quit',
+        label: "Quit",
         click: () => {
           isQuitting = true;
           app.quit();
-        }
-      }
+        },
+      },
     ]);
 
     tray.setContextMenu(contextMenu);
 
     // Double-click to show window
-    tray.on('double-click', () => {
+    tray.on("double-click", () => {
       mainWindow?.show();
       mainWindow?.focus();
     });
-
   } catch (error) {
-    logger.error('Error during app initialization:', error);
-    dialog.showErrorBox('Startup Error', 'Critical error during starting up: ' + String(error));
+    logger.error("Error during app initialization:", error);
+    dialog.showErrorBox(
+      "Startup Error",
+      "Critical error during starting up: " + String(error),
+    );
   }
 });
 
 // Keep app running in tray when all windows are closed
-app.on('window-all-closed', () => {
-  logger.info('All windows closed - running in tray');
-
+app.on("window-all-closed", () => {
+  logger.info("All windows closed - running in tray");
 });
 
-app.on('activate', () => {
-  logger.info('App activated');
+app.on("activate", () => {
+  logger.info("App activated");
   if (isAppReady && BrowserWindow.getAllWindows().length === 0) {
-    logger.info('No windows open, creating new window');
+    logger.info("No windows open, creating new window");
     createWindow();
   } else if (!isAppReady) {
-    logger.info('App activated but not yet ready/initialized. Waiting...');
+    logger.info("App activated but not yet ready/initialized. Waiting...");
   }
 });
 
-app.on('will-quit', () => {
-});
+app.on("will-quit", () => {});
 
 // Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  dialog.showErrorBox('Uncaught Exception', error.message + '\n' + error.stack);
+process.on("uncaughtException", (error) => {
+  dialog.showErrorBox("Uncaught Exception", error.message + "\n" + error.stack);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  dialog.showErrorBox('Unhandled Rejection', String(reason));
+process.on("unhandledRejection", (reason, promise) => {
+  dialog.showErrorBox("Unhandled Rejection", String(reason));
 });

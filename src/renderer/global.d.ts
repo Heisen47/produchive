@@ -68,7 +68,16 @@ declare global {
       setAutoLaunch: (enabled: boolean) => Promise<boolean>;
 
       // Update checker
-      checkForUpdates: () => Promise<any>;
+      checkForUpdates: () => Promise<{
+        currentVersion: string;
+        latestVersion: string;
+        updateAvailable: boolean;
+        releaseNotes?: string;
+        downloadUrl?: string;
+      }>;
+      downloadUpdate: () => Promise<{ success: boolean; filePath?: string }>;
+      installUpdate: () => Promise<void>;
+      onUpdateStatus: (callback: (status: any) => void) => void;
 
       // App settings
       getSettings: () => Promise<Record<string, any>>;

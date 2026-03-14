@@ -336,13 +336,18 @@ async function applyBlockMode(activity: any, block: boolean) {
       }
     } else if (isWin) {
       const ps = getPowerShell();
-      const safeAppName = appName.replace(/'/g, "''");
+      // On Windows, extracting process name from path is infinitely more reliable than trusting Description fields
+      let exeName = appName;
+      if (activity.owner.path) {
+        exeName = path.basename(activity.owner.path, ".exe");
+      }
+      const safeExeName = exeName.replace(/'/g, "''");
       const cmd = block ? 6 : 9; // 6 = SW_MINIMIZE, 9 = SW_RESTORE
       
       const scriptItem = `
-$procs = Get-Process -Name '${safeAppName}' -ErrorAction SilentlyContinue
+$procs = Get-Process -Name '${safeExeName}' -ErrorAction SilentlyContinue
 if (-not $procs) {
-  $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Description -match '${safeAppName}' }
+  $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Description -match [regex]::Escape('${safeExeName}') }
 }
 if ($procs) {
   foreach ($p in $procs) {
@@ -352,7 +357,7 @@ if ($procs) {
   }
 }
 `;
-      ps.stdin.write(scriptItem + "\\n");
+      ps.stdin.write(scriptItem + "\n");
     }
   } catch (e: any) {
     logger.error(`[BlockMode] Failed to ${block ? "hide" : "show"} ${appName}:`, e.message);

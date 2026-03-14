@@ -569,7 +569,11 @@ rm -f "${updateScript}"
         updateScript,
         `@echo off
 timeout /t 3 /nobreak > nul
-xcopy /s /y /i "${extractDir}\\*" "${appDir}\\"
+set "srcDir=${extractDir}"
+for /d %%I in ("${extractDir}\\*") do (
+  if exist "%%I\\${exeName}" set "srcDir=%%I"
+)
+xcopy /s /y /q /i "%srcDir%\\*" "${appDir}\\"
 start "" "${path.join(appDir, exeName)}"
 timeout /t 5 /nobreak > nul
 rmdir /s /q "${extractDir}"

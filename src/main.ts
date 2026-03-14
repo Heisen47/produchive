@@ -992,6 +992,110 @@ app.on("ready", async () => {
       mainWindow?.show();
       mainWindow?.focus();
     });
+
+    // 5. Set Application Menu
+    const isMac = process.platform === 'darwin';
+    const menuTemplate: any[] = [
+      ...(isMac ? [{
+        label: app.name,
+        submenu: [
+          { role: 'about' },
+          { type: 'separator' },
+          { label: 'Check for Updates...', click: () => { getAutoUpdater().checkForUpdate(); } },
+          { type: 'separator' },
+          { role: 'services' },
+          { type: 'separator' },
+          { role: 'hide' },
+          { role: 'hideOthers' },
+          { role: 'unhide' },
+          { type: 'separator' },
+          { role: 'quit' }
+        ]
+      }] : []),
+      {
+        label: 'File',
+        submenu: [
+          isMac ? { role: 'close' } : { role: 'quit' }
+        ]
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          ...(isMac ? [
+            { role: 'pasteAndMatchStyle' },
+            { role: 'delete' },
+            { role: 'selectAll' },
+            { type: 'separator' },
+            {
+              label: 'Speech',
+              submenu: [
+                { role: 'startSpeaking' },
+                { role: 'stopSpeaking' }
+              ]
+            }
+          ] : [
+            { role: 'delete' },
+            { type: 'separator' },
+            { role: 'selectAll' }
+          ])
+        ]
+      },
+      {
+        label: 'View',
+        submenu: [
+          { role: 'reload' },
+          { role: 'forceReload' },
+          { role: 'toggleDevTools' },
+          { type: 'separator' },
+          { role: 'resetZoom' },
+          { role: 'zoomIn' },
+          { role: 'zoomOut' },
+          { type: 'separator' },
+          { role: 'togglefullscreen' }
+        ]
+      },
+      {
+        label: 'Window',
+        submenu: [
+          { role: 'minimize' },
+          { role: 'zoom' },
+          ...(isMac ? [
+            { type: 'separator' },
+            { role: 'front' },
+            { type: 'separator' },
+            { role: 'window' }
+          ] : [
+            { role: 'close' }
+          ])
+        ]
+      },
+      {
+        role: 'help',
+        submenu: [
+          {
+            label: 'Learn More',
+            click: async () => {
+              const { shell } = require('electron');
+              await shell.openExternal('https://github.com/Heisen47/produchive');
+            }
+          },
+          ...(!isMac ? [
+            { type: 'separator' },
+            { label: 'Check for Updates...', click: () => { getAutoUpdater().checkForUpdate(); } }
+          ] : [])
+        ]
+      }
+    ];
+
+    const applicationMenu = Menu.buildFromTemplate(menuTemplate);
+    Menu.setApplicationMenu(applicationMenu);
+
   } catch (error) {
     logger.error("Error during app initialization:", error);
     dialog.showErrorBox(

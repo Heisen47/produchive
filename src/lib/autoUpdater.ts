@@ -31,7 +31,7 @@ const logger = createLogger("AutoUpdater");
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 const GITHUB_REPO = "Heisen47/produchive";
-const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const API_URL = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 
 // ─── Types ────────────────────────────────────────────────────────────────────

@@ -71,6 +71,38 @@ export class GitHubAutoUpdater {
   private checkTimer: NodeJS.Timeout | null = null;
   private downloadedFilePath: string | null = null;
   private latestUpdateInfo: UpdateInfo | null = null;
+  /** Version that was already downloaded/installed — cached in memory */
+  private handledVersion: string | null = null;
+
+  /** Path to the file that persists the last-updated version across restarts */
+  private get versionFilePath(): string {
+    return path.join(app.getPath("userData"), ".last-update-version");
+  }
+
+  /**
+   * Read the persisted "already handled" version from disk.
+   * Returns null if the file doesn't exist or can't be read.
+   */
+  private async readPersistedVersion(): Promise<string | null> {
+    try {
+      const raw = await fsPromises.readFile(this.versionFilePath, "utf-8");
+      return raw.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Write the version to disk so the app remembers it after restart.
+   */
+  private async persistVersion(version: string): Promise<void> {
+    try {
+      await fsPromises.writeFile(this.versionFilePath, version, "utf-8");
+      logger.info(`[AutoUpdater] Persisted handled version: ${version}`);
+    } catch (err) {
+      logger.warn("[AutoUpdater] Could not persist version:", err);
+    }
+  }
 
   /** Attach to the main window so we can send status events */
   setMainWindow(win: BrowserWindow) {
@@ -124,8 +156,27 @@ export class GitHubAutoUpdater {
 
       const latestVersion = releaseData.tag_name.replace(/^v/, "");
 
+      // Load the persisted "already handled" version if we haven't yet
+      if (!this.handledVersion) {
+        this.handledVersion = await this.readPersistedVersion();
+      }
+
+      // Not newer than the running version → up to date
       if (compareSemver(latestVersion, currentVersion) <= 0) {
         logger.info(`[AutoUpdater] Up to date (${currentVersion})`);
+        // Clean up the persisted file — we're already on this version
+        this.handledVersion = null;
+        fsPromises.unlink(this.versionFilePath).catch(() => {});
+        this.sendStatus({ status: "not-available", currentVersion });
+        return { currentVersion, latestVersion, updateAvailable: false };
+      }
+
+      // Already downloaded / installed this exact version → don't nag again
+      if (this.handledVersion && compareSemver(latestVersion, this.handledVersion) <= 0) {
+        logger.info(
+          `[AutoUpdater] Latest ${latestVersion} already handled (persisted: ${this.handledVersion}). ` +
+          `Skipping banner.`,
+        );
         this.sendStatus({ status: "not-available", currentVersion });
         return { currentVersion, latestVersion, updateAvailable: false };
       }
@@ -218,6 +269,11 @@ export class GitHubAutoUpdater {
       logger.info(`[AutoUpdater] Download verified: ${destPath} (${stat.size} bytes)`);
 
       this.downloadedFilePath = destPath;
+
+      // Mark this version as handled so the periodic check stops showing the banner
+      this.handledVersion = latestVersion;
+      await this.persistVersion(latestVersion);
+
       this.sendStatus({ status: "downloaded", version: latestVersion });
       return destPath;
     } catch (err: any) {

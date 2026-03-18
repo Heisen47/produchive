@@ -1,11 +1,23 @@
 
+<div align="center">
+  <p>
+    <a href="https://github.com/Heisen47/produchive">
+      <img src="https://img.shields.io/github/stars/Heisen47/produchive?style=for-the-badge&color=eab308&logo=github&labelColor=333333" alt="GitHub stars" />
+    </a>
+  </p>
+  <strong>If you find Produchive useful, please consider giving it a ⭐ on GitHub!</strong>
+  <br/>
+  It helps the project grow and is the best way to motivate me to keep improving it.
+</div>
+
+
 https://github.com/user-attachments/assets/c838f4f3-b312-4251-b68a-fe9d2e8584bb
 
 # Produchive 
 
 Produchive is a self-hosted, offline-first productivity application that helps you stay focused. It monitors your activity and uses a local AI to judge your performance based on your goals.
 
-**Kindly star ⭐ it motivates me a lot**
+
 
 ## Key Features
 

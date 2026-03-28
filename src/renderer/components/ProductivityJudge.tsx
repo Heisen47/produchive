@@ -142,12 +142,24 @@ Student input:
 Goal: \n${goalsText}\n\n
 Activity: \n${activitySummary}\n\n`
 
+            const isTechRole = selectedRole?.toLowerCase().includes('engineer') || selectedRole?.toLowerCase().includes('computer');
+            
+            const exampleUser = isTechRole 
+                ? "Goal: \nGoal 1: \"Study React\"\n\nActivity: \n- VS Code (45m)\n- YouTube (15m)"
+                : "Goal: \nGoal 1: \"Review Materials\"\n\nActivity: \n- PDF Reader (45m)\n- YouTube (15m)";
+                
+            const exampleAssistant = isTechRole
+                ? `{\n  "rating": 8,\n  "verdict": "productive",\n  "explanation": "Great job focusing on your React studies! You spent the majority of your time in VS Code, which is excellent active learning. The short YouTube session was likely helpful for tutorials.",\n  "tips": ["Keep up the great active coding!", "Try to ensure YouTube doesn't distract you for too long.", "You are doing great!"],\n  "categorization": {\n    "productive": ["VS Code"],\n    "neutral": ["YouTube"],\n    "distracting": []\n  }\n}`
+                : `{\n  "rating": 8,\n  "verdict": "productive",\n  "explanation": "Great job focusing on your materials! You spent the majority of your time reading documents, which is excellent active learning. The short YouTube session was likely helpful for educational videos.",\n  "tips": ["Keep up the great active study focus!", "Try to ensure YouTube doesn't distract you for too long.", "You are doing great!"],\n  "categorization": {\n    "productive": ["PDF Reader"],\n    "neutral": ["YouTube"],\n    "distracting": []\n  }\n}`;
+
             const completion = await engine.chat.completions.create({
                 messages: [
-                    { role: "system", content: "You are a kind but helpful productivity coach. Analyze the provided activity log against the user's goals." },
+                    { role: "system", content: "You are a kind but helpful productivity coach. You strictly follow JSON format and instructions." },
+                    { role: "user", content: "Please read the instructions and evaluate this example student:\n\n" + exampleUser },
+                    { role: "assistant", content: exampleAssistant },
                     { role: "user", content: prompt }
                 ],
-                temperature: 0.5,
+                temperature: 0.3,
             });
 
             const responseText = completion.choices[0]?.message?.content || "";

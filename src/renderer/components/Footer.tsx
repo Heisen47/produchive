@@ -3,6 +3,7 @@ import { Github, Bug, FileQuestionIcon, Ghost } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import Lottie from 'lottie-react';
 import catAnimation from '../assets/cat.json';
+import { version } from '../../../package.json';
 
 interface FooterProps {
     isCatEnabled?: boolean;
@@ -11,7 +12,7 @@ interface FooterProps {
 
 export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }) => {
     const repoUrl = 'https://github.com/Heisen47/produchive';
-    const issuesUrl = `${repoUrl}/issues`;
+    const issuesUrl = `https://www.produchive.com/faq`;
     const howToUseItUrl = `${repoUrl}/blob/master/docs/HOW_TO_USE_IT.md`;
     const { isDark } = useTheme();
 
@@ -38,7 +39,7 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                 borderTop: '1px solid var(--border-secondary)',
             }}
         >
-            <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs sm:text-sm" style={{ color: 'var(--text-muted)' }}>
+            <div className="relative max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs sm:text-sm" style={{ color: 'var(--text-muted)' }}>
                 <div className="flex items-center gap-4 order-2 sm:order-1">
                     <span>© {new Date().getFullYear()} Produchive</span>
                     <button
@@ -97,11 +98,16 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                         </button>
                     )}
                 </div>
-                <div className="flex items-center gap-3 sm:gap-4 order-1 sm:order-2">
+
+                    <div className="sm:absolute sm:left-1/2 sm:-translate-x-1/2 opacity-50 order-3 sm:order-none mt-2 sm:mt-0 font-mono text-[11px] pointer-events-none">
+                         version : {version}
+                    </div>
+
+                <div className="flex items-center gap-3 sm:gap-4 order-1 sm:order-2 z-10">
                     {[
-                        { href: issuesUrl, icon: Bug, label: 'Report an Issue', shortLabel: 'Issues' },
-                        { href: repoUrl, icon: Github, label: 'GitHub', shortLabel: 'GitHub' },
-                        { href: howToUseItUrl, icon: FileQuestionIcon, label: 'How to use it?', shortLabel: 'Help' },
+                        { href: issuesUrl, icon: Bug, label: 'Report an Issue' },
+                        { href: repoUrl, icon: Github, label: 'GitHub'},
+                        { href: howToUseItUrl, icon: FileQuestionIcon, label: 'How to use it?'},
                     ].map((link, i) => (
                         <a
                             key={i}
@@ -115,7 +121,7 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                         >
                             <link.icon size={14} className="sm:w-4 sm:h-4" />
                             <span className="hidden xs:inline">{link.label}</span>
-                            <span className="xs:hidden">{link.shortLabel}</span>
+                            {/* <span className="xs:hidden">{link.shortLabel}</span> */}
                         </a>
                     ))}
                 </div>

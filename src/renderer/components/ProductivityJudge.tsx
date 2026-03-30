@@ -3,6 +3,7 @@ import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle, AlertTriangle 
 import Lottie from 'lottie-react';
 import { useStore } from '../lib/store';
 import { HistoricalReports } from './HistoricalReports';
+import { ActivityHeatmap } from './ActivityHeatmap';
 import { ShareCard } from './ShareCard';
 import { useTheme } from './ThemeProvider';
 import confetti from 'canvas-confetti';
@@ -227,8 +228,6 @@ Activity: \n${activitySummary}\n\n`
         }
     };
 
-    if (goals.length === 0) return null;
-
     // Check total usage time (3 minutes = 180000ms)
     // We check this on render to disable the button
     const totalDuration = activities.reduce((sum, act) => sum + (act.duration || 0), 0);
@@ -236,7 +235,9 @@ Activity: \n${activitySummary}\n\n`
 
     return (
         <div className="mt-6 space-y-6">
-            <div className="relative">
+            {goals.length > 0 ? (
+                <>
+                    <div className="relative">
                 <button
                     onClick={analyzeProductivity}
                     disabled={analyzing || !engine || activities.length === 0 || !isEnoughData}
@@ -401,6 +402,27 @@ Activity: \n${activitySummary}\n\n`
                     </div>
                 );
             })()}
+                </>
+            ) : (
+                <div 
+                    className="rounded-2xl p-6 text-center animate-fade-in"
+                    style={{
+                        background: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.5)',
+                        border: '1px solid var(--border-card)',
+                    }}
+                >
+                    <Lightbulb size={24} className="mx-auto mb-3" style={{ color: 'var(--accent)' }} />
+                    <h3 className="text-lg font-bold flex items-center justify-center gap-2 mb-1" style={{ color: 'var(--text-primary)' }}>
+                        No Goals Set for Today
+                    </h3>
+                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        Add goals in the Planner to unlock today's AI productivity analysis.
+                    </p>
+                </div>
+            )}
+
+            {/* Heatmap Section */}
+            <ActivityHeatmap />
 
             {/* Historical Reports Section */}
             <HistoricalReports engine={engine} />

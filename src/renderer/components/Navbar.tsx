@@ -8,6 +8,7 @@ import {
     Sun,
     Moon,
     BarChart3,
+    Users2,
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 
@@ -146,6 +147,16 @@ export const Navbar = ({
                     onClick={() => setCurrentView('ai')}
                     collapsed={!isSidebarOpen}
                 />
+                {/* Focus Rooms — premium */}
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-secondary)' }}>
+                    <SidebarLink
+                        icon={Users2}
+                        label="Focus Rooms ✦"
+                        active={currentView === 'focusroom'}
+                        onClick={() => setCurrentView('focusroom')}
+                        collapsed={!isSidebarOpen}
+                    />
+                </div>
             </nav>
 
             {/* Bottom Section */}

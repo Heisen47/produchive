@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { FocusRoom } from './components/FocusRoom';
 import { GoalSetter } from './components/GoalSetter';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { ProductivityJudge } from './components/ProductivityJudge';
@@ -20,7 +21,8 @@ import {
     LayoutDashboard,
     BarChart3,
     Activity,
-    Brain
+    Brain,
+    Users2
 } from 'lucide-react';
 import { Footer } from './components/Footer';
 import { DownloadProgress } from './components/DownloadProgress';
@@ -30,7 +32,8 @@ const viewIcons: Record<string, React.ElementType> = {
     dashboard: LayoutDashboard,
     analytics: BarChart3,
     monitor: Activity,
-    ai: Brain
+    ai: Brain,
+    focusroom: Users2,
 };
 import { PeekabooCat } from './components/PeekabooCat';
 import { ModelManager } from './components/ModelManager';
@@ -41,6 +44,7 @@ const viewLabels: Record<string, string> = {
     analytics: 'Analytics',
     monitor: 'Live Monitor',
     ai: 'Goals & AI',
+    focusroom: 'Focus Rooms ✦',
 };
 
 const AppContent = () => {
@@ -317,6 +321,8 @@ const AppContent = () => {
                                     <ProductivityJudge engine={engine} />
                                 </div>
                             )}
+
+                            {currentView === 'focusroom' && <FocusRoom />}
                         </div>
 
                         <div className="space-y-6 pt-8" style={{ borderTop: '1px solid var(--border-secondary)' }}>

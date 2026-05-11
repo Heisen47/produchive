@@ -1,0 +1,3 @@
+[submodule "src/renderer/components/focus-room"]
+	path = src/renderer/components/focus-room
+	url = https://github.com/Heisen47/produchive-premium-modules.git

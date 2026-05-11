@@ -1,196 +1,121 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Crown } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
+import { Canvas } from '@react-three/fiber';
+import { OrbitControls, Environment, ContactShadows } from '@react-three/drei';
+import { SceneId, Occupant, SCENE_META, fmtHMS, GhibliMaterial, NPC_NAMES } from './focus-room/Shared3D';
+import { ClassroomEnv } from './focus-room/ClassroomEnv';
+import { TrainEnv } from './focus-room/TrainEnv';
+import { CafeEnv } from './focus-room/CafeEnv';
 
-// ─── Dummy / Placeholder Background Imports ────────────────────────────────────
-// IMPORTANT: The user must replace these .svg files with the .jpg / .png 
-// images they provided in the chat.
-import classroomBg from '../assets/rooms/classroom.png';
-import trainBg from '../assets/rooms/train.png';
-import cafeBg from '../assets/rooms/cafe.png';
+const Scene3D = ({ occupants, scene, accent }: { occupants: Occupant[], scene: SceneId, accent: string }) => {
+  const fogColor = scene === 'classroom' ? '#14b8a6' : scene === 'train' ? '#1e1b4b' : '#451a03';
+  const floorColor = scene === 'classroom' ? '#0f766e' : scene === 'train' ? '#2e1065' : '#291811';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-type SceneId = 'classroom' | 'train' | 'cafe';
-interface Occupant { id: string; name: string; isUser: boolean; elapsedSeconds: number; seatIdx: number; }
+  let minAz = 0;
+  let maxAz = 0;
+  if (scene === 'classroom') {
+    // Open towards -X, +Z
+    minAz = -Math.PI / 2 + 0.1;
+    maxAz = -0.1;
+  } else if (scene === 'cafe') {
+    // Open towards +X, +Z
+    minAz = 0.1;
+    maxAz = Math.PI / 2 - 0.1;
+  } else if (scene === 'train') {
+    // Tube along Z. Open towards +Z.
+    minAz = -Math.PI / 6;
+    maxAz = Math.PI / 6;
+  }
 
-// ─── Data & Config ────────────────────────────────────────────────────────────
-const NPC_NAMES = ['Alex', 'Priya', 'Jordan', 'Sam', 'Mia', 'Yuki', 'Dani', 'Leo', 'Zoe'];
-
-const SCENE_META: Record<SceneId, {
-  label: string; emoji: string; tagline: string; accent: string;
-  bgImage: string;
-  timerBox: { top: string; left: string; width: string; height: string };
-  timerBoxStyle?: React.CSSProperties;
-  seats: { left: string; top: string; scale?: number }[];
-}> = {
-  classroom: {
-    label: 'Classroom', emoji: '🏫', tagline: 'Hit the books together', accent: '#4ade80',
-    bgImage: classroomBg,
-    // Covers the baked-in text on the chalkboard
-    timerBox: { top: '23%', left: '26%', width: '48%', height: '18%' },
-    timerBoxStyle: { background: '#224a30', border: 'none', boxShadow: 'inset 0 0 20px rgba(0,0,0,0.5)' },
-    seats: [
-      { left: '50%', top: '78%', scale: 1 },    // Front Center (User)
-      { left: '17%', top: '76%', scale: 1 },    // Front Left
-      { left: '83%', top: '76%', scale: 1 },    // Front Right
-      { left: '50%', top: '56%', scale: 0.8 },  // Mid Center
-      { left: '25%', top: '56%', scale: 0.8 },  // Mid Left
-      { left: '75%', top: '56%', scale: 0.8 },  // Mid Right
-      { left: '50%', top: '44%', scale: 0.65 }, // Back Center
-      { left: '33%', top: '44%', scale: 0.65 }, // Back Left
-      { left: '67%', top: '44%', scale: 0.65 }, // Back Right
-    ]
-  },
-  train: {
-    label: 'Night Train', emoji: '🚂', tagline: 'Study on the move', accent: '#3b82f6',
-    bgImage: trainBg,
-    // Covers the baked-in text on the window
-    timerBox: { top: '20%', left: '26%', width: '48%', height: '22%' },
-    timerBoxStyle: { background: 'rgba(10, 25, 45, 0.85)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.1)' },
-    seats: [
-      { left: '78%', top: '65%', scale: 1 },    // Front Right (User)
-      { left: '22%', top: '65%', scale: 1 },    // Front Left
-      { left: '72%', top: '52%', scale: 0.75 }, // Mid Right
-      { left: '28%', top: '52%', scale: 0.75 }, // Mid Left
-      { left: '67%', top: '45%', scale: 0.6 },  // Back Right
-      { left: '33%', top: '45%', scale: 0.6 },  // Back Left
-    ]
-  },
-  cafe: {
-    label: 'Café', emoji: '☕', tagline: 'Cozy corner, deep work', accent: '#f59e0b',
-    bgImage: cafeBg,
-    // Custom floating badge since there is no obvious board
-    timerBox: { top: '4%', left: '4%', width: '30%', height: '12%' },
-    timerBoxStyle: { background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(12px)', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)' },
-    seats: [
-      { left: '88%', top: '70%', scale: 1 },    // Right foreground (User)
-      { left: '15%', top: '60%', scale: 0.85 }, // Left foreground
-      { left: '45%', top: '55%', scale: 0.7 },  // Mid right
-      { left: '32%', top: '48%', scale: 0.6 },  // Mid left
-    ]
-  },
-};
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function fmtHMS(s: number): string {
-  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-}
-function fmtMin(s: number): string {
-  const m = Math.floor(s / 60);
-  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 > 0 ? ` ${m % 60}m` : ''}`;
-}
-
-// ─── Floating Element (for occasional movement) ────────────────────────────────
-const FloatingIndicator = ({ occ, accent }: { occ: Occupant, accent: string }) => {
-  // Occasional movement logic: Some NPCs have thought bubbles, some have Zzz, some have music notes
-  const icon = occ.isUser ? '⭐' : occ.seatIdx % 3 === 0 ? '🎵' : occ.seatIdx % 3 === 1 ? '💭' : '💡';
-  
   return (
-    <div style={{
-      position: 'absolute', bottom: '20px', left: '50%',
-      transform: 'translateX(-50%)',
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      animation: `thoughtFloat ${3 + (occ.seatIdx % 2)}s ease-in-out infinite`,
-      animationDelay: `${occ.seatIdx * 0.4}s`,
-      pointerEvents: 'none',
-      zIndex: 10,
-    }}>
-      <div style={{
-        fontSize: 10, fontWeight: 800, color: occ.isUser ? accent : '#fff',
-        background: 'rgba(0,0,0,0.7)', padding: '2px 8px', borderRadius: 12,
-        marginBottom: 4, whiteSpace: 'nowrap', letterSpacing: '0.3px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
-        border: `1px solid ${occ.isUser ? accent : 'rgba(255,255,255,0.15)'}`,
-      }}>
-        {fmtMin(occ.elapsedSeconds)} {icon}
-      </div>
-    </div>
+    <>
+      <color attach="background" args={[fogColor]} />
+      <fog attach="fog" args={[fogColor, 15, 60]} />
+      <Environment preset="city" />
+      
+      {/* Massive solid floor block to hide the void beneath the floor */}
+      <mesh position={[0, -50.01, 0]} receiveShadow>
+        <boxGeometry args={[1000, 100, 1000]} />
+        <GhibliMaterial color={floorColor} />
+      </mesh>
+      
+      <ContactShadows position={[0, 0.02, 0]} opacity={0.8} scale={50} blur={2.5} far={4} color="#000" />
+
+      {scene === 'classroom' && <ClassroomEnv occupants={occupants} accent={accent} />}
+      {scene === 'train' && <TrainEnv occupants={occupants} accent={accent} />}
+      {scene === 'cafe' && <CafeEnv occupants={occupants} accent={accent} />}
+
+      <OrbitControls 
+        makeDefault 
+        enableDamping 
+        enablePan={false}
+        minPolarAngle={Math.PI / 6}
+        maxPolarAngle={Math.PI / 2 - 0.1} 
+        minZoom={65} 
+        maxZoom={200}
+        minAzimuthAngle={minAz}
+        maxAzimuthAngle={maxAz}
+      />
+    </>
   );
 };
 
-// ─── Room View (Image-Based) ──────────────────────────────────────────────────
+// ─── Room View (3D Canvas Based) ──────────────────────────────────────────────
 const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent }: {
   occupants: Occupant[]; sessionSeconds: number; onLeave: () => void; scene: SceneId; accent: string;
 }) => {
   const meta = SCENE_META[scene];
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 16, overflow: 'hidden', userSelect: 'none', backgroundColor: '#000' }}>
+    <div style={{ position: 'relative', width: '100%', height: '100%', borderRadius: 16, overflow: 'hidden', userSelect: 'none', backgroundColor: '#0f172a' }}>
       
-      {/* 1. Photorealistic Background Layer */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        backgroundImage: `url('${meta.bgImage}')`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        // Very subtle breathing animation to give the room life
-        animation: 'roomBreathe 15s ease-in-out infinite alternate',
-      }} />
+      <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+        <Canvas shadows orthographic camera={{ position: [20, 10, 20], zoom: 65, near: -100, far: 100 }}>
+          <React.Suspense fallback={null}>
+            <Scene3D occupants={occupants} scene={scene} accent={accent} />
+          </React.Suspense>
+        </Canvas>
+      </div>
 
-      {/* 2. Timer Overlay (Hides baked text and shows live timer) */}
+      {/* Hanging Ropes for Timer */}
+      <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 120, display: 'flex', justifyContent: 'space-between', zIndex: 4 }}>
+        <div style={{ width: 4, height: 24, background: '#78350f', boxShadow: '2px 0 4px rgba(0,0,0,0.3)' }} />
+        <div style={{ width: 4, height: 24, background: '#78350f', boxShadow: '2px 0 4px rgba(0,0,0,0.3)' }} />
+      </div>
+
+      {/* Timer Overlay */}
       <div style={{
-        position: 'absolute',
-        ...meta.timerBox,
-        ...meta.timerBoxStyle,
+        position: 'absolute', top: 20, left: '50%', transform: 'translateX(-50%)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        zIndex: 5,
+        background: scene === 'classroom' ? '#064e3b' : scene === 'train' ? '#1e1b4b' : '#451a03',
+        border: `4px solid ${scene === 'classroom' ? '#78350f' : scene === 'train' ? '#0f172a' : '#291811'}`,
+        borderRadius: 8, padding: '12px 48px',
+        boxShadow: `0 16px 32px rgba(0,0,0,0.5), inset 0 0 20px rgba(0,0,0,0.4)`,
+        zIndex: 5, pointerEvents: 'none'
       }}>
-        {scene !== 'cafe' && (
-          <div style={{ color: 'rgba(255,255,255,0.8)', fontSize: '1.2cqw', fontFamily: 'Georgia,serif', letterSpacing: 1, textShadow: '0 1px 3px rgba(0,0,0,0.6)' }}>
-            Quiet Study Hall
-          </div>
-        )}
-        <div style={{ color: '#fff', fontSize: scene === 'cafe' ? '24px' : '3.5cqw', fontWeight: 700, fontFamily: 'monospace', letterSpacing: 2, textShadow: `0 0 15px ${accent}80`, marginTop: '1%' }}>
+        <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: 800, letterSpacing: 4, textTransform: 'uppercase', marginBottom: 2 }}>
+          {meta.label}
+        </div>
+        <div style={{ color: '#fef3c7', fontSize: 38, fontWeight: 700, fontFamily: 'Georgia, serif', letterSpacing: 2, textShadow: '0 2px 6px rgba(0,0,0,0.8)' }}>
           {fmtHMS(sessionSeconds)}
         </div>
       </div>
 
-      {/* 3. Seats / Overlays Layer */}
-      {occupants.map(occ => {
-        const seatConfig = meta.seats[occ.seatIdx];
-        if (!seatConfig) return null; // Safety check if fewer seats config than occupants
-        
-        return (
-          <div key={occ.id} style={{
-            position: 'absolute',
-            left: seatConfig.left,
-            top: seatConfig.top,
-            transform: `translate(-50%, -50%) scale(${seatConfig.scale || 1})`,
-            zIndex: 10 + occ.seatIdx, // Ensure closer seats are on top
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
-          }}>
-            {/* Occasional movement / Live indicators */}
-            <FloatingIndicator occ={occ} accent={accent} />
-
-            {/* Glowing Ring on the floor to ground the characters and highlight the user */}
-            <div style={{
-              width: 80, height: 24, borderRadius: '50%',
-              marginTop: 40, // push it down to the floor level
-              border: `3px solid ${occ.isUser ? '#fbbf24' : '#4ade80'}`,
-              boxShadow: `0 0 15px 4px ${occ.isUser ? 'rgba(251,191,36,0.6)' : 'rgba(74,222,128,0.5)'}, inset 0 0 10px ${occ.isUser ? 'rgba(251,191,36,0.4)' : 'rgba(74,222,128,0.4)'}`,
-              animation: `glowRingPulse ${occ.isUser ? 1.5 : 2.5}s ease-in-out infinite`,
-              animationDelay: `${occ.seatIdx * 0.3}s`,
-            }} />
-          </div>
-        );
-      })}
-
       {/* HUD Layer */}
-      <div style={{ position: 'absolute', top: 12, left: 12, right: 12, zIndex: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <button onClick={onLeave} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', backdropFilter: 'blur(8px)', transition: 'transform 0.2s' }} onMouseEnter={e => e.currentTarget.style.transform = 'scale(1.05)'} onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}>
-          <ArrowLeft size={13} /> Leave
+      <div style={{ position: 'absolute', top: 16, left: 16, right: 16, zIndex: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <button onClick={onLeave} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 20, background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.15)', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', backdropFilter: 'blur(8px)', transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }} onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.05)'; e.currentTarget.style.background = 'rgba(0,0,0,0.6)'; }} onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.background = 'rgba(0,0,0,0.4)'; }}>
+          <ArrowLeft size={16} /> Leave
         </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px', borderRadius: 20, background: 'rgba(0,0,0,0.6)', border: `1px solid ${accent}60`, color: accent, fontSize: 12, fontWeight: 700, backdropFilter: 'blur(8px)' }}>
-          <span style={{ width: 7, height: 7, borderRadius: '50%', background: accent, display: 'inline-block', boxShadow: `0 0 8px ${accent}`, animation: 'glowRingPulse 1.6s ease-in-out infinite' }} />
-          {meta.emoji} {meta.label} · {occupants.length} studying
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 20px', borderRadius: 20, background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.15)', color: '#fef3c7', fontSize: 13, fontWeight: 700, backdropFilter: 'blur(8px)', boxShadow: `0 4px 12px rgba(0,0,0,0.2)` }}>
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: accent, display: 'inline-block', boxShadow: `0 0 10px ${accent}`, animation: 'glowRingPulse 1.6s ease-in-out infinite' }} />
+          {meta.emoji} {occupants.length} Studying
         </div>
       </div>
       
-      {/* Aspect Ratio Constraint container queries */}
       <style>{`
-        .container-query-wrapper { container-type: inline-size; }
-        @keyframes roomBreathe { 0% { transform: scale(1); } 100% { transform: scale(1.03); } }
+        @keyframes thoughtFloat { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-8px); } }
+        @keyframes glowRingPulse { 0% { opacity: 0.6; transform: scale(0.95); } 50% { opacity: 1; transform: scale(1.05); } 100% { opacity: 0.6; transform: scale(0.95); } }
       `}</style>
     </div>
   );
@@ -204,15 +129,15 @@ const ScenePicker = ({ onPick }: { onPick: (s: SceneId) => void }) => {
       <div style={{ textAlign: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 6 }}>
           <Crown size={16} style={{ color: '#f59e0b' }} />
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', letterSpacing: 2, textTransform: 'uppercase' }}>Premium Feature</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', letterSpacing: 2, textTransform: 'uppercase' }}>Premium 3D Experience</span>
         </div>
         <h2 style={{ fontSize: 26, fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>Focus Rooms</h2>
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 5 }}>Immersive environments for deep work.</p>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 5 }}>Immersive 3D environments for deep work.</p>
       </div>
 
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 800 }}>
         {(Object.entries(SCENE_META) as [SceneId, typeof SCENE_META[SceneId]][]).map(([id, m]) => (
-          <button key={id} onClick={() => onPick(id)} style={{
+          <button key={id} onClick={() => onPick(id as SceneId)} style={{
             width: 220, padding: 0, overflow: 'hidden',
             background: isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)',
             border: '1px solid var(--border-card)', borderRadius: 20, cursor: 'pointer',
@@ -229,7 +154,6 @@ const ScenePicker = ({ onPick }: { onPick: (s: SceneId) => void }) => {
             el.style.transform = 'translateY(0) scale(1)';
             el.style.boxShadow = 'var(--shadow-card)';
           }}>
-            {/* Thumbnail Image */}
             <div style={{ width: '100%', height: 140, backgroundImage: `url('${m.bgImage}')`, backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid var(--border-card)' }} />
             
             <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
@@ -263,7 +187,7 @@ export const FocusRoom: React.FC = () => {
   const npcs = useMemo(() => NPC_NAMES.map((name, i) => ({
     id: `npc-${i}`, name, isUser: false,
     elapsedSeconds: Math.floor(Math.random() * 7200) + 300,
-    seatIdx: i + 1, // Skip index 0, reserve for user
+    seatIdx: i + 1, 
   })), []);
 
   const sessionSeconds = Math.floor((Date.now() - sessionStart) / 1000);
@@ -271,15 +195,14 @@ export const FocusRoom: React.FC = () => {
 
   const occupants: Occupant[] = scene ? [
     { id: 'user', name: 'You', isUser: true, elapsedSeconds: sessionSeconds, seatIdx: 0 },
-    ...npcs.slice(0, SCENE_META[scene].seats.length - 1).map(n => ({ ...n, elapsedSeconds: n.elapsedSeconds + tick })),
+    ...npcs.slice(0, SCENE_META[scene].maxSeats - 1).map(n => ({ ...n, elapsedSeconds: n.elapsedSeconds + tick })),
   ] : [];
 
   if (!scene) return <ScenePicker onPick={setScene} />;
 
   return (
-    <div className="container-query-wrapper" style={{ height: 'calc(100vh - 135px)', minHeight: 480, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
-      {/* Constrain the room view to a square aspect ratio to match the provided images perfectly */}
-      <div style={{ width: '100%', maxWidth: '85vh', aspectRatio: '1 / 1', position: 'relative', borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+    <div style={{ height: 'calc(100vh - 135px)', minHeight: 480, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+      <div style={{ width: '100%', height: '100%', position: 'relative', borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden' }}>
         <RoomView
           scene={scene} occupants={occupants}
           sessionSeconds={sessionSeconds + tick}

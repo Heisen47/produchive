@@ -28,7 +28,7 @@ import { Footer } from './components/Footer';
 import { DownloadProgress } from './components/DownloadProgress';
 import { UpdateBanner } from './components/UpdateBanner';
 
-const viewIcons: Record<string, React.ElementType> = {
+const viewIcons: Record<string, React.ComponentType<any>> = {
     dashboard: LayoutDashboard,
     analytics: BarChart3,
     monitor: Activity,

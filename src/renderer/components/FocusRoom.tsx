@@ -79,9 +79,9 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent }: {
       </div>
 
       {/* Hanging Ropes for Timer */}
-      <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 120, display: 'flex', justifyContent: 'space-between', zIndex: 4 }}>
-        <div style={{ width: 4, height: 24, background: '#78350f', boxShadow: '2px 0 4px rgba(0,0,0,0.3)' }} />
-        <div style={{ width: 4, height: 24, background: '#78350f', boxShadow: '2px 0 4px rgba(0,0,0,0.3)' }} />
+      <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 80, display: 'flex', justifyContent: 'space-between', zIndex: 4 }}>
+        <div style={{ width: 3, height: 20, background: '#78350f', boxShadow: '2px 0 4px rgba(0,0,0,0.3)' }} />
+        <div style={{ width: 3, height: 20, background: '#78350f', boxShadow: '2px 0 4px rgba(0,0,0,0.3)' }} />
       </div>
 
       {/* Timer Overlay */}
@@ -89,15 +89,15 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent }: {
         position: 'absolute', top: 20, left: '50%', transform: 'translateX(-50%)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         background: scene === 'classroom' ? '#064e3b' : scene === 'train' ? '#1e1b4b' : '#451a03',
-        border: `4px solid ${scene === 'classroom' ? '#78350f' : scene === 'train' ? '#0f172a' : '#291811'}`,
-        borderRadius: 8, padding: '12px 48px',
-        boxShadow: `0 16px 32px rgba(0,0,0,0.5), inset 0 0 20px rgba(0,0,0,0.4)`,
+        border: `3px solid ${scene === 'classroom' ? '#78350f' : scene === 'train' ? '#0f172a' : '#291811'}`,
+        borderRadius: 8, padding: '8px 32px',
+        boxShadow: `0 8px 24px rgba(0,0,0,0.5), inset 0 0 10px rgba(0,0,0,0.4)`,
         zIndex: 5, pointerEvents: 'none'
       }}>
-        <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: 800, letterSpacing: 4, textTransform: 'uppercase', marginBottom: 2 }}>
+        <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 9, fontWeight: 800, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 2 }}>
           {meta.label}
         </div>
-        <div style={{ color: '#fef3c7', fontSize: 38, fontWeight: 700, fontFamily: 'Georgia, serif', letterSpacing: 2, textShadow: '0 2px 6px rgba(0,0,0,0.8)' }}>
+        <div style={{ color: '#fef3c7', fontSize: 28, fontWeight: 700, fontFamily: 'Georgia, serif', letterSpacing: 2, textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>
           {fmtHMS(sessionSeconds)}
         </div>
       </div>

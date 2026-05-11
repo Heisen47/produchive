@@ -9,11 +9,12 @@ import {
     Moon,
     BarChart3,
     Users2,
+    LucideIcon
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 
 interface SidebarLinkProps {
-    icon: React.ElementType;
+    icon: LucideIcon;
     label: string;
     active: boolean;
     onClick: () => void;

@@ -32,6 +32,16 @@ export interface SystemInfo {
   distro?: string;
 }
 
+export interface FocusSession {
+  id: string;
+  scene: string;
+  durationSeconds: number;
+  startedAt: string;
+  endedAt: string;
+  startedAtReadable: string;
+  endedAtReadable: string;
+}
+
 declare global {
   interface Window {
     electronAPI: {
@@ -87,6 +97,10 @@ declare global {
       // App settings
       getSettings: () => Promise<Record<string, any>>;
       setSetting: (key: string, value: any) => Promise<Record<string, any>>;
+
+      // Focus Room sessions
+      saveFocusSession: (session: { scene: string; durationSeconds: number; startedAt: string }) => Promise<FocusSession>;
+      getFocusSessions: () => Promise<FocusSession[]>;
     };
   }
 }

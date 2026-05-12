@@ -322,7 +322,7 @@ const AppContent = () => {
                                 </div>
                             )}
 
-                            {currentView === 'focusroom' && <FocusRoom />}
+                            {currentView === 'focusroom' && <FocusRoom onNavigate={handleViewChange} />}
                         </div>
 
                         <div className="space-y-6 pt-8" style={{ borderTop: '1px solid var(--border-secondary)' }}>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { ArrowLeft, Maximize2, Minimize2, Lock, Unlock, Pause, Play, Eye, Users, Zap, BookOpen, Coffee, GraduationCap, ChevronDown, Sparkles as SparklesIcon } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
+import { useStore } from '../lib/store';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Environment, ContactShadows } from '@react-three/drei';
 import { SceneId, Occupant, SCENE_META, fmtHMS, GhibliMaterial, NPC_NAMES } from './focus-room/Shared3D';
@@ -535,10 +536,21 @@ const SCENE_ICONS: Record<SceneId, React.ReactNode> = {
   library:   <BookOpen size={18} strokeWidth={1.8} />,
 };
 
-const ScenePicker = ({ onPick }: { onPick: (s: SceneId, mode: RoomMode) => void }) => {
+const SCENE_LABEL: Record<string, string> = { classroom: 'Classroom', cafe: 'Café', library: 'Library' };
+const SCENE_EMOJI: Record<string, string> = { classroom: '🎓', cafe: '☕', library: '📚' };
+
+const ScenePicker = ({ onPick, onNavigate }: { onPick: (s: SceneId, mode: RoomMode) => void, onNavigate?: (view: string) => void }) => {
   const { isDark } = useTheme();
+  const { isMonitoring } = useStore();
   const [expanded, setExpanded] = useState<SceneId | null>(null);
-  const [interested, setInterested] = useState<boolean | null>(null);
+  const [pastSessions, setPastSessions] = useState<any[]>([]);
+
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    if (api?.getFocusSessions) {
+      api.getFocusSessions().then((s: any[]) => setPastSessions(s)).catch(() => {});
+    }
+  }, []);
 
   const base = isDark
     ? { card: 'rgba(15,23,42,0.85)', cardBorder: 'rgba(255,255,255,0.07)', text: '#f1f5f9', sub: '#94a3b8' }
@@ -554,7 +566,7 @@ const ScenePicker = ({ onPick }: { onPick: (s: SceneId, mode: RoomMode) => void 
           <span style={{ fontSize: 10, fontWeight: 800, color: '#a78bfa', letterSpacing: 2, textTransform: 'uppercase' }}>Focus Rooms</span>
         </div>
         <h2 style={{ fontSize: 28, fontWeight: 800, margin: '0 0 8px', color: base.text, lineHeight: 1.2 }}>Pick your space</h2>
-        <p style={{ fontSize: 13, color: base.sub, margin: 0, lineHeight: 1.6 }}>Immersive 3D environments built for deep work. Study alongside NPCs — always free.</p>
+        <p style={{ fontSize: 13, color: base.sub, margin: 0, lineHeight: 1.6 }}>Immersive 3D environments built for deep work. Study alongside Alex, Priya, Jordan, Sam, Mia, Yuki, Dani, Leo, Zoe — always free.</p>
       </div>
 
       {/* Scene cards */}
@@ -623,7 +635,19 @@ const ScenePicker = ({ onPick }: { onPick: (s: SceneId, mode: RoomMode) => void 
 
                   {/* Join Study Group */}
                   <button
-                    onClick={() => onPick(id, 'study')}
+                    onClick={() => {
+                      if (!isMonitoring) {
+                        if (onNavigate) {
+                          onNavigate('dashboard');
+                          // Give a slight delay for the dashboard view to render before triggering the pulse
+                          setTimeout(() => {
+                            window.dispatchEvent(new Event('highlight-monitoring'));
+                          }, 100);
+                        }
+                        return;
+                      }
+                      onPick(id, 'study');
+                    }}
                     style={{
                       width: '100%', padding: '9px 12px', borderRadius: 10,
                       background: m.accent,
@@ -645,7 +669,77 @@ const ScenePicker = ({ onPick }: { onPick: (s: SceneId, mode: RoomMode) => void 
         })}
       </div>
 
-      {/* Upcoming paid feature teaser */}
+      {/* ── Past Sessions ─────────────────────────────────── */}
+      {pastSessions.length > 0 && (
+        <div style={{
+          maxWidth: 760, width: '100%',
+          borderRadius: 20,
+          background: isDark ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.7)',
+          border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+          backdropFilter: 'blur(16px)',
+          overflow: 'hidden',
+          boxShadow: isDark ? '0 8px 32px rgba(0,0,0,0.25)' : '0 8px 32px rgba(0,0,0,0.06)',
+        }}>
+          {/* Header bar */}
+          <div style={{
+            padding: '14px 20px',
+            borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 8,
+              background: isDark ? 'rgba(167,139,250,0.15)' : 'rgba(167,139,250,0.12)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <BookOpen size={14} color="#a78bfa" strokeWidth={2.2} />
+            </div>
+            <span style={{ fontSize: 13, fontWeight: 700, color: base.text, letterSpacing: 0.2 }}>Recent Sessions</span>
+            <span style={{ fontSize: 11, color: base.sub, marginLeft: 'auto', fontWeight: 600 }}>{pastSessions.length} total</span>
+          </div>
+
+          {/* Session rows */}
+          <div style={{ padding: '6px 0' }}>
+            {pastSessions.slice(0, 8).map((s, i) => {
+              const h = Math.floor(s.durationSeconds / 3600);
+              const m = Math.floor((s.durationSeconds % 3600) / 60);
+              const sec = s.durationSeconds % 60;
+              const dur = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+              const sceneAccent = SCENE_META[s.scene as SceneId]?.accent ?? '#a78bfa';
+              return (
+                <div key={s.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '10px 20px',
+                  borderBottom: i < Math.min(pastSessions.length, 8) - 1 ? `1px solid ${isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}` : 'none',
+                  transition: 'background 0.15s',
+                }}
+                  onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  {/* Scene indicator dot */}
+                  <div style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: sceneAccent,
+                    boxShadow: `0 0 8px ${sceneAccent}60`,
+                    flexShrink: 0,
+                  }} />
+                  {/* Scene + time */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: base.text }}>{SCENE_LABEL[s.scene] ?? s.scene}</span>
+                  </div>
+                  {/* Date */}
+                  <span style={{ fontSize: 11, color: base.sub, fontWeight: 500, whiteSpace: 'nowrap' }}>{s.startedAtReadable}</span>
+                  {/* Duration pill */}
+                  <div style={{
+                    fontSize: 12, fontWeight: 700, color: sceneAccent,
+                    background: `${sceneAccent}12`, padding: '3px 10px', borderRadius: 8,
+                    whiteSpace: 'nowrap', minWidth: 48, textAlign: 'center',
+                  }}>{dur}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div style={{
         maxWidth: 480, width: '100%',
         borderRadius: 20,
@@ -680,66 +774,25 @@ const ScenePicker = ({ onPick }: { onPick: (s: SceneId, mode: RoomMode) => void 
             We're building real-time rooms where you can invite your actual friends, see them as characters, and study together — same vibe, real accountability.
           </p>
 
-          {interested === null ? (
-            <div>
-              <p style={{ margin: '0 0 12px', fontSize: 12, fontWeight: 700, color: base.text }}>Would you use this?</p>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={() => setInterested(true)}
-                  style={{
-                    flex: 1, padding: '10px 0', borderRadius: 10,
-                    background: 'linear-gradient(135deg, #6d28d9, #8b5cf6)',
-                    border: 'none', color: '#fff', fontSize: 12, fontWeight: 800,
-                    cursor: 'pointer',
-                    boxShadow: '0 4px 14px rgba(109,40,217,0.35)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    transition: 'opacity 0.15s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.opacity = '0.85'; }}
-                  onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
-                >
-                  <Users size={13} strokeWidth={2.5} /> Yes, I'm interested
-                </button>
-                <button
-                  onClick={() => setInterested(false)}
-                  style={{
-                    flex: 1, padding: '10px 0', borderRadius: 10,
-                    background: 'transparent',
-                    border: `1px solid ${base.cardBorder}`,
-                    color: base.sub, fontSize: 12, fontWeight: 600,
-                    cursor: 'pointer', transition: 'all 0.15s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                >
-                  Not for me
-                </button>
-              </div>
-            </div>
-          ) : interested ? (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 12,
-              padding: '13px 16px', borderRadius: 12,
-              background: 'rgba(109,40,217,0.1)', border: '1px solid rgba(167,139,250,0.25)',
-            }}>
-              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(109,40,217,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Zap size={15} color="#a78bfa" strokeWidth={2} />
-              </div>
-              <div>
-                <div style={{ color: '#a78bfa', fontSize: 13, fontWeight: 800 }}>Thanks for the signal</div>
-                <div style={{ color: base.sub, fontSize: 11, marginTop: 2 }}>We'll prioritise this — stay tuned for updates.</div>
-              </div>
-            </div>
-          ) : (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 12,
-              padding: '13px 16px', borderRadius: 12,
-              background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-              border: `1px solid ${base.cardBorder}`,
-            }}>
-              <div style={{ color: base.sub, fontSize: 12 }}>Got it — we'll keep building what matters to you.</div>
-            </div>
-          )}
+          <div>
+            <a
+              href="https://forms.gle/aQJdFwULQiHcnxw37"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-flex', padding: '10px 20px', borderRadius: 10,
+                background: 'linear-gradient(135deg, #6d28d9, #8b5cf6)',
+                textDecoration: 'none', color: '#fff', fontSize: 12, fontWeight: 800,
+                boxShadow: '0 4px 14px rgba(109,40,217,0.35)',
+                alignItems: 'center', justifyContent: 'center', gap: 6,
+                transition: 'opacity 0.15s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '0.85'; }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+            >
+              <Users size={13} strokeWidth={2.5} /> Let us know what you want
+            </a>
+          </div>
         </div>
       </div>
     </div>
@@ -747,22 +800,23 @@ const ScenePicker = ({ onPick }: { onPick: (s: SceneId, mode: RoomMode) => void 
 };
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
-export const FocusRoom: React.FC = () => {
+export const FocusRoom: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigate }) => {
   const [scene, setScene] = useState<SceneId | null>(null);
   const [mode, setMode] = useState<RoomMode>('study');
   const [tick, setTick] = useState(0);
-  const [sessionStart] = useState(() => Date.now());
+  const sessionStartRef = useRef(Date.now());
+  const sessionStartedAt = useRef<string>(new Date().toISOString());
   const [isPaused, setIsPaused] = useState(false);
   const [pausedAt, setPausedAt] = useState<number>(0);
 
   const togglePause = useCallback(() => {
     setIsPaused(prev => {
       if (!prev) {
-        setPausedAt(Math.floor((Date.now() - sessionStart) / 1000) + tick);
+        setPausedAt(tick);
       }
       return !prev;
     });
-  }, [sessionStart, tick]);
+  }, [tick]);
 
   // Timer only ticks in study mode and when not paused
   useEffect(() => {
@@ -777,7 +831,7 @@ export const FocusRoom: React.FC = () => {
     seatIdx: i + 1, 
   })), []);
 
-  const sessionSeconds = isPaused ? pausedAt : Math.floor((Date.now() - sessionStart) / 1000) + tick;
+  const sessionSeconds = isPaused ? pausedAt : tick;
   const accent = scene ? SCENE_META[scene].accent : '#4ade80';
 
   // In view mode: no user occupant, NPCs still populate the room for ambience
@@ -789,14 +843,27 @@ export const FocusRoom: React.FC = () => {
   ]) : [];
 
   const handleLeave = useCallback(() => {
+    // Persist session to DB before tearing down (only study mode > 30s is worth saving)
+    if (mode === 'study' && sessionSeconds >= 30 && scene) {
+      const api = (window as any).electronAPI;
+      if (api?.saveFocusSession) {
+        api.saveFocusSession({
+          scene,
+          durationSeconds: sessionSeconds,
+          startedAt: sessionStartedAt.current,
+        }).catch(() => {});
+      }
+    }
     setScene(null);
     setMode('study');
     setTick(0);
     setIsPaused(false);
     setPausedAt(0);
-  }, []);
+    sessionStartRef.current = Date.now();
+    sessionStartedAt.current = new Date().toISOString();
+  }, [scene, mode, sessionSeconds]);
 
-  if (!scene) return <ScenePicker onPick={(s, m) => { setScene(s); setMode(m); }} />;
+  if (!scene) return <ScenePicker onPick={(s, m) => { setScene(s); setMode(m); }} onNavigate={onNavigate} />;
 
   return (
     <div style={{ height: 'calc(100vh - 135px)', minHeight: 480, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 20 }}>

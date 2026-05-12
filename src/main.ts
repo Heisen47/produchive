@@ -41,7 +41,7 @@ if (!gotTheLock) {
 
 app.commandLine.appendSwitch("disable-gpu-watchdog");
 app.commandLine.appendSwitch("force_high_performance_gpu");
-let db: any = { data: { tasks: [], goals: [], ratings: [] } };
+let db: any = { data: { tasks: [], goals: [], ratings: [], focusSessions: [] } };
 let dbFilePath: string;
 
 // Daily Activity DB
@@ -138,6 +138,7 @@ async function initDB() {
     }
     db.data.goals ||= [];
     db.data.ratings ||= [];
+    db.data.focusSessions ||= [];
 
     db.data.ratings ||= [];
     await db.write();
@@ -846,6 +847,28 @@ function registerIpcHandlers() {
       }
     },
   );
+
+  // ─── Focus Room Session Persistence ──────────────────────────────────────
+  ipcMain.handle("save-focus-session", async (event, session) => {
+    const newSession = {
+      id: crypto.randomUUID(),
+      scene: session.scene,               // 'classroom' | 'cafe' | 'library'
+      durationSeconds: session.durationSeconds,
+      startedAt: session.startedAt,       // ISO string
+      endedAt: new Date().toISOString(),
+      endedAtReadable: new Date().toLocaleString(),
+      startedAtReadable: new Date(session.startedAt).toLocaleString(),
+    };
+    db.data.focusSessions.push(newSession);
+    await db.write();
+    logger.info(`[focus-session] Saved session: ${newSession.id} (${newSession.durationSeconds}s in ${newSession.scene})`);
+    return newSession;
+  });
+
+  ipcMain.handle("get-focus-sessions", async () => {
+    // Return newest first
+    return [...(db.data.focusSessions || [])].reverse();
+  });
 
   // Debug and system info handlers
   ipcMain.handle("get-system-info", async () => {

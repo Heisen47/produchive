@@ -157,6 +157,12 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
     const [showHalo, setShowHalo] = React.useState(false);
 
     React.useEffect(() => {
+        const handleHighlight = () => {
+            setShowHalo(true);
+            setTimeout(() => setShowHalo(false), 5000);
+        };
+        window.addEventListener('highlight-monitoring', handleHighlight);
+
         const START_TIME_KEY = 'app_start_timestamp';
         let startTime = sessionStorage.getItem(START_TIME_KEY);
         if (!startTime) {
@@ -164,14 +170,19 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
             sessionStorage.setItem(START_TIME_KEY, startTime);
         }
 
+        let timer: any;
         const elapsed = Date.now() - parseInt(startTime);
         if (elapsed < 60000) {
             setShowHalo(true);
-            const timer = setTimeout(() => {
+            timer = setTimeout(() => {
                 setShowHalo(false);
             }, 60000 - elapsed);
-            return () => clearTimeout(timer);
         }
+        
+        return () => {
+            window.removeEventListener('highlight-monitoring', handleHighlight);
+            if (timer) clearTimeout(timer);
+        };
     }, []);
 
 

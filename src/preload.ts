@@ -52,6 +52,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("app-before-quit", () => callback());
   },
 
+  // Focus Room sessions
+  saveFocusSession: (session: any) => ipcRenderer.invoke("save-focus-session", session),
+  getFocusSessions: () => ipcRenderer.invoke("get-focus-sessions"),
+
   // App settings
   getSettings: () => ipcRenderer.invoke("get-settings"),
   setSetting: (key: string, value: any) =>

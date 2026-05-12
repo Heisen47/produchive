@@ -1171,6 +1171,24 @@ app.on("activate", () => {
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
+  logger.info("App quitting — running cleanup...");
+
+  // Exit fullscreen cleanly so the OS doesn't get stuck in fullscreen state
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isFullScreen()) {
+      mainWindow.setFullScreen(false);
+      logger.info("Exited fullscreen on quit");
+    }
+    // Send renderer a signal to unlock/clean up any locked state
+    try {
+      mainWindow.webContents.send("app-before-quit");
+    } catch (_) {}
+  }
+
+  // Stop monitoring
+  stopMonitoring();
+
   logger.info("Restoring blocked activities before quit...");
   stopBlockEnforcement();
   for (const activity of blockedActivities.values()) {
@@ -1201,7 +1219,12 @@ app.on("before-quit", () => {
   }
 });
 
-app.on("will-quit", () => {});
+app.on("will-quit", () => {
+  // Final safety net — ensure fullscreen is cleared even if before-quit was skipped
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFullScreen()) {
+    mainWindow.setFullScreen(false);
+  }
+});
 
 // Handle uncaught exceptions
 process.on("uncaughtException", (error) => {

@@ -47,6 +47,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("update-status", (_event, value) => callback(value));
   },
 
+  // App lifecycle
+  onBeforeQuit: (callback: () => void) => {
+    ipcRenderer.on("app-before-quit", () => callback());
+  },
+
   // App settings
   getSettings: () => ipcRenderer.invoke("get-settings"),
   setSetting: (key: string, value: any) =>

@@ -7,10 +7,11 @@ import { SceneId, Occupant, SCENE_META, fmtHMS, GhibliMaterial, NPC_NAMES } from
 import { ClassroomEnv } from './focus-room/ClassroomEnv';
 import { TrainEnv } from './focus-room/TrainEnv';
 import { CafeEnv } from './focus-room/CafeEnv';
+import { LibraryEnv } from './focus-room/LibraryEnv';
 
 const Scene3D = ({ occupants, scene, accent }: { occupants: Occupant[], scene: SceneId, accent: string }) => {
-  const fogColor = scene === 'classroom' ? '#14b8a6' : scene === 'train' ? '#1e1b4b' : '#451a03';
-  const floorColor = scene === 'classroom' ? '#0f766e' : scene === 'train' ? '#2e1065' : '#291811';
+  const fogColor = scene === 'classroom' ? '#14b8a6' : scene === 'train' ? '#1e1b4b' : scene === 'library' ? '#e8c99a' : '#451a03';
+  const floorColor = scene === 'classroom' ? '#0f766e' : scene === 'train' ? '#2e1065' : scene === 'library' ? '#c8956c' : '#291811';
 
   let minAz = 0;
   let maxAz = 0;
@@ -26,6 +27,10 @@ const Scene3D = ({ occupants, scene, accent }: { occupants: Occupant[], scene: S
     // Tube along Z. Open towards +Z.
     minAz = -Math.PI / 6;
     maxAz = Math.PI / 6;
+  } else if (scene === 'library') {
+    // Corner room, open towards +X, +Z
+    minAz = 0.1;
+    maxAz = Math.PI / 2 - 0.1;
   }
 
   return (
@@ -45,6 +50,7 @@ const Scene3D = ({ occupants, scene, accent }: { occupants: Occupant[], scene: S
       {scene === 'classroom' && <ClassroomEnv occupants={occupants} accent={accent} />}
       {scene === 'train' && <TrainEnv occupants={occupants} accent={accent} />}
       {scene === 'cafe' && <CafeEnv occupants={occupants} accent={accent} />}
+      {scene === 'library' && <LibraryEnv occupants={occupants} accent={accent} />}
 
       <OrbitControls 
         makeDefault 

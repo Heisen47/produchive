@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeft, Crown, Maximize2, Minimize2, Lock, Unlock, Pause, Play } from 'lucide-react';
+import { ArrowLeft, Maximize2, Minimize2, Lock, Unlock, Pause, Play, Eye, Users, Zap, BookOpen, Coffee, GraduationCap, ChevronDown, Sparkles as SparklesIcon } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Environment, ContactShadows } from '@react-three/drei';
@@ -415,7 +415,7 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent, isPaused,
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 20px', borderRadius: 20, background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.15)', color: '#fef3c7', fontSize: 13, fontWeight: 700, backdropFilter: 'blur(8px)', boxShadow: `0 4px 12px rgba(0,0,0,0.2)` }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: accent, display: 'inline-block', boxShadow: `0 0 10px ${accent}`, animation: 'glowRingPulse 1.6s ease-in-out infinite' }} />
-            {mode === 'study' ? `${meta.emoji} ${occupants.length} Studying` : `${meta.emoji} Viewing`}
+            {mode === 'study' ? `${occupants.length} Studying` : 'Viewing'}
           </div>
 
           {/* Lock button — only shown in fullscreen */}
@@ -528,98 +528,219 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent, isPaused,
 // ─── Scene Picker ─────────────────────────────────────────────────────────────
 type RoomMode = 'view' | 'study';
 
+// Map scene IDs to lucide icons
+const SCENE_ICONS: Record<SceneId, React.ReactNode> = {
+  classroom: <GraduationCap size={18} strokeWidth={1.8} />,
+  cafe:      <Coffee size={18} strokeWidth={1.8} />,
+  library:   <BookOpen size={18} strokeWidth={1.8} />,
+};
+
 const ScenePicker = ({ onPick }: { onPick: (s: SceneId, mode: RoomMode) => void }) => {
   const { isDark } = useTheme();
   const [expanded, setExpanded] = useState<SceneId | null>(null);
+  const [interested, setInterested] = useState<boolean | null>(null);
+
+  const base = isDark
+    ? { card: 'rgba(15,23,42,0.85)', cardBorder: 'rgba(255,255,255,0.07)', text: '#f1f5f9', sub: '#94a3b8' }
+    : { card: 'rgba(255,255,255,0.9)',  cardBorder: 'rgba(0,0,0,0.08)',       text: '#0f172a', sub: '#64748b' };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 28, padding: '36px 20px', height: '100%', overflowY: 'auto' }} className="custom-scrollbar">
-      <div style={{ textAlign: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 6 }}>
-          <Crown size={16} style={{ color: '#f59e0b' }} />
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#f59e0b', letterSpacing: 2, textTransform: 'uppercase' }}>Premium 3D Experience</span>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 32, padding: '40px 24px 48px', height: '100%', overflowY: 'auto' }} className="custom-scrollbar">
+
+      {/* Page header */}
+      <div style={{ textAlign: 'center', maxWidth: 420 }}>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 20, background: 'rgba(109,40,217,0.12)', border: '1px solid rgba(167,139,250,0.25)', marginBottom: 14 }}>
+          <SparklesIcon size={11} color="#a78bfa" strokeWidth={2} />
+          <span style={{ fontSize: 10, fontWeight: 800, color: '#a78bfa', letterSpacing: 2, textTransform: 'uppercase' }}>Focus Rooms</span>
         </div>
-        <h2 style={{ fontSize: 26, fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>Focus Rooms</h2>
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 5 }}>Immersive 3D environments for deep work.</p>
+        <h2 style={{ fontSize: 28, fontWeight: 800, margin: '0 0 8px', color: base.text, lineHeight: 1.2 }}>Pick your space</h2>
+        <p style={{ fontSize: 13, color: base.sub, margin: 0, lineHeight: 1.6 }}>Immersive 3D environments built for deep work. Study alongside NPCs — always free.</p>
       </div>
 
-      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 800 }}>
+      {/* Scene cards */}
+      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 760 }}>
         {(Object.entries(SCENE_META) as [SceneId, typeof SCENE_META[SceneId]][]).map(([id, m]) => {
           const isOpen = expanded === id;
           return (
             <div key={id} style={{
-              width: 220,
-              background: isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)',
-              border: isOpen ? `1px solid ${m.accent}80` : '1px solid var(--border-card)',
-              borderRadius: 20, overflow: 'hidden',
-              backdropFilter: 'blur(12px)',
+              width: 220, borderRadius: 20, overflow: 'hidden',
+              background: base.card,
+              border: isOpen ? `1px solid ${m.accent}70` : `1px solid ${base.cardBorder}`,
+              backdropFilter: 'blur(14px)',
               boxShadow: isOpen
-                ? `0 24px 48px rgba(0,0,0,0.4), 0 0 0 2px ${m.accent}40`
-                : 'var(--shadow-card)',
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              transform: isOpen ? 'translateY(-4px)' : 'translateY(0)',
+                ? `0 20px 48px rgba(0,0,0,0.3), 0 0 0 2px ${m.accent}30`
+                : isDark ? '0 4px 20px rgba(0,0,0,0.3)' : '0 4px 20px rgba(0,0,0,0.08)',
+              transition: 'all 0.28s cubic-bezier(0.4, 0, 0.2, 1)',
+              transform: isOpen ? 'translateY(-6px)' : 'translateY(0)',
             }}>
-              {/* Card image + info — click to expand */}
+              {/* Thumbnail */}
               <button
                 onClick={() => setExpanded(isOpen ? null : id)}
-                style={{
-                  width: '100%', padding: 0, background: 'none', border: 'none',
-                  cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'stretch',
-                }}
+                style={{ width: '100%', padding: 0, background: 'none', border: 'none', cursor: 'pointer', display: 'block', textAlign: 'left' }}
               >
-                <div style={{ width: '100%', height: 140, backgroundImage: `url('${SCENE_PREVIEWS[id]}')`, backgroundSize: 'cover', backgroundPosition: 'center', borderBottom: '1px solid var(--border-card)' }} />
-                <div style={{ padding: '14px 20px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span>{m.emoji}</span> {m.label}
+                <div style={{ width: '100%', height: 130, backgroundImage: `url('${SCENE_PREVIEWS[id]}')`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+
+                {/* Card body */}
+                <div style={{ padding: '14px 18px 12px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ color: m.accent }}>{SCENE_ICONS[id]}</span>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: base.text }}>{m.label}</span>
+                    </div>
+                    <ChevronDown
+                      size={14}
+                      color={base.sub}
+                      strokeWidth={2}
+                      style={{ transition: 'transform 0.25s', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}
+                    />
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 3 }}>{m.tagline}</div>
+                  <p style={{ margin: 0, fontSize: 11, color: base.sub, lineHeight: 1.5 }}>{m.tagline}</p>
                 </div>
               </button>
 
-              {/* Expanded action buttons */}
-              <div style={{
-                overflow: 'hidden',
-                maxHeight: isOpen ? 120 : 0,
-                transition: 'max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              }}>
-                <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {/* Expanded actions */}
+              <div style={{ overflow: 'hidden', maxHeight: isOpen ? 130 : 0, transition: 'max-height 0.28s cubic-bezier(0.4, 0, 0.2, 1)' }}>
+                <div style={{ padding: '0 14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {/* Divider */}
+                  <div style={{ height: 1, background: `${base.cardBorder}`, marginBottom: 2 }} />
+
                   {/* View Room */}
                   <button
                     onClick={() => onPick(id, 'view')}
                     style={{
-                      width: '100%', padding: '9px 0', borderRadius: 12,
-                      background: 'rgba(255,255,255,0.07)',
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      color: 'var(--text-primary)', fontSize: 12, fontWeight: 700,
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      transition: 'background 0.15s',
+                      width: '100%', padding: '9px 12px', borderRadius: 10,
+                      background: 'transparent',
+                      border: `1px solid ${base.cardBorder}`,
+                      color: base.sub, fontSize: 12, fontWeight: 600,
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
+                      transition: 'all 0.15s',
                     }}
-                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.13)'; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.07)'; }}
+                    onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; e.currentTarget.style.color = base.text; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = base.sub; }}
                   >
-                    👁 View Room
+                    <Eye size={13} strokeWidth={2} /> View Room
                   </button>
+
                   {/* Join Study Group */}
                   <button
                     onClick={() => onPick(id, 'study')}
                     style={{
-                      width: '100%', padding: '9px 0', borderRadius: 12,
-                      background: m.accent, border: 'none',
+                      width: '100%', padding: '9px 12px', borderRadius: 10,
+                      background: m.accent,
+                      border: 'none',
                       color: '#000', fontSize: 12, fontWeight: 800,
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                      boxShadow: `0 4px 14px ${m.accent}55`,
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
+                      boxShadow: `0 4px 14px ${m.accent}44`,
                       transition: 'opacity 0.15s',
                     }}
-                    onMouseEnter={e => { e.currentTarget.style.opacity = '0.88'; }}
+                    onMouseEnter={e => { e.currentTarget.style.opacity = '0.85'; }}
                     onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
                   >
-                    🎯 Join Study Group
+                    <Users size={13} strokeWidth={2.5} /> Join Study Group
                   </button>
                 </div>
               </div>
             </div>
           );
         })}
+      </div>
+
+      {/* Upcoming paid feature teaser */}
+      <div style={{
+        maxWidth: 480, width: '100%',
+        borderRadius: 20,
+        background: isDark ? 'rgba(15,23,42,0.75)' : 'rgba(255,255,255,0.8)',
+        border: '1px solid rgba(167,139,250,0.25)',
+        backdropFilter: 'blur(14px)',
+        overflow: 'hidden',
+        boxShadow: isDark ? '0 8px 32px rgba(0,0,0,0.3)' : '0 8px 32px rgba(0,0,0,0.1)',
+      }}>
+        {/* Header */}
+        <div style={{
+          background: 'linear-gradient(135deg, #4c1d95 0%, #7c3aed 60%, #a78bfa 100%)',
+          padding: '16px 24px',
+          display: 'flex', alignItems: 'center', gap: 14,
+        }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 10,
+            background: 'rgba(255,255,255,0.15)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <Zap size={18} color="#fff" strokeWidth={2} />
+          </div>
+          <div>
+            <div style={{ color: '#fff', fontSize: 14, fontWeight: 800, letterSpacing: 0.2 }}>Study with real friends</div>
+            <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 11, marginTop: 2, fontWeight: 500 }}>Live multiplayer rooms · Coming soon</div>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '20px 24px 22px' }}>
+          <p style={{ margin: '0 0 18px', fontSize: 13, color: base.sub, lineHeight: 1.65 }}>
+            We're building real-time rooms where you can invite your actual friends, see them as characters, and study together — same vibe, real accountability.
+          </p>
+
+          {interested === null ? (
+            <div>
+              <p style={{ margin: '0 0 12px', fontSize: 12, fontWeight: 700, color: base.text }}>Would you use this?</p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => setInterested(true)}
+                  style={{
+                    flex: 1, padding: '10px 0', borderRadius: 10,
+                    background: 'linear-gradient(135deg, #6d28d9, #8b5cf6)',
+                    border: 'none', color: '#fff', fontSize: 12, fontWeight: 800,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(109,40,217,0.35)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                    transition: 'opacity 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.opacity = '0.85'; }}
+                  onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+                >
+                  <Users size={13} strokeWidth={2.5} /> Yes, I'm interested
+                </button>
+                <button
+                  onClick={() => setInterested(false)}
+                  style={{
+                    flex: 1, padding: '10px 0', borderRadius: 10,
+                    background: 'transparent',
+                    border: `1px solid ${base.cardBorder}`,
+                    color: base.sub, fontSize: 12, fontWeight: 600,
+                    cursor: 'pointer', transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  Not for me
+                </button>
+              </div>
+            </div>
+          ) : interested ? (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '13px 16px', borderRadius: 12,
+              background: 'rgba(109,40,217,0.1)', border: '1px solid rgba(167,139,250,0.25)',
+            }}>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(109,40,217,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Zap size={15} color="#a78bfa" strokeWidth={2} />
+              </div>
+              <div>
+                <div style={{ color: '#a78bfa', fontSize: 13, fontWeight: 800 }}>Thanks for the signal</div>
+                <div style={{ color: base.sub, fontSize: 11, marginTop: 2 }}>We'll prioritise this — stay tuned for updates.</div>
+              </div>
+            </div>
+          ) : (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '13px 16px', borderRadius: 12,
+              background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+              border: `1px solid ${base.cardBorder}`,
+            }}>
+              <div style={{ color: base.sub, fontSize: 12 }}>Got it — we'll keep building what matters to you.</div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

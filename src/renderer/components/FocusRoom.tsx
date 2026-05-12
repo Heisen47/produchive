@@ -5,30 +5,22 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Environment, ContactShadows } from '@react-three/drei';
 import { SceneId, Occupant, SCENE_META, fmtHMS, GhibliMaterial, NPC_NAMES } from './focus-room/Shared3D';
 import { ClassroomEnv } from './focus-room/ClassroomEnv';
-import { TrainEnv } from './focus-room/TrainEnv';
 import { CafeEnv } from './focus-room/CafeEnv';
 import { LibraryEnv } from './focus-room/LibraryEnv';
 
 const Scene3D = ({ occupants, scene, accent }: { occupants: Occupant[], scene: SceneId, accent: string }) => {
-  const fogColor = scene === 'classroom' ? '#14b8a6' : scene === 'train' ? '#1e1b4b' : scene === 'library' ? '#e8c99a' : '#451a03';
-  const floorColor = scene === 'classroom' ? '#0f766e' : scene === 'train' ? '#2e1065' : scene === 'library' ? '#c8956c' : '#291811';
+  const fogColor = scene === 'classroom' ? '#14b8a6' : scene === 'library' ? '#e8c99a' : '#451a03';
+  const floorColor = scene === 'classroom' ? '#0f766e' : scene === 'library' ? '#c8956c' : '#291811';
 
   let minAz = 0;
   let maxAz = 0;
   if (scene === 'classroom') {
-    // Open towards -X, +Z
     minAz = -Math.PI / 2 + 0.1;
     maxAz = -0.1;
   } else if (scene === 'cafe') {
-    // Open towards +X, +Z
     minAz = 0.1;
     maxAz = Math.PI / 2 - 0.1;
-  } else if (scene === 'train') {
-    // Tube along Z. Open towards +Z.
-    minAz = -Math.PI / 6;
-    maxAz = Math.PI / 6;
   } else if (scene === 'library') {
-    // Corner room, open towards +X, +Z
     minAz = 0.1;
     maxAz = Math.PI / 2 - 0.1;
   }
@@ -48,7 +40,6 @@ const Scene3D = ({ occupants, scene, accent }: { occupants: Occupant[], scene: S
       <ContactShadows position={[0, 0.02, 0]} opacity={0.8} scale={50} blur={2.5} far={4} color="#000" />
 
       {scene === 'classroom' && <ClassroomEnv occupants={occupants} accent={accent} />}
-      {scene === 'train' && <TrainEnv occupants={occupants} accent={accent} />}
       {scene === 'cafe' && <CafeEnv occupants={occupants} accent={accent} />}
       {scene === 'library' && <LibraryEnv occupants={occupants} accent={accent} />}
 
@@ -94,8 +85,8 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent }: {
       <div style={{
         position: 'absolute', top: 20, left: '50%', transform: 'translateX(-50%)',
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-        background: scene === 'classroom' ? '#064e3b' : scene === 'train' ? '#1e1b4b' : '#451a03',
-        border: `3px solid ${scene === 'classroom' ? '#78350f' : scene === 'train' ? '#0f172a' : '#291811'}`,
+        background: scene === 'classroom' ? '#064e3b' : scene === 'library' ? '#78350f' : '#451a03',
+        border: `3px solid ${scene === 'classroom' ? '#78350f' : scene === 'library' ? '#451a03' : '#291811'}`,
         borderRadius: 8, padding: '8px 32px',
         boxShadow: `0 8px 24px rgba(0,0,0,0.5), inset 0 0 10px rgba(0,0,0,0.4)`,
         zIndex: 5, pointerEvents: 'none'

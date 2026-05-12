@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle, AlertTriangle, Clock, BookOpen } from 'lucide-react';
 import Lottie from 'lottie-react';
 import { useStore } from '../lib/store';
 import { HistoricalReports } from './HistoricalReports';
@@ -30,6 +30,15 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
     const [analysis, setAnalysis] = useState<ProductivityAnalysis | null>(null);
     const [error, setError] = useState<string | null>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const [focusSessions, setFocusSessions] = useState<any[]>([]);
+
+    // Load focus sessions on mount
+    useEffect(() => {
+        const api = (window as any).electronAPI;
+        if (api?.getFocusSessions) {
+            api.getFocusSessions().then((s: any[]) => setFocusSessions(s)).catch(() => {});
+        }
+    }, []);
 
     const formatDuration = (ms: number) => {
         const seconds = Math.floor(ms / 1000);
@@ -95,6 +104,29 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
 
             const goalsText = goals.map((g, i) => `Goal ${i + 1}: "${g}"`).join('\n');
 
+            // Build focus session summary for the AI (aggregated by day)
+            let focusSessionText = '';
+            if (focusSessions.length > 0) {
+                const totalFocusSec = focusSessions.reduce((sum: number, s: any) => sum + (s.durationSeconds || 0), 0);
+                const sceneLabel: Record<string, string> = { classroom: 'Classroom', cafe: 'Café', library: 'Library' };
+                const byDay: Record<string, { totalSec: number; rooms: Record<string, number> }> = {};
+                focusSessions.forEach((s: any) => {
+                    const d = new Date(s.startedAt);
+                    const key = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                    if (!byDay[key]) byDay[key] = { totalSec: 0, rooms: {} };
+                    byDay[key].totalSec += s.durationSeconds || 0;
+                    byDay[key].rooms[s.scene] = (byDay[key].rooms[s.scene] || 0) + 1;
+                });
+                const dayLines = Object.entries(byDay).slice(0, 10).map(([date, day]) => {
+                    const dur = formatDuration(day.totalSec * 1000);
+                    const rooms = Object.entries(day.rooms).map(([scene, count]) =>
+                        `${sceneLabel[scene] || scene}${count > 1 ? ` (×${count})` : ''}`
+                    ).join(', ');
+                    return `- ${date}: ${rooms} — ${dur}`;
+                }).join('\n');
+                focusSessionText = `\n\nFocus Room Study Sessions (Total: ${formatDuration(totalFocusSec * 1000)}):\n${dayLines}`;
+            }
+
             console.log('[ProductivityJudge] Sending to LLM:');
             console.log('  Goals:', goalsText);
             console.log('  Activity Summary:', activitySummary);
@@ -141,7 +173,7 @@ Output format:
 
 Student input:
 Goal: \n${goalsText}\n\n
-Activity: \n${activitySummary}\n\n`
+Activity: \n${activitySummary}\n\n${focusSessionText ? `Focus Study Sessions: \n${focusSessionText}\n\n` : ''}`
 
             const isTechRole = selectedRole?.toLowerCase().includes('engineer') || selectedRole?.toLowerCase().includes('computer');
             
@@ -420,6 +452,61 @@ Activity: \n${activitySummary}\n\n`
                     </p>
                 </div>
             )}
+
+            {/* Focus Sessions Summary (grouped by day) */}
+            {focusSessions.length > 0 && (() => {
+                const sceneLabel: Record<string, string> = { classroom: 'Classroom', cafe: 'Café', library: 'Library' };
+                const sceneColors: Record<string, string> = { classroom: '#4ade80', cafe: '#f59e0b', library: '#a78bfa' };
+                const byDay: Record<string, { totalSec: number; rooms: Record<string, number>; date: string }> = {};
+                focusSessions.forEach((s: any) => {
+                    const d = new Date(s.startedAt);
+                    const key = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    if (!byDay[key]) byDay[key] = { totalSec: 0, rooms: {}, date: key };
+                    byDay[key].totalSec += s.durationSeconds || 0;
+                    byDay[key].rooms[s.scene] = (byDay[key].rooms[s.scene] || 0) + 1;
+                });
+                const days = Object.values(byDay).slice(0, 10);
+                const totalSec = focusSessions.reduce((sum: number, s: any) => sum + (s.durationSeconds || 0), 0);
+
+                return (
+                    <div className="glass-card rounded-2xl overflow-hidden">
+                        <div className="p-4 flex items-center gap-3" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
+                            <div className="p-2 rounded-xl" style={{ background: 'rgba(167,139,250,0.12)' }}>
+                                <BookOpen size={16} color="#a78bfa" />
+                            </div>
+                            <div>
+                                <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Focus Room Sessions</h4>
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                    {focusSessions.length} session{focusSessions.length !== 1 ? 's' : ''} · {formatDuration(totalSec * 1000)} total
+                                </p>
+                            </div>
+                        </div>
+                        <div style={{ maxHeight: 200, overflowY: 'auto' }} className="custom-scrollbar">
+                            {days.map((day, i) => {
+                                const roomEntries = Object.entries(day.rooms);
+                                return (
+                                    <div key={day.date} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-white/5" style={{ borderBottom: i < days.length - 1 ? '1px solid var(--border-secondary)' : 'none' }}>
+                                        <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)', minWidth: 85, whiteSpace: 'nowrap' }}>{day.date}</span>
+                                        <div className="flex-1 flex gap-1.5 flex-wrap">
+                                            {roomEntries.map(([scene, count]) => {
+                                                const color = sceneColors[scene] || '#a78bfa';
+                                                return (
+                                                    <span key={scene} className="text-xs font-semibold px-2 py-0.5 rounded-md" style={{ color, background: `${color}15` }}>
+                                                        {sceneLabel[scene] || scene}{count > 1 ? ` (×${count})` : ''}
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
+                                        <span className="text-xs font-bold px-2 py-0.5 rounded-md" style={{ color: '#a78bfa', background: 'rgba(167,139,250,0.12)' }}>
+                                            {formatDuration(day.totalSec * 1000)}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* Heatmap Section */}
             <ActivityHeatmap />

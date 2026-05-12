@@ -669,77 +669,96 @@ const ScenePicker = ({ onPick, onNavigate }: { onPick: (s: SceneId, mode: RoomMo
         })}
       </div>
 
-      {/* ── Past Sessions ─────────────────────────────────── */}
-      {pastSessions.length > 0 && (
-        <div style={{
-          maxWidth: 760, width: '100%',
-          borderRadius: 20,
-          background: isDark ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.7)',
-          border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
-          backdropFilter: 'blur(16px)',
-          overflow: 'hidden',
-          boxShadow: isDark ? '0 8px 32px rgba(0,0,0,0.25)' : '0 8px 32px rgba(0,0,0,0.06)',
-        }}>
-          {/* Header bar */}
-          <div style={{
-            padding: '14px 20px',
-            borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
-            display: 'flex', alignItems: 'center', gap: 10,
-          }}>
-            <div style={{
-              width: 28, height: 28, borderRadius: 8,
-              background: isDark ? 'rgba(167,139,250,0.15)' : 'rgba(167,139,250,0.12)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <BookOpen size={14} color="#a78bfa" strokeWidth={2.2} />
-            </div>
-            <span style={{ fontSize: 13, fontWeight: 700, color: base.text, letterSpacing: 0.2 }}>Recent Sessions</span>
-            <span style={{ fontSize: 11, color: base.sub, marginLeft: 'auto', fontWeight: 600 }}>{pastSessions.length} total</span>
-          </div>
+      {/* ── Past Sessions (grouped by day) ──────────────── */}
+      {pastSessions.length > 0 && (() => {
+        // Group sessions by date string (e.g. "May 12, 2026")
+        const byDay: Record<string, { totalSec: number; rooms: Record<string, number>; date: string }> = {};
+        pastSessions.forEach((s: any) => {
+          const d = new Date(s.startedAt);
+          const key = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          if (!byDay[key]) byDay[key] = { totalSec: 0, rooms: {}, date: key };
+          byDay[key].totalSec += s.durationSeconds || 0;
+          byDay[key].rooms[s.scene] = (byDay[key].rooms[s.scene] || 0) + 1;
+        });
+        const days = Object.values(byDay).slice(0, 10);
+        const fmtDur = (sec: number) => {
+          const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+          return h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`;
+        };
 
-          {/* Session rows */}
-          <div style={{ padding: '6px 0' }}>
-            {pastSessions.slice(0, 8).map((s, i) => {
-              const h = Math.floor(s.durationSeconds / 3600);
-              const m = Math.floor((s.durationSeconds % 3600) / 60);
-              const sec = s.durationSeconds % 60;
-              const dur = h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${sec}s` : `${sec}s`;
-              const sceneAccent = SCENE_META[s.scene as SceneId]?.accent ?? '#a78bfa';
-              return (
-                <div key={s.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '10px 20px',
-                  borderBottom: i < Math.min(pastSessions.length, 8) - 1 ? `1px solid ${isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}` : 'none',
-                  transition: 'background 0.15s',
-                }}
-                  onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
-                >
-                  {/* Scene indicator dot */}
-                  <div style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: sceneAccent,
-                    boxShadow: `0 0 8px ${sceneAccent}60`,
-                    flexShrink: 0,
-                  }} />
-                  {/* Scene + time */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: base.text }}>{SCENE_LABEL[s.scene] ?? s.scene}</span>
+        return (
+          <div style={{
+            maxWidth: 760, width: '100%',
+            borderRadius: 20,
+            background: isDark ? 'rgba(15,23,42,0.6)' : 'rgba(255,255,255,0.7)',
+            border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+            backdropFilter: 'blur(16px)',
+            overflow: 'hidden',
+            boxShadow: isDark ? '0 8px 32px rgba(0,0,0,0.25)' : '0 8px 32px rgba(0,0,0,0.06)',
+          }}>
+            {/* Header bar */}
+            <div style={{
+              padding: '14px 20px',
+              borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: 8,
+                background: isDark ? 'rgba(167,139,250,0.15)' : 'rgba(167,139,250,0.12)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <BookOpen size={14} color="#a78bfa" strokeWidth={2.2} />
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 700, color: base.text, letterSpacing: 0.2 }}>Recent Sessions</span>
+              <span style={{ fontSize: 11, color: base.sub, marginLeft: 'auto', fontWeight: 600 }}>{pastSessions.length} session{pastSessions.length !== 1 ? 's' : ''}</span>
+            </div>
+
+            {/* Day rows — scrollable */}
+            <div style={{ padding: '6px 0', maxHeight: 320, overflowY: 'auto' }} className="custom-scrollbar">
+              {days.map((day, i) => {
+                const roomEntries = Object.entries(day.rooms);
+                const roomTags = roomEntries.map(([scene, count]) => ({
+                  label: SCENE_LABEL[scene] ?? scene,
+                  accent: SCENE_META[scene as SceneId]?.accent ?? '#a78bfa',
+                  count,
+                }));
+                return (
+                  <div key={day.date} style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '12px 20px',
+                    borderBottom: i < days.length - 1 ? `1px solid ${isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}` : 'none',
+                    transition: 'background 0.15s',
+                  }}
+                    onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    {/* Date */}
+                    <span style={{ fontSize: 12, fontWeight: 600, color: base.sub, minWidth: 90, whiteSpace: 'nowrap' }}>{day.date}</span>
+                    {/* Room tags */}
+                    <div style={{ flex: 1, display: 'flex', gap: 6, flexWrap: 'wrap', minWidth: 0 }}>
+                      {roomTags.map(r => (
+                        <span key={r.label} style={{
+                          fontSize: 11, fontWeight: 600, color: r.accent,
+                          background: `${r.accent}12`, padding: '2px 8px', borderRadius: 6,
+                          whiteSpace: 'nowrap',
+                        }}>
+                          {r.label}{r.count > 1 ? ` (×${r.count})` : ''}
+                        </span>
+                      ))}
+                    </div>
+                    {/* Total duration */}
+                    <div style={{
+                      fontSize: 12, fontWeight: 700, color: '#a78bfa',
+                      background: 'rgba(167,139,250,0.12)', padding: '3px 10px', borderRadius: 8,
+                      whiteSpace: 'nowrap', minWidth: 52, textAlign: 'center',
+                    }}>{fmtDur(day.totalSec)}</div>
                   </div>
-                  {/* Date */}
-                  <span style={{ fontSize: 11, color: base.sub, fontWeight: 500, whiteSpace: 'nowrap' }}>{s.startedAtReadable}</span>
-                  {/* Duration pill */}
-                  <div style={{
-                    fontSize: 12, fontWeight: 700, color: sceneAccent,
-                    background: `${sceneAccent}12`, padding: '3px 10px', borderRadius: 8,
-                    whiteSpace: 'nowrap', minWidth: 48, textAlign: 'center',
-                  }}>{dur}</div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       <div style={{
         maxWidth: 480, width: '100%',
         borderRadius: 20,

@@ -1,9 +1,9 @@
 const { MakerSquirrel } = require('@electron-forge/maker-squirrel');
-const { MakerMSIX } = require('@electron-forge/maker-msix');
+// const { MakerMSIX } = require('@electron-forge/maker-msix');
 const { MakerZIP } = require('@electron-forge/maker-zip');
 const { MakerDeb } = require('@electron-forge/maker-deb');
 const { MakerRpm } = require('@electron-forge/maker-rpm');
-
+const { MakerDMG } = require('@electron-forge/maker-dmg');
 const { VitePlugin } = require('@electron-forge/plugin-vite');
 const { AutoUnpackNativesPlugin } = require('@electron-forge/plugin-auto-unpack-natives');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
@@ -158,15 +158,19 @@ const config = {
         //   3. Replace the two placeholder values below with your real Partner Center values
         //   4. Remove the windowsSignOptions block (Microsoft re-signs the package for free)
         //   5. Run: npm run make -- --targets @electron-forge/maker-msix
-        new MakerMSIX({
-            manifestVariables: {
-                identityName: 'PLACEHOLDER.Produchive', // ← replace with Partner Center Identity Name
-                publisher: 'CN=Rishi',                  // ← replace with Partner Center Publisher CN
-                publisherDisplayName: 'Rishi',
-            },
-            // electron-windows-msix fails to read windowsSignOptions from the Forge config directly
-            // due to a bug, so we pass sign: true and use environment variables instead.
-            sign: !process.env.CI,
+        // new MakerMSIX({
+        //     manifestVariables: {
+        //         identityName: 'PLACEHOLDER.Produchive', // ← replace with Partner Center Identity Name
+        //         publisher: 'CN=Rishi',                  // ← replace with Partner Center Publisher CN
+        //         publisherDisplayName: 'Rishi',
+        //     },
+        //     // electron-windows-msix fails to read windowsSignOptions from the Forge config directly
+        //     // due to a bug, so we pass sign: true and use environment variables instead.
+        //     sign: !process.env.CI,
+        // }),
+        new MakerDMG({
+            icon: './resources/icon.icns',
+            name: 'Produchive'
         }),
         new MakerZIP({}, ['darwin', 'win32']),
         new MakerRpm({

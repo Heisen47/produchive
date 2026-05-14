@@ -1,9 +1,10 @@
-const { MakerSquirrel } = require('@electron-forge/maker-squirrel');
-// const { MakerMSIX } = require('@electron-forge/maker-msix');
 const { MakerZIP } = require('@electron-forge/maker-zip');
 const { MakerDeb } = require('@electron-forge/maker-deb');
 const { MakerRpm } = require('@electron-forge/maker-rpm');
-const { MakerDMG } = require('@electron-forge/maker-dmg');
+
+// Platform-specific makers — only load on the OS that can use them
+const MakerSquirrel = process.platform === 'win32' ? require('@electron-forge/maker-squirrel').MakerSquirrel : null;
+const MakerDMG = process.platform === 'darwin' ? require('@electron-forge/maker-dmg').MakerDMG : null;
 const { VitePlugin } = require('@electron-forge/plugin-vite');
 const { AutoUnpackNativesPlugin } = require('@electron-forge/plugin-auto-unpack-natives');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
@@ -147,10 +148,11 @@ const config = {
         },
     },
     makers: [
-        new MakerSquirrel({
+        // Windows — Squirrel .exe installer
+        MakerSquirrel ? new MakerSquirrel({
             setupIcon: './resources/icon.ico',
             iconUrl: 'https://raw.githubusercontent.com/Heisen47/produchive/main/resources/icon.ico'
-        }),
+        }) : null,
         // ─── Microsoft Store / MSIX ───────────────────────────────────────────
         // Before submitting to the Store:
         //   1. Create a free Microsoft Partner Center account at https://partner.microsoft.com
@@ -158,20 +160,11 @@ const config = {
         //   3. Replace the two placeholder values below with your real Partner Center values
         //   4. Remove the windowsSignOptions block (Microsoft re-signs the package for free)
         //   5. Run: npm run make -- --targets @electron-forge/maker-msix
-        // new MakerMSIX({
-        //     manifestVariables: {
-        //         identityName: 'PLACEHOLDER.Produchive', // ← replace with Partner Center Identity Name
-        //         publisher: 'CN=Rishi',                  // ← replace with Partner Center Publisher CN
-        //         publisherDisplayName: 'Rishi',
-        //     },
-        //     // electron-windows-msix fails to read windowsSignOptions from the Forge config directly
-        //     // due to a bug, so we pass sign: true and use environment variables instead.
-        //     sign: !process.env.CI,
-        // }),
-        new MakerDMG({
+        // macOS — DMG installer
+        MakerDMG ? new MakerDMG({
             icon: './resources/icon.icns',
             name: 'Produchive'
-        }),
+        }) : null,
         new MakerZIP({}, ['darwin', 'win32']),
         new MakerRpm({
             options: {
@@ -183,7 +176,7 @@ const config = {
                 icon: './resources/icon.png'
             }
         }),
-    ],
+    ].filter(Boolean),
     plugins: [
         new VitePlugin({
             build: [

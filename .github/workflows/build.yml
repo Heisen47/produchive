@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -41,7 +40,7 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      # Linux-specific dependencies for rpm/deb makers if needed.
+      # Linux-specific dependencies for rpm/deb makers if needed (usually handled by actions/setup-node or pre-installed, but harmless to add if specific libs are missing. For now standard ubuntu-latest is usually fine for basic Electron apps)
       - name: Install Linux Dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -51,39 +50,12 @@ jobs:
       - name: Build and Make
         run: npm run make
 
-      - name: Upload package artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-${{ matrix.os }}
-          path: out/make
-
-  publish:
-    name: Publish release
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: Download macOS artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: package-macos-latest
-          path: out/make
-
-      - name: Download Ubuntu artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: package-ubuntu-latest
-          path: out/make
-
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: package-windows-latest
-          path: out/make
-
       - name: Release
         uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
         with:
+          # Check the out directory for the artifacts. 
+          # Forge usually outputs to "out/make/..."
           files: |
             out/make/**/*.deb
             out/make/**/*.rpm
@@ -93,4 +65,3 @@ jobs:
             out/make/**/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

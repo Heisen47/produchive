@@ -62,6 +62,5 @@ jobs:
             out/make/**/*.zip
             out/make/**/*.nupkg
             out/make/**/*.dmg
-            out/make/**/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

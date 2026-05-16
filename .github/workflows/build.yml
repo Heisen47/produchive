@@ -55,10 +55,10 @@ jobs:
           Remove-Item $zipPath
           Write-Host "WiX extracted to $extractPath"
           # Verify binaries exist
-          if (Test-Path "$extractPath\candle.exe") {
-            Write-Host "✓ candle.exe found"
+          if (Test-Path (Join-Path $extractPath 'candle.exe')) {
+            Write-Host 'OK: candle.exe found'
           } else {
-            Write-Error "✗ candle.exe not found!"
+            Write-Error 'FAIL: candle.exe not found!'
           }
 
       - name: Build and Make

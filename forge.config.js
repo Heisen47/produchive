@@ -1,9 +1,12 @@
-const { MakerSquirrel } = require('@electron-forge/maker-squirrel');
+// Platform-specific makers: loaded conditionally so the config works on both macOS and Windows.
+// maker-dmg has native macOS deps that can't install on Windows, and vice versa.
+let MakerWix, MakerDMG;
+try { ({ MakerWix } = require('@electron-forge/maker-wix')); } catch {}
+try { ({ MakerDMG } = require('@electron-forge/maker-dmg')); } catch {}
 // const { MakerMSIX } = require('@electron-forge/maker-msix');
 const { MakerZIP } = require('@electron-forge/maker-zip');
 const { MakerDeb } = require('@electron-forge/maker-deb');
 const { MakerRpm } = require('@electron-forge/maker-rpm');
-const { MakerDMG } = require('@electron-forge/maker-dmg');
 const { VitePlugin } = require('@electron-forge/plugin-vite');
 const { AutoUnpackNativesPlugin } = require('@electron-forge/plugin-auto-unpack-natives');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
@@ -11,6 +14,12 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
+
+// Add local WiX binaries to PATH (downloaded to .wix/ for non-admin installs)
+const localWixPath = path.join(__dirname, '.wix');
+if (fs.existsSync(localWixPath)) {
+    process.env.PATH = `${localWixPath};${process.env.PATH}`;
+}
 
 const config = {
     packagerConfig: {
@@ -147,10 +156,14 @@ const config = {
         },
     },
     makers: [
-        new MakerSquirrel({
-            setupIcon: './resources/icon.ico',
-            iconUrl: 'https://raw.githubusercontent.com/Heisen47/produchive/main/resources/icon.ico'
-        }),
+        // ─── Windows: WiX MSI (.exe) ── traditional installer with directory picker
+        ...(MakerWix ? [new MakerWix({
+            icon: './resources/icon.ico',
+            manufacturer: 'Rishi',
+            ui: {
+                chooseDirectory: true,
+            },
+        })] : []),
         // ─── Microsoft Store / MSIX ───────────────────────────────────────────
         // Before submitting to the Store:
         //   1. Create a free Microsoft Partner Center account at https://partner.microsoft.com
@@ -168,10 +181,12 @@ const config = {
         //     // due to a bug, so we pass sign: true and use environment variables instead.
         //     sign: !process.env.CI,
         // }),
-        new MakerDMG({
+        // ─── macOS: DMG (.dmg) ────────────────────────────────────────────────
+        ...(MakerDMG ? [new MakerDMG({
             icon: './resources/icon.icns',
             name: 'Produchive'
-        }),
+        })] : []),
+        // ─── Cross-platform ───────────────────────────────────────────────────
         new MakerZIP({}, ['darwin', 'win32']),
         new MakerRpm({
             options: {

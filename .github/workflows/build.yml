@@ -13,8 +13,9 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [macos-latest, windows-latest]
 
     steps:
       - name: Check out Git repository
@@ -40,27 +41,36 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      # Linux-specific dependencies for rpm/deb makers if needed (usually handled by actions/setup-node or pre-installed, but harmless to add if specific libs are missing. For now standard ubuntu-latest is usually fine for basic Electron apps)
-      - name: Install Linux Dependencies
-        if: matrix.os == 'ubuntu-latest'
+      # ─── Windows: install WiX Toolset v3 for MSI builder ─────────────────
+      - name: Install WiX Toolset
+        if: runner.os == 'Windows'
+        shell: powershell
         run: |
-          sudo apt-get update
-          sudo apt-get install -y rpm
+          $wixUrl = 'https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip'
+          $zipPath = Join-Path $env:TEMP 'wix314-binaries.zip'
+          $extractPath = Join-Path $env:GITHUB_WORKSPACE '.wix'
+          Invoke-WebRequest -Uri $wixUrl -OutFile $zipPath -UseBasicParsing
+          New-Item -ItemType Directory -Path $extractPath -Force | Out-Null
+          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+          Remove-Item $zipPath
+          Write-Host "WiX extracted to $extractPath"
+          # Verify binaries exist
+          if (Test-Path "$extractPath\candle.exe") {
+            Write-Host "✓ candle.exe found"
+          } else {
+            Write-Error "✗ candle.exe not found!"
+          }
 
       - name: Build and Make
         run: npm run make
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          # Check the out directory for the artifacts. 
-          # Forge usually outputs to "out/make/..."
           files: |
-            out/make/**/*.deb
-            out/make/**/*.rpm
-            out/make/**/*.zip
-            out/make/**/*.nupkg
+            out/make/**/*.msi
             out/make/**/*.dmg
+            out/make/**/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

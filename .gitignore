@@ -96,3 +96,6 @@ out/
 
 # MSIX dev signing cert (auto-generated, machine-specific)
 dev-cert.pfx
+
+# WiX Toolset binaries (local install)
+.wix/

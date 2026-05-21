@@ -99,3 +99,6 @@ dev-cert.pfx
 
 # WiX Toolset binaries (local install)
 .wix/
+
+# Firebase Data Connect
+.dataconnect/

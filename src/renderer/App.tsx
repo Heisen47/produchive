@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { StudyRooms } from './components/StudyRooms';
 import { FocusRoom } from './components/FocusRoom';
+import { PremiumPaywall } from './components/PremiumPaywall';
 import { GoalSetter } from './components/GoalSetter';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { ProductivityJudge } from './components/ProductivityJudge';
@@ -22,21 +24,22 @@ import {
     BarChart3,
     Activity,
     Brain,
-    Users2
+    Users2,
+    Coffee
 } from 'lucide-react';
 import { Footer } from './components/Footer';
 import { DownloadProgress } from './components/DownloadProgress';
 import { UpdateBanner } from './components/UpdateBanner';
+import { PeekabooCat } from './components/PeekabooCat';
+import { ModelManager } from './components/ModelManager';
 
 const viewIcons: Record<string, React.ComponentType<any>> = {
     dashboard: LayoutDashboard,
     analytics: BarChart3,
     monitor: Activity,
     ai: Brain,
-    focusroom: Users2,
+    focusroom: Coffee,
 };
-import { PeekabooCat } from './components/PeekabooCat';
-import { ModelManager } from './components/ModelManager';
 
 
 const viewLabels: Record<string, string> = {
@@ -48,7 +51,7 @@ const viewLabels: Record<string, string> = {
 };
 
 const AppContent = () => {
-    const { addActivity, goals, setError, error, selectedModelId } = useStore();
+    const { addActivity, goals, setError, error, selectedModelId, isPremium } = useStore();
     const { isDark } = useTheme();
     const [currentView, setCurrentView] = useState('dashboard');
     const [isSidebarOpen, setSidebarOpen] = useState(false);
@@ -322,7 +325,7 @@ const AppContent = () => {
                                 </div>
                             )}
 
-                            {currentView === 'focusroom' && <FocusRoom onNavigate={handleViewChange} />}
+                            {currentView === 'focusroom' && <StudyRooms onNavigate={handleViewChange} />}
                         </div>
 
                         <div className="space-y-6 pt-8" style={{ borderTop: '1px solid var(--border-secondary)' }}>

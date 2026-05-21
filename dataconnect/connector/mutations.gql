@@ -1,0 +1,53 @@
+# Create a new room
+mutation CreateRoom($name: String!, $environment: String = "classroom", $maxLimit: Int = 5) @auth(level: USER) {
+  room_insert(data: {
+    name: $name,
+    environment: $environment,
+    maxLimit: $maxLimit,
+    host: { uid_expr: "auth.uid" }
+  })
+}
+
+# Join a room
+mutation JoinRoom($roomId: UUID!) @auth(level: USER) @transaction {
+  # Step 1: Check if room exists and has space
+  query @redact {
+    room(id: $roomId) {
+      maxLimit
+      participants: roomParticipants_on_room {
+        user { uid }
+      }
+    }
+  }
+  
+  # Step 2: Add user to room
+  roomParticipant_upsert(data: {
+    room: { id: $roomId },
+    user: { uid_expr: "auth.uid" },
+    activeDurationSeconds: 0,
+    joinedAt_expr: "request.time"
+  })
+}
+
+# Update active duration
+mutation UpdateActiveDuration($roomId: UUID!, $duration: Int!) @auth(level: USER) {
+  roomParticipant_update(
+    first: { where: {
+      room: { id: { eq: $roomId } },
+      user: { uid: { eq_expr: "auth.uid" } }
+    }},
+    data: {
+      activeDurationSeconds: $duration
+    }
+  )
+}
+
+# Leave room
+mutation LeaveRoom($roomId: UUID!) @auth(level: USER) {
+  roomParticipant_delete(
+    first: { where: {
+      room: { id: { eq: $roomId } },
+      user: { uid: { eq_expr: "auth.uid" } }
+    }}
+  )
+}

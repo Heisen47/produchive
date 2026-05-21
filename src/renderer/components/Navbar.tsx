@@ -3,6 +3,7 @@ import {
     LayoutDashboard,
     Activity as ActivityIcon,
     Target,
+    Coffee,
     Menu,
     X,
     Sun,
@@ -148,10 +149,10 @@ export const Navbar = ({
                     onClick={() => setCurrentView('ai')}
                     collapsed={!isSidebarOpen}
                 />
-                {/* Focus Rooms — premium */}
+                {/* Focus Rooms */}
                 <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-secondary)' }}>
                     <SidebarLink
-                        icon={Users2}
+                        icon={Coffee}
                         label="Focus Rooms ✦"
                         active={currentView === 'focusroom'}
                         onClick={() => setCurrentView('focusroom')}

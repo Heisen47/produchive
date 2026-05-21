@@ -11,6 +11,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Monitoring Control
   startMonitoring: () => ipcRenderer.invoke("start-monitoring"),
   stopMonitoring: () => ipcRenderer.invoke("stop-monitoring"),
+  getScreenPermission: () => ipcRenderer.invoke("get-screen-permission"),
+  openScreenPermissionSettings: () =>
+    ipcRenderer.invoke("open-screen-permission-settings"),
   onSystemEvent: (callback: (event: any) => void) =>
     ipcRenderer.on("system-event", (_event, value) => callback(value)),
 

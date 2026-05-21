@@ -53,6 +53,8 @@ declare global {
 
       stopMonitoring: () => Promise<void>;
       startMonitoring: () => Promise<boolean>;
+      getScreenPermission: () => Promise<string>;
+      openScreenPermissionSettings: () => Promise<void>;
       onSystemEvent: (callback: (event: any) => void) => void;
 
       // Blocking Control

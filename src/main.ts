@@ -604,15 +604,14 @@ const startMonitoring = async (): Promise<boolean> => {
         errorMessage.includes("active-win/main")); // Binary failed = likely permission issue
 
     if (isScreenRecordingError) {
-      dialog.showErrorBox(
-        "Screen Recording Permission Required",
-        "Produchive needs Screen Recording permission to monitor active windows.\n\n" +
-          "Please:\n" +
-          "1. Open System Settings → Privacy & Security → Screen Recording\n" +
-          "2. Enable the toggle for 'produchive'\n" +
-          "3. Quit and restart this app (Cmd+Q, then reopen)\n\n" +
-          "The permission won't take effect until you restart.",
-      );
+      // Let the in-app banner handle this gracefully
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("system-event", {
+          type: "SCREEN_PERMISSION_MISSING",
+          content: "Screen Recording permission is required to monitor active windows.",
+          timestamp: Date.now(),
+        });
+      }
     } else {
       // Show the actual error for debugging
       dialog.showErrorBox(
@@ -934,6 +933,21 @@ function registerIpcHandlers() {
 
   ipcMain.handle("stop-monitoring", () => {
     stopMonitoring();
+  });
+
+  // Screen recording permission check (macOS only)
+  ipcMain.handle("get-screen-permission", () => {
+    if (process.platform !== "darwin") return "granted";
+    return systemPreferences.getMediaAccessStatus("screen");
+  });
+
+  ipcMain.handle("open-screen-permission-settings", () => {
+    if (process.platform === "darwin") {
+      const { shell } = require("electron");
+      shell.openExternal(
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+      );
+    }
   });
 
   // Auto-launch (startup) handlers

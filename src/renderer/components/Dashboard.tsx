@@ -15,6 +15,7 @@ import { SootSpriteBg } from './SootSpriteBg';
 import { TotoroBusStopBg } from './TotoroBusStopBg';
 import { PeekabooCat } from './PeekabooCat';
 import { StreakCard } from './StreakCard';
+import { ScreenPermissionBanner } from './ScreenPermissionBanner';
 
 // Helper for formatting duration
 const formatDuration = (seconds: number) => {
@@ -225,6 +226,9 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     <StreakCard streak={userStats?.streak || 1} />
                 </div>
             </div>
+
+            {/* Screen Recording Permission Banner (macOS) */}
+            <ScreenPermissionBanner />
 
             {/* Metrics Grid */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

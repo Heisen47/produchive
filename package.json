@@ -51,9 +51,7 @@
     "vitest": "^4.1.0"
   },
   "dependencies": {
-    "@dataconnect/generated": "file:src/dataconnect-generated",
     "@mlc-ai/web-llm": "^0.2.80",
-    "@produchive/dataconnect": "file:src/dataconnect-generated",
     "@react-three/drei": "^10.0.0",
     "@react-three/fiber": "^9.0.0",
     "active-win": "^7.7.2",

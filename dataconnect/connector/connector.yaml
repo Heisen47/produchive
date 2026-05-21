@@ -1,5 +1,0 @@
-connectorId: "study-rooms"
-generate:
-  javascriptSdk:
-    outputDir: "../../src/dataconnect-generated"
-    package: "@produchive/dataconnect"

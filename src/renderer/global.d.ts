@@ -103,6 +103,13 @@ declare global {
       // Focus Room sessions
       saveFocusSession: (session: { scene: string; durationSeconds: number; startedAt: string }) => Promise<FocusSession>;
       getFocusSessions: () => Promise<FocusSession[]>;
+
+      // External URLs
+      openExternalUrl: (url: string) => Promise<void>;
+
+      // Deep linking authentication events
+      getPendingToken: () => Promise<string | null>;
+      onAuthToken: (callback: (token: string) => void) => void;
     };
   }
 }

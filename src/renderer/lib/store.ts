@@ -51,6 +51,10 @@ interface Store {
     // Global Error Handling
     error: string | null;
     setError: (error: string | null) => void;
+    
+    // Auth
+    user: any | null;
+    setUser: (user: any | null) => void;
 }
 
 export const useStore = create<Store>((set, get) => ({
@@ -74,6 +78,11 @@ export const useStore = create<Store>((set, get) => ({
         set({ isPremium: status });
         // In a real app, persist this securely
     },
+    user: null,
+    setUser: (user: any | null) => set({ 
+        user,
+        isPremium: user ? !!user.isPremium : false
+    }),
     error: null,
     setError: (error) => set({ error }),
     loadTasks: async () => {

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { PremiumPaywall } from './PremiumPaywall';
 import { useTheme } from './ThemeProvider';
+import { openWebPage } from '../lib/urls';
 
 export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
     const { isDark } = useTheme();
@@ -138,7 +139,13 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
                 </button>
 
                 <button
-                    onClick={() => setMode('multiplayer')}
+                    onClick={() => {
+                        if (isPremium) {
+                            setMode('multiplayer');
+                        } else {
+                            openWebPage('/premium');
+                        }
+                    }}
                     style={{
                         background: base.card,
                         border: `1px solid ${base.cardBorder}`,

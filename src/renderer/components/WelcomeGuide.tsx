@@ -15,7 +15,7 @@ import {
 import { useTheme } from './ThemeProvider';
 
 interface Step {
-    icon: React.ElementType;
+    icon: React.ElementType<any>;
     iconColor: string;
     iconBg: string;
     title: string;
@@ -96,7 +96,7 @@ export const WelcomeGuide: React.FC<WelcomeGuideProps> = ({ onClose }) => {
         setCurrent(prev => prev - 1);
     };
 
-    const StepIcon = step.icon;
+    const StepIcon = step.icon as any;
 
     return (
         <div

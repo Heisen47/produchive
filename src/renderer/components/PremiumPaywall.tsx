@@ -2,6 +2,7 @@ import React from 'react';
 import { Crown, Lock, ArrowRight, Check } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { useStore } from '../lib/store';
+import { openWebPage } from '../lib/urls';
 
 export const PremiumPaywall = () => {
     const { isDark } = useTheme();
@@ -68,7 +69,7 @@ export const PremiumPaywall = () => {
                 </div>
 
                 <button
-                    onClick={() => setPremium(true)}
+                    onClick={() => openWebPage('/premium')}
                     className="w-full py-4 rounded-xl font-bold transition-all duration-300 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] group"
                     style={{
                         background: 'linear-gradient(135deg, var(--accent), var(--accent-dark))',

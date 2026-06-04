@@ -9,6 +9,7 @@ const XLogo = ({ size = 16 }: { size?: number }) => (
     </svg>
 );
 import { useTheme } from './ThemeProvider';
+import { openUrl } from '../lib/urls';
 
 // Import the app logo (Vite resolves this to a URL)
 import logoSrc from '../../../resources/icon.png';
@@ -545,7 +546,7 @@ export const ShareCard: React.FC<ShareCardProps> = ({ analysis, goals, dateLabel
         const text = encodeURIComponent(
             `My productivity score today: ${rating}/10 — ${analysis.verdict.toUpperCase()} day!\n\nTracked with Produchive\n#productivity #produchive`
         );
-        window.open(`https://twitter.com/intent/tweet?text=${text}`, '_blank');
+        openUrl(`https://twitter.com/intent/tweet?text=${text}`);
     }, [analysis]);
 
     return (

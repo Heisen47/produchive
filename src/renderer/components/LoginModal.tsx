@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Mail, Lock, LogIn, Loader2, User, Sparkles, LogOut, ShieldCheck, ExternalLink } from 'lucide-react';
+import { X, Mail, Lock, LogIn, Loader2, User, Sparkles, LogOut, ShieldCheck, ExternalLink, Settings } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { useStore } from '../lib/store';
 import { apiClient } from '../lib/api';
@@ -16,6 +16,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
     const [manualToken, setManualToken] = useState('');
     const [syncing, setSyncing] = useState(false);
     const [syncError, setSyncError] = useState('');
+    const hasToken = !!sessionStorage.getItem('token');
 
     const handleSignOut = () => {
         sessionStorage.removeItem('token');
@@ -145,12 +146,35 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
                         </div>
 
                         <button 
+                            onClick={() => {
+                                openWebPage('/settings');
+                                onClose();
+                            }}
+                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all border hover:bg-black/5 dark:hover:bg-white/5 active:scale-95 mb-3"
+                            style={{ 
+                                borderColor: 'var(--border-secondary)',
+                                color: 'var(--text-primary)'
+                            }}
+                        >
+                            <Settings size={16} />
+                            Account Settings
+                        </button>
+
+                        <button 
                             onClick={handleSignOut}
                             className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all border border-red-500/30 text-red-400 hover:bg-red-500/10 hover:border-red-500/50 active:scale-95"
                         >
                             <LogOut size={16} />
                             Sign Out
                         </button>
+                    </div>
+                ) : hasToken ? (
+                    /* Loading State When Restoring Session */
+                    <div className="p-12 flex flex-col items-center justify-center space-y-4 text-center">
+                        <Loader2 size={32} className="animate-spin text-blue-500" />
+                        <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>
+                            Restoring your session...
+                        </p>
                     </div>
                 ) : showManualInput ? (
                     /* Manual Token Input View */

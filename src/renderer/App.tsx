@@ -28,7 +28,8 @@ import {
     Brain,
     Users2,
     Coffee,
-    UserCircle
+    UserCircle,
+    Crown
 } from 'lucide-react';
 import { Footer } from './components/Footer';
 import { DownloadProgress } from './components/DownloadProgress';
@@ -335,11 +336,39 @@ const AppContent = () => {
                         <button
                             onClick={() => setShowLoginModal(true)}
                             className="p-2 rounded-full transition-all flex items-center justify-center relative group hover:scale-105"
-                            style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-primary)' }}
-                            title={user ? `Logged in as ${user.email}` : "Login"}
+                            style={isPremium ? {
+                                background: 'linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(218, 165, 32, 0.1) 100%)', 
+                                border: '1px solid rgba(255, 215, 0, 0.5)',
+                                boxShadow: '0 0 15px rgba(255, 215, 0, 0.2), inset 0 0 10px rgba(218, 165, 32, 0.1)'
+                            } : { 
+                                background: 'var(--bg-elevated)', 
+                                border: '1px solid var(--border-primary)',
+                                boxShadow: 'none'
+                            }}
+                            title={user ? `Logged in as ${user.email}${isPremium ? ' (Premium)' : ''}` : "Login"}
                         >
-                            <UserCircle size={20} style={{ color: user ? 'var(--accent)' : 'var(--text-secondary)' }} />
-                            {user && <div className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-[var(--bg-primary)]"></div>}
+                            {isPremium ? (
+                                <Crown 
+                                    size={20} 
+                                    style={{ 
+                                        color: '#FFD700',
+                                        filter: 'drop-shadow(0 0 4px rgba(255,215,0,0.4))'
+                                    }} 
+                                />
+                            ) : (
+                                <UserCircle 
+                                    size={20} 
+                                    style={{ 
+                                        color: user ? 'var(--accent)' : 'var(--text-secondary)' 
+                                    }} 
+                                />
+                            )}
+                            {user && !isPremium && (
+                                <div 
+                                    className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[var(--bg-primary)]"
+                                    style={{ backgroundColor: '#22c55e' }}
+                                />
+                            )}
                         </button>
                     </div>
                 </header>

@@ -54,15 +54,29 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
                 className="relative w-full max-w-sm rounded-2xl overflow-hidden animate-scale-in"
                 style={{ 
                     background: 'var(--bg-card-solid)',
-                    border: '1px solid var(--border-card)',
-                    boxShadow: isDark 
-                        ? '0 25px 60px rgba(0,0,0,0.5), 0 0 40px var(--accent-glow)' 
-                        : '0 25px 60px rgba(0,0,0,0.15)'
+                    border: user?.isPremium 
+                        ? '2px solid #f59e0b' 
+                        : '1px solid var(--border-card)',
+                    boxShadow: user?.isPremium
+                        ? (isDark 
+                            ? '0 25px 60px rgba(0,0,0,0.6), 0 0 45px rgba(245, 158, 11, 0.25)' 
+                            : '0 25px 60px rgba(245, 158, 11, 0.15), 0 0 25px rgba(245, 158, 11, 0.1)')
+                        : (isDark 
+                            ? '0 25px 60px rgba(0,0,0,0.5), 0 0 40px var(--accent-glow)' 
+                            : '0 25px 60px rgba(0,0,0,0.15)')
                 }}
             >
+                {/* Soft golden inner glow */}
+                {user?.isPremium && (
+                    <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-1/2 bg-amber-500/10 blur-[50px] -z-10 pointer-events-none" />
+                )}
+
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 pb-4 border-b" style={{ borderColor: 'var(--border-secondary)' }}>
-                    <h2 className="text-xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                <div 
+                    className="flex items-center justify-between p-6 pb-4 border-b" 
+                    style={{ borderColor: user?.isPremium ? 'rgba(245, 158, 11, 0.2)' : 'var(--border-secondary)' }}
+                >
+                    <h2 className="text-xl font-bold tracking-tight" style={{ color: user?.isPremium ? '#f59e0b' : 'var(--text-primary)' }}>
                         {user ? 'My Profile' : 'Authenticate'}
                     </h2>
                     <button 
@@ -80,9 +94,13 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
                         <div className="flex flex-col items-center space-y-3">
                             <div className="w-20 h-20 rounded-full flex items-center justify-center relative group" 
                                  style={{ 
-                                     background: 'linear-gradient(135deg, var(--accent), var(--accent-dark))',
-                                     boxShadow: '0 10px 25px var(--accent-glow)'
-                                 }}>
+                                     background: user.isPremium 
+                                         ? 'linear-gradient(135deg, #f59e0b, #fb923c)'
+                                         : 'linear-gradient(135deg, var(--accent), var(--accent-dark))',
+                                     boxShadow: user.isPremium
+                                         ? '0 10px 25px rgba(245, 158, 11, 0.4)'
+                                         : '0 10px 25px var(--accent-glow)'
+                                  }}>
                                 <User size={40} className="text-white" />
                                 {user.isPremium && (
                                     <div className="absolute -bottom-1 -right-1 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-900 rounded-full p-1 border-2 border-[var(--bg-card-solid)] shadow-md">
@@ -92,8 +110,9 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
                             </div>
                             
                             <div>
-                                <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>
+                                <h3 className="text-lg font-bold flex items-center justify-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
                                     {user.displayName || 'Produchive User'}
+                                    {user.isPremium && <Sparkles size={16} className="text-amber-400 fill-amber-400 animate-pulse" />}
                                 </h3>
                                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                                     {user.email}
@@ -102,15 +121,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
                         </div>
 
                         {/* Tier Status */}
-                        <div className="p-4 rounded-xl border flex items-center gap-3 bg-[var(--bg-elevated)]" style={{ borderColor: 'var(--border-secondary)' }}>
+                        <div 
+                            className="p-4 rounded-xl border flex items-center gap-3" 
+                            style={{ 
+                                borderColor: user.isPremium ? 'rgba(245, 158, 11, 0.3)' : 'var(--border-secondary)',
+                                background: user.isPremium ? 'linear-gradient(135deg, rgba(245, 158, 11, 0.05), rgba(251, 146, 60, 0.05))' : 'var(--bg-elevated)'
+                            }}
+                        >
                             <div className="p-2 rounded-lg" style={{ 
                                 background: user.isPremium ? 'rgba(245, 158, 11, 0.15)' : 'rgba(148, 163, 184, 0.15)',
-                                color: user.isPremium ? 'var(--accent)' : 'var(--text-muted)'
+                                color: user.isPremium ? '#f59e0b' : 'var(--text-muted)'
                             }}>
                                 <ShieldCheck size={20} />
                             </div>
                             <div className="text-left">
-                                <span className="text-xs font-bold block" style={{ color: 'var(--text-primary)' }}>
+                                <span className="text-xs font-bold block" style={{ color: user.isPremium ? '#f59e0b' : 'var(--text-primary)' }}>
                                     {user.isPremium ? '✦ Premium Member' : 'Free Tier'}
                                 </span>
                                 <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>

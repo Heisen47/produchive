@@ -264,4 +264,89 @@ export interface APIContract {
       res: { received: boolean };
     };
   };
+
+  // ─── Gamification / Store ───
+  '/store/wallet': {
+    GET: {
+      req: null;
+      res: { balance: number; lifetimeEarned: number };
+    };
+  };
+  '/store/catalog': {
+    GET: {
+      req: null;
+      res: { catalog: Record<string, StoreItem[]>; totalItems: number };
+    };
+  };
+  '/store/inventory': {
+    GET: {
+      req: null;
+      res: { inventory: InventoryEntry[] };
+    };
+  };
+  '/store/equipped': {
+    GET: {
+      req: null;
+      res: { loadout: Record<string, StoreItem & { inventoryId: string }> };
+    };
+  };
+  '/store/transactions': {
+    GET: {
+      req: null;
+      res: { page: number; limit: number; transactions: CoinTransaction[] };
+    };
+  };
+  '/store/purchase': {
+    POST: {
+      req: { itemId: string };
+      res: { message: string; item: StoreItem; newBalance: number };
+    };
+  };
+  '/store/equip': {
+    PATCH: {
+      req: { itemId: string; equip: boolean };
+      res: { message: string; itemId: string; slot: string; equipped: boolean };
+    };
+  };
+  '/store/earn': {
+    POST: {
+      req: { durationSeconds: number };
+      res: { coinsEarned: number; newBalance: number; message?: string };
+    };
+  };
 }
+
+// ─── Gamification Types ───
+
+export interface StoreItem {
+  id: string;
+  name: string;
+  description: string | null;
+  category: 'accessory' | 'desk_item' | 'ambient' | 'desk_skin';
+  slot: 'head' | 'face' | 'body' | 'desk' | 'room';
+  price: number;
+  rarity: 'common' | 'rare' | 'epic' | 'legendary';
+  previewData: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface InventoryEntry {
+  id: string;
+  userId: string;
+  itemId: string;
+  isEquipped: boolean;
+  purchasedAt: string;
+  item: StoreItem | null;
+}
+
+export interface CoinTransaction {
+  id: string;
+  userId: string;
+  amount: number;
+  type: 'study_earn' | 'purchase' | 'refund';
+  referenceId: string | null;
+  description: string | null;
+  createdAt: string;
+}
+

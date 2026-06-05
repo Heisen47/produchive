@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import classroomBg from '../../assets/rooms/classroom.png';
 import cafeBg from '../../assets/rooms/cafe.png';
 import libraryBg from '../../assets/rooms/library.png'
+import { useGameStore } from '../../lib/gameStore';
 
 
 export type SceneId = 'classroom' | 'cafe' | 'library';
@@ -386,7 +387,37 @@ export const CharacterFace = () => (
 );
 
 export const CharacterAccessory = ({ seed, isUser, accent }: { seed: number, isUser: boolean, accent: string }) => {
+  const loadout = useGameStore(state => state.equippedLoadout);
+
   if (isUser) {
+    const headItem = loadout['head'];
+
+    if (headItem?.id === 'hat_wizard') {
+      return (
+        <mesh position={[0, 0.45, 0]} castShadow>
+          <coneGeometry args={[0.2, 0.4, 8]} />
+          <GhibliMaterial color="#4c1d95" />
+          <Outlines thickness={0.015} color="#2e1065" />
+          <mesh position={[0, -0.2, 0]}>
+            <cylinderGeometry args={[0.3, 0.3, 0.05, 16]} />
+            <GhibliMaterial color="#4c1d95" />
+            <Outlines thickness={0.015} color="#2e1065" />
+          </mesh>
+        </mesh>
+      );
+    }
+    
+    if (headItem?.id === 'hat_crown') {
+      return (
+        <mesh position={[0, 0.35, 0]} castShadow>
+          <cylinderGeometry args={[0.15, 0.15, 0.15, 8]} />
+          <GhibliMaterial color="#fbbf24" />
+          <Outlines thickness={0.015} color="#b45309" />
+        </mesh>
+      );
+    }
+
+    // Default basic user accent hat
     return (
       <mesh position={[0, 0.35, 0]} rotation={[0.1, 0, -0.1]} castShadow>
         <cylinderGeometry args={[0.1, 0.12, 0.2, 6]} />

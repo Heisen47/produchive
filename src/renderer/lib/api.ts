@@ -133,5 +133,40 @@ export const apiClient = {
   checkout: async () => {
     const res = await api.post<APIContract['/payments/checkout']['POST']['res']>('/payments/checkout');
     return res.data;
-  }
+  },
+
+  // ─── Gamification / Store ───
+  getWallet: async () => {
+    const res = await api.get<APIContract['/store/wallet']['GET']['res']>('/store/wallet');
+    return res.data;
+  },
+  getCatalog: async () => {
+    const res = await api.get<APIContract['/store/catalog']['GET']['res']>('/store/catalog');
+    return res.data;
+  },
+  getInventory: async () => {
+    const res = await api.get<APIContract['/store/inventory']['GET']['res']>('/store/inventory');
+    return res.data;
+  },
+  getEquipped: async () => {
+    const res = await api.get<APIContract['/store/equipped']['GET']['res']>('/store/equipped');
+    return res.data;
+  },
+  getTransactions: async (page = 1, limit = 20) => {
+    const res = await api.get<APIContract['/store/transactions']['GET']['res']>(`/store/transactions?page=${page}&limit=${limit}`);
+    return res.data;
+  },
+  purchaseItem: async (itemId: string) => {
+    const res = await api.post<APIContract['/store/purchase']['POST']['res']>('/store/purchase', { itemId });
+    return res.data;
+  },
+  equipItem: async (itemId: string, equip: boolean) => {
+    const res = await api.patch<APIContract['/store/equip']['PATCH']['res']>('/store/equip', { itemId, equip });
+    return res.data;
+  },
+  earnCoins: async (durationSeconds: number) => {
+    const res = await api.post<APIContract['/store/earn']['POST']['res']>('/store/earn', { durationSeconds });
+    return res.data;
+  },
 };
+

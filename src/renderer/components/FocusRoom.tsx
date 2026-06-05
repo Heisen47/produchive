@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeft, Maximize2, Minimize2, Lock, Unlock, Pause, Play, Eye, Users, Zap, BookOpen, Coffee, GraduationCap, ChevronDown, Plus, Sparkles as SparklesIcon } from 'lucide-react';
+import { ArrowLeft, Maximize2, Minimize2, Lock, Unlock, Pause, Play, Eye, Users, Zap, BookOpen, Coffee, GraduationCap, ChevronDown, Plus, Sparkles as SparklesIcon, ShoppingBag } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { useStore } from '../lib/store';
 import { Canvas } from '@react-three/fiber';
@@ -8,6 +8,10 @@ import { SceneId, Occupant, SCENE_META, fmtHMS, GhibliMaterial, NPC_NAMES } from
 import { ClassroomEnv } from './focus-room/ClassroomEnv';
 import { CafeEnv } from './focus-room/CafeEnv';
 import { LibraryEnv } from './focus-room/LibraryEnv';
+import { CoinDisplay } from './CoinDisplay';
+import { StudyStore } from './StudyStore';
+import { apiClient } from '../lib/api';
+import { useGameStore } from '../lib/gameStore';
 
 // ─── Scene preview SVGs (inline, no external assets needed) ──────────────────
 const SCENE_PREVIEWS: Record<SceneId, string> = {
@@ -195,6 +199,8 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent, isPaused,
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [showUnlockPrompt, setShowUnlockPrompt] = useState(false);
+  const [showStore, setShowStore] = useState(false);
+  const isPremium = useStore(state => state.isPremium);
 
   // Sync fullscreen state; auto-unlock when fullscreen exits
   useEffect(() => {
@@ -419,6 +425,30 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent, isPaused,
             {mode === 'study' ? `${occupants.length} Studying` : 'Viewing'}
           </div>
 
+          {/* Coin Display — only for premium study mode */}
+          {mode === 'study' && isPremium && (
+            <CoinDisplay accent={accent} />
+          )}
+
+          {/* Store button — only for premium study mode */}
+          {mode === 'study' && isPremium && (
+            <button
+              onClick={() => setShowStore(true)}
+              title="Focus Store"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 36, height: 36, borderRadius: 20,
+                background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.15)',
+                color: '#fbbf24', cursor: 'pointer', backdropFilter: 'blur(8px)',
+                transition: 'all 0.2s', boxShadow: '0 4px 12px rgba(0,0,0,0.2)', flexShrink: 0,
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(245,158,11,0.2)'; e.currentTarget.style.transform = 'scale(1.1)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(0,0,0,0.4)'; e.currentTarget.style.transform = 'scale(1)'; }}
+            >
+              <ShoppingBag size={16} />
+            </button>
+          )}
+
           {/* Lock button — only shown in fullscreen */}
           {isFullscreen && (
             <button
@@ -522,6 +552,9 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent, isPaused,
         @keyframes glowRingPulse { 0% { opacity: 0.6; transform: scale(0.95); } 50% { opacity: 1; transform: scale(1.05); } 100% { opacity: 0.6; transform: scale(0.95); } }
         @keyframes lockPulse { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
       `}</style>
+
+      {/* Study Store Modal */}
+      <StudyStore isOpen={showStore} onClose={() => setShowStore(false)} />
     </div>
   );
 };
@@ -886,6 +919,8 @@ export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene }: {
   forcedScene?: SceneId 
 }) => {
   const { isDark } = useTheme();
+  const isPremium = useStore(state => state.isPremium);
+  const { fetchWallet } = useGameStore();
   const [scene, setScene] = useState<SceneId | null>(forcedScene || null);
   const [mode, setMode] = useState<'study' | 'view'>('study');
   const [tick, setTick] = useState(0);
@@ -949,6 +984,15 @@ export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene }: {
           durationSeconds: sessionSeconds,
           startedAt: sessionStartedAt.current,
         }).catch((e: any) => console.error(e));
+      }
+
+      // If gamification is active (premium), mint coins via backend
+      if (isPremium && !overrideOccupants) {
+        apiClient.earnCoins(sessionSeconds)
+          .then(() => {
+            fetchWallet();
+          })
+          .catch(err => console.error('Failed to earn coins:', err));
       }
     }
     setScene(null);

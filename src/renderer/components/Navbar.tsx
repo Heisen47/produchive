@@ -10,9 +10,11 @@ import {
     Moon,
     BarChart3,
     Users2,
+    ShoppingBag,
     LucideIcon
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
+import { useStore } from '../lib/store';
 
 interface SidebarLinkProps {
     icon: LucideIcon;
@@ -73,6 +75,7 @@ export const Navbar = ({
     isAIActive
 }: NavbarProps) => {
     const { theme, toggleTheme, isDark } = useTheme();
+    const isPremium = useStore(state => state.isPremium);
 
     return (
         <aside
@@ -158,6 +161,15 @@ export const Navbar = ({
                         onClick={() => setCurrentView('focusroom')}
                         collapsed={!isSidebarOpen}
                     />
+                    {isPremium && (
+                        <SidebarLink
+                            icon={ShoppingBag}
+                            label="Focus Store"
+                            active={currentView === 'store'}
+                            onClick={() => setCurrentView('store')}
+                            collapsed={!isSidebarOpen}
+                        />
+                    )}
                 </div>
             </nav>
 

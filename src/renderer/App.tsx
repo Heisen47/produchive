@@ -17,6 +17,7 @@ import { Navbar } from './components/Navbar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { initEngine } from './lib/ai';
 import { useStore } from './lib/store';
+import { useGameStore } from './lib/gameStore';
 import { apiClient } from './lib/api';
 import {
     Loader2,
@@ -29,13 +30,15 @@ import {
     Users2,
     Coffee,
     UserCircle,
-    Crown
+    Crown,
+    ShoppingBag
 } from 'lucide-react';
 import { Footer } from './components/Footer';
 import { DownloadProgress } from './components/DownloadProgress';
 import { UpdateBanner } from './components/UpdateBanner';
 import { PeekabooCat } from './components/PeekabooCat';
 import { ModelManager } from './components/ModelManager';
+import { StudyStore } from './components/StudyStore';
 
 const viewIcons: Record<string, React.ComponentType<any>> = {
     dashboard: LayoutDashboard,
@@ -43,6 +46,7 @@ const viewIcons: Record<string, React.ComponentType<any>> = {
     monitor: Activity,
     ai: Brain,
     focusroom: Coffee,
+    store: ShoppingBag,
 };
 
 
@@ -52,6 +56,16 @@ const viewLabels: Record<string, string> = {
     monitor: 'Live Monitor',
     ai: 'Goals & AI',
     focusroom: 'Focus Rooms ✦',
+    store: 'Focus Store',
+};
+
+// Inline store page view for sidebar navigation
+const StorePageView = () => {
+  return (
+    <div style={{ marginTop: -16, marginLeft: -32, marginRight: -32, height: 'calc(100vh - 200px)' }}>
+      <StudyStore isOpen={true} onClose={() => {}} inline />
+    </div>
+  );
 };
 
 const AppContent = () => {
@@ -143,6 +157,16 @@ const AppContent = () => {
         init();
     }, [addActivity, setError]);
     
+    // Initialize gamification data if user is premium
+    useEffect(() => {
+        if (user && isPremium) {
+            const { fetchWallet, fetchCatalog, fetchInventory } = useGameStore.getState();
+            fetchWallet();
+            fetchCatalog();
+            fetchInventory();
+        }
+    }, [user, isPremium]);
+
     const [engine, setEngine] = useState<any>(null);
     const [modelName, setModelName] = useState<string>('');
     const [loading, setLoading] = useState(false);
@@ -402,6 +426,8 @@ const AppContent = () => {
                             )}
 
                             {currentView === 'focusroom' && <StudyRooms onNavigate={handleViewChange} />}
+
+                            {currentView === 'store' && <StorePageView />}
                         </div>
 
                         <div className="space-y-6 pt-8" style={{ borderTop: '1px solid var(--border-secondary)' }}>

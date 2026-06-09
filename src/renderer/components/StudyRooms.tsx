@@ -5,7 +5,7 @@ import { useStore } from '../lib/store';
 import { apiClient } from '../lib/api';
 import {
     Users, Plus, ArrowRight, X, Crown, Target, BookOpen, GraduationCap, Coffee,
-    ArrowLeft, Loader2
+    ArrowLeft, Loader2, Check, Copy
 } from 'lucide-react';
 import { PremiumPaywall } from './PremiumPaywall';
 import { useTheme } from './ThemeProvider';
@@ -28,6 +28,8 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
     const [joinCode, setJoinCode] = useState('');
     const [showCreateSuccessModal, setShowCreateSuccessModal] = useState(false);
     const [createdRoomInfo, setCreatedRoomInfo] = useState<{ code: string; scene: SceneId } | null>(null);
+    const [copied, setCopied] = useState(false);
+    const [copiedActive, setCopiedActive] = useState(false);
 
     const base = isDark
         ? { card: 'rgba(15,23,42,0.85)', cardBorder: 'rgba(255,255,255,0.07)', text: '#f1f5f9', sub: '#94a3b8' }
@@ -152,7 +154,15 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
         if (copyCode) {
             try {
                 await navigator.clipboard.writeText(createdRoomInfo.code);
-                alert('Room code copied to clipboard!');
+                setCopied(true);
+                setTimeout(() => {
+                    setCopied(false);
+                    setShowCreateSuccessModal(false);
+                    setLoading(true);
+                    setLoadingMessage('Connecting to real-time server...');
+                    connectToRoomWS(createdRoomInfo.code, createdRoomInfo.scene);
+                }, 800);
+                return;
             } catch (clipErr) {
                 console.warn('Failed to copy join code to clipboard', clipErr);
             }
@@ -321,11 +331,19 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
                     </button>
                     <button 
                         onClick={() => handleEnterCreatedRoom(true)}
-                        style={{ flex: 1.5, padding: '12px', borderRadius: 12, background: 'linear-gradient(135deg, #a78bfa, #8b5cf6)', color: '#000', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13, boxShadow: '0 4px 15px rgba(167, 139, 250, 0.3)', transition: 'opacity 0.2s' }}
-                        onMouseEnter={e => e.currentTarget.style.opacity = '0.9'}
-                        onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+                        style={{ 
+                            flex: 1.5, padding: '12px', borderRadius: 12, 
+                            background: copied ? 'linear-gradient(135deg, #34d399, #059669)' : 'linear-gradient(135deg, #a78bfa, #8b5cf6)', 
+                            color: copied ? '#fff' : '#000', 
+                            border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: 13, 
+                            boxShadow: copied ? '0 4px 15px rgba(52, 211, 153, 0.3)' : '0 4px 15px rgba(167, 139, 250, 0.3)', 
+                            transition: 'all 0.3s ease',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                        }}
+                        disabled={copied}
                     >
-                        Copy & Enter
+                        {copied ? <Check size={16} /> : <Copy size={16} />}
+                        {copied ? 'Copied!' : 'Copy & Enter'}
                     </button>
                 </div>
             </div>
@@ -384,26 +402,29 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
                         onClick={async () => {
                             try {
                                 await navigator.clipboard.writeText(activeRoom.joinCode);
-                                alert('Room code copied to clipboard!');
+                                setCopiedActive(true);
+                                setTimeout(() => setCopiedActive(false), 2000);
                             } catch (e) {
                                 console.error(e);
                             }
                         }}
                         style={{
-                            background: 'rgba(167, 139, 250, 0.15)',
-                            color: '#a78bfa',
-                            border: '1px solid rgba(167, 139, 250, 0.3)',
+                            background: copiedActive ? 'rgba(52, 211, 153, 0.15)' : 'rgba(167, 139, 250, 0.15)',
+                            color: copiedActive ? '#34d399' : '#a78bfa',
+                            border: copiedActive ? '1px solid rgba(52, 211, 153, 0.3)' : '1px solid rgba(167, 139, 250, 0.3)',
                             padding: '6px 16px',
                             borderRadius: 8,
                             fontSize: 12,
                             fontWeight: 600,
                             cursor: 'pointer',
-                            transition: 'opacity 0.2s'
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6
                         }}
-                        onMouseEnter={e => e.currentTarget.style.opacity = '0.8'}
-                        onMouseLeave={e => e.currentTarget.style.opacity = '1'}
                     >
-                        Copy Code
+                        {copiedActive ? <Check size={14} /> : <Copy size={14} />}
+                        {copiedActive ? 'Copied!' : 'Copy Code'}
                     </button>
                 </div>
                 <div style={{ flex: 1, position: 'relative' }}>

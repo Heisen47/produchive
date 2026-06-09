@@ -269,7 +269,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
                             
                             <button
                                 onClick={() => openWebPage('/?from=app&action=register')}
-                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all border hover:scale-[1.02] active:scale-[0.98]"
+                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all border hover:scale-[1.02] active:scale-[0.98] mt-2"
                                 style={{
                                     background: 'var(--bg-elevated)',
                                     color: 'var(--text-primary)',
@@ -281,7 +281,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
                             </button>
                         </div>
 
-                        <div className="pt-2">
+                        {/* <div className="pt-2">
                             <button
                                 type="button"
                                 onClick={() => setShowManualInput(true)}
@@ -290,7 +290,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
                             >
                                 Having trouble? Paste code manually
                             </button>
-                        </div>
+                        </div> */}
                     </div>
                 )}
             </div>

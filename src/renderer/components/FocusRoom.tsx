@@ -880,10 +880,11 @@ export const ScenePicker = ({
 };
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
-export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene }: { 
+export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave }: { 
   onNavigate?: (view: string) => void, 
   overrideOccupants?: Occupant[],
-  forcedScene?: SceneId 
+  forcedScene?: SceneId,
+  onLeave?: () => void
 }) => {
   const { isDark } = useTheme();
   const [scene, setScene] = useState<SceneId | null>(forcedScene || null);
@@ -951,6 +952,9 @@ export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene }: {
         }).catch((e: any) => console.error(e));
       }
     }
+    if (onLeave) {
+      onLeave();
+    }
     setScene(null);
     setMode('study');
     setTick(0);
@@ -958,7 +962,7 @@ export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene }: {
     setPausedAt(0);
     sessionStartRef.current = Date.now();
     sessionStartedAt.current = new Date().toISOString();
-  }, [scene, mode, sessionSeconds]);
+  }, [scene, mode, sessionSeconds, onLeave]);
 
   if (!scene) return <ScenePicker onPick={(s, m) => { setScene(s); setMode(m); }} onNavigate={onNavigate} />;
 

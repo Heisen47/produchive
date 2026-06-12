@@ -36,6 +36,10 @@ export const apiClient = {
     const res = await api.post<APIContract['/auth/sync']['POST']['res']>('/auth/sync');
     return res.data;
   },
+  checkLogin: async () => {
+    const res = await api.get<APIContract['/auth/check-login']['GET']['res']>('/auth/check-login');
+    return res.data;
+  },
 
   // Users
   createUser: async (data: APIContract['/users']['POST']['req']) => {

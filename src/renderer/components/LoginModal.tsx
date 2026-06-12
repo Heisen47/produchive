@@ -16,6 +16,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
     const [manualToken, setManualToken] = useState('');
     const [syncing, setSyncing] = useState(false);
     const [syncError, setSyncError] = useState('');
+    const [checkingSettings, setCheckingSettings] = useState(false);
     const hasToken = !!sessionStorage.getItem('token');
 
     const handleSignOut = () => {
@@ -43,6 +44,22 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
             setSyncError(`Sync failed: ${msg}`);
         } finally {
             setSyncing(false);
+        }
+    };
+
+    const handleAccountSettings = async () => {
+        if (checkingSettings) return;
+        setCheckingSettings(true);
+        try {
+            await apiClient.checkLogin();
+            openWebPage('/settings');
+            onClose();
+        } catch (err: any) {
+            console.error('Check login failed before opening settings', err);
+            const msg = err.response?.data?.error || err.response?.data?.message || err.message;
+            alert(`Unable to open settings. Verification failed: ${msg}. Please log in again.`);
+        } finally {
+            setCheckingSettings(false);
         }
     };
 
@@ -225,27 +242,35 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
                         {/* Action buttons */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             <button
-                                onClick={() => { openWebPage('/settings'); onClose(); }}
+                                onClick={handleAccountSettings}
+                                disabled={checkingSettings}
                                 style={{
                                     width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                                     padding: '11px 0', borderRadius: 12, fontSize: 13, fontWeight: 600,
                                     background: isDark ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.06)',
                                     border: `1px solid ${isDark ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)'}`,
                                     color: isDark ? '#60a5fa' : '#3b82f6',
-                                    cursor: 'pointer', transition: 'all 0.2s',
+                                    cursor: checkingSettings ? 'not-allowed' : 'pointer', transition: 'all 0.2s',
+                                    opacity: checkingSettings ? 0.7 : 1,
                                 }}
                                 onMouseEnter={e => {
+                                    if (checkingSettings) return;
                                     e.currentTarget.style.background = isDark ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.1)';
                                     e.currentTarget.style.transform = 'scale(1.01)';
                                 }}
                                 onMouseLeave={e => {
+                                    if (checkingSettings) return;
                                     e.currentTarget.style.background = isDark ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.06)';
                                     e.currentTarget.style.transform = 'scale(1)';
                                 }}
                             >
-                                <Settings size={15} />
-                                Account Settings
-                                <ChevronRight size={14} style={{ opacity: 0.5 }} />
+                                {checkingSettings ? (
+                                    <Loader2 size={15} className="animate-spin" />
+                                ) : (
+                                    <Settings size={15} />
+                                )}
+                                {checkingSettings ? 'Verifying...' : 'Account Settings'}
+                                {!checkingSettings && <ChevronRight size={14} style={{ opacity: 0.5 }} />}
                             </button>
 
                             {!user.isPremium && (

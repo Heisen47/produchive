@@ -106,6 +106,12 @@ export interface APIContract {
       res: { message: string; user: User };
     };
   };
+  '/auth/check-login': {
+    GET: {
+      req: null;
+      res: { success: boolean; user?: User };
+    };
+  };
 
   // User Profile
   '/users': {

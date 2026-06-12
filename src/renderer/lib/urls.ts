@@ -12,16 +12,17 @@ const WEB_BASE_URL = import.meta.env.DEV
 
 /**
  * Build a website URL with optional auth token attached as a query param.
- * The website reads `?token=…` on load and stores it in sessionStorage.
+ * Always adds `from=app` so the website knows to call back to the Electron
+ * app with a fresh token after login or payment.
  */
 export function getWebUrl(path: string): string {
   const token = sessionStorage.getItem('token');
   const base = `${WEB_BASE_URL}${path}`;
+  const sep = base.includes('?') ? '&' : '?';
   if (token) {
-    const sep = base.includes('?') ? '&' : '?';
-    return `${base}${sep}token=${encodeURIComponent(token)}`;
+    return `${base}${sep}token=${encodeURIComponent(token)}&from=app`;
   }
-  return base;
+  return `${base}${sep}from=app`;
 }
 
 /**

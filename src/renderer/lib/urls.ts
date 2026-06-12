@@ -2,15 +2,13 @@
  * Website URL helpers — builds URLs pointing to the Produchive website
  * with optional token pass-through for seamless auth handoff.
  *
- * Dev  → http://localhost:3000
- * Prod → https://produchive.com
+ * All base URLs come from config.ts (single source of truth).
  */
 
-export const WEB_BASE_URL = import.meta.env.DEV
-  ? 'http://localhost:3000'
-  : 'https://produchive-web-qa.vercel.app';
+import { API_BASE_URL, WEB_BASE_URL } from './config';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000' : 'https://qa.produchive.com');
+// Re-export so existing `import { WEB_BASE_URL } from '../lib/urls'` still works.
+export { WEB_BASE_URL };
 
 /**
  * Build a website URL with optional auth token attached as a query param.

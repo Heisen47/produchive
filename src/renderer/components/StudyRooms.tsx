@@ -10,6 +10,7 @@ import {
 import { PremiumPaywall } from './PremiumPaywall';
 import { useTheme } from './ThemeProvider';
 import { openWebPage } from '../lib/urls';
+import { WS_BASE_URL } from '../lib/config';
 
 export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
     const { isDark } = useTheme();
@@ -51,8 +52,6 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
     }, []);
 
     const connectToRoomWS = (roomCode: string, targetScene: SceneId) => {
-        const apiBaseUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000' : 'https://qa.produchive.com');
-        const wsBaseUrl = apiBaseUrl.replace(/^http/, 'ws');
         const token = sessionStorage.getItem('token');
 
         if (socketRef.current) {
@@ -63,7 +62,7 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
             }
         }
 
-        const ws = new WebSocket(wsBaseUrl);
+        const ws = new WebSocket(WS_BASE_URL);
         socketRef.current = ws;
         setSocket(ws);
 

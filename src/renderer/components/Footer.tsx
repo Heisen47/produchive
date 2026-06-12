@@ -4,7 +4,7 @@ import { useTheme } from './ThemeProvider';
 import Lottie from 'lottie-react';
 import catAnimation from '../assets/cat.json';
 import { version } from '../../../package.json';
-import { openUrl } from '../lib/urls';
+import { openUrl, WEB_BASE_URL } from '../lib/urls';
 
 
 interface FooterProps {
@@ -14,7 +14,7 @@ interface FooterProps {
 
 export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }) => {
     const repoUrl = 'https://github.com/Heisen47/produchive';
-    const issuesUrl = `https://www.produchive.com/faq`;
+    const issuesUrl = `${WEB_BASE_URL}/faq`;
     const howToUseItUrl = `${repoUrl}/blob/master/docs/HOW_TO_USE_IT.md`;
     const { isDark } = useTheme();
 

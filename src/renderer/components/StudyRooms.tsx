@@ -51,7 +51,7 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
     }, []);
 
     const connectToRoomWS = (roomCode: string, targetScene: SceneId) => {
-        const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+        const apiBaseUrl = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000' : 'https://qa.produchive.com');
         const wsBaseUrl = apiBaseUrl.replace(/^http/, 'ws');
         const token = sessionStorage.getItem('token');
 

@@ -6,11 +6,11 @@
  * Prod → https://produchive.com
  */
 
-const WEB_BASE_URL = import.meta.env.DEV
+export const WEB_BASE_URL = import.meta.env.DEV
   ? 'http://localhost:3000'
-  : 'https://produchive.com';
+  : 'https://produchive-web-qa.vercel.app';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000' : 'https://qa.produchive.com');
 
 /**
  * Build a website URL with optional auth token attached as a query param.

@@ -301,9 +301,9 @@ describe('Block/Unblock Round-Trip', () => {
 
     // Verify sort puts them first
     const apps = [
+      { name: 'Finder', duration: 200 },
       { name: 'Google Chrome', duration: 100 },
       { name: 'Slack', duration: 50 },
-      { name: 'Finder', duration: 200 },
     ];
     let sorted = sortApps(apps, store.getAll());
     expect(sorted[0].name).toBe('Google Chrome');

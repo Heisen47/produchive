@@ -10,19 +10,19 @@ const WEB_BASE_URL = import.meta.env.DEV
   ? 'http://localhost:3000'
   : 'https://produchive.com';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+
 /**
  * Build a website URL with optional auth token attached as a query param.
- * Always adds `from=app` so the website knows to call back to the Electron
- * app with a fresh token after login or payment.
+ * Routes through the backend /auth/redirect endpoint to force a hard reload in the browser.
  */
 export function getWebUrl(path: string): string {
   const token = sessionStorage.getItem('token');
-  const base = `${WEB_BASE_URL}${path}`;
-  const sep = base.includes('?') ? '&' : '?';
+  const base = `${API_BASE_URL}/auth/redirect?path=${encodeURIComponent(path)}`;
   if (token) {
-    return `${base}${sep}token=${encodeURIComponent(token)}&from=app`;
+    return `${base}&token=${encodeURIComponent(token)}`;
   }
-  return `${base}${sep}from=app`;
+  return base;
 }
 
 /**

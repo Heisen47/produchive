@@ -91,9 +91,6 @@ const AppContent = () => {
                 const me = await apiClient.getMe();
                 useStore.getState().setUser(me);
                 setShowLoginModal(false);
-                // Reload so the full app re-initialises with the new session
-                // (premium status, user avatar, etc. all reflect immediately)
-                window.location.reload();
             } catch (err) {
                 console.error('Failed to retrieve user info with deep-linked token:', err);
                 sessionStorage.removeItem('token');

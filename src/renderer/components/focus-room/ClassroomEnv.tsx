@@ -74,7 +74,20 @@ export const ClassroomEnv = ({ occupants, accent }: { occupants: Occupant[], acc
   };
 
   const [poofs, setPoofs] = React.useState<{ id: string; pos: [number, number, number] }[]>([]);
+  const [hasPoofedInitial, setHasPoofedInitial] = React.useState(false);
   const prevOccupantsRef = React.useRef<Occupant[]>([]);
+
+  React.useEffect(() => {
+    const userOcc = occupants.find(o => o.isUser);
+    if (userOcc && !hasPoofedInitial) {
+      const timer = setTimeout(() => {
+        const { pos } = getSeatProps(userOcc.seatIdx);
+        setPoofs(p => [...p, { id: `initial-user-${Date.now()}`, pos: [pos[0], pos[1], pos[2]] }]);
+      }, 1200);
+      setHasPoofedInitial(true);
+      return () => clearTimeout(timer);
+    }
+  }, [occupants, hasPoofedInitial]);
 
   React.useEffect(() => {
     const prev = prevOccupantsRef.current;
@@ -84,7 +97,7 @@ export const ClassroomEnv = ({ occupants, accent }: { occupants: Occupant[], acc
 
       // Joins
       occupants.forEach(occ => {
-        if (!prevIds.has(occ.id)) {
+        if (!prevIds.has(occ.id) && !occ.isUser) {
           const { pos } = getSeatProps(occ.seatIdx);
           setPoofs(p => [...p, { id: `${occ.id}-join-${Date.now()}`, pos: [pos[0], pos[1], pos[2]] }]);
         }

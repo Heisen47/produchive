@@ -56,7 +56,20 @@ export const CafeEnv = ({ occupants, accent }: { occupants: Occupant[], accent: 
   };
 
   const [poofs, setPoofs] = React.useState<{ id: string; pos: [number, number, number] }[]>([]);
+  const [hasPoofedInitial, setHasPoofedInitial] = React.useState(false);
   const prevOccupantsRef = React.useRef<Occupant[]>([]);
+
+  React.useEffect(() => {
+    const userOcc = occupants.find(o => o.isUser);
+    if (userOcc && !hasPoofedInitial) {
+      const timer = setTimeout(() => {
+        const { pos } = getSeatProps(userOcc.seatIdx);
+        setPoofs(p => [...p, { id: `initial-user-${Date.now()}`, pos }]);
+      }, 1200);
+      setHasPoofedInitial(true);
+      return () => clearTimeout(timer);
+    }
+  }, [occupants, hasPoofedInitial]);
 
   React.useEffect(() => {
     const prev = prevOccupantsRef.current;
@@ -66,7 +79,7 @@ export const CafeEnv = ({ occupants, accent }: { occupants: Occupant[], accent: 
 
       // Joins
       occupants.forEach(occ => {
-        if (!prevIds.has(occ.id)) {
+        if (!prevIds.has(occ.id) && !occ.isUser) {
           const { pos } = getSeatProps(occ.seatIdx);
           setPoofs(p => [...p, { id: `${occ.id}-join-${Date.now()}`, pos }]);
         }

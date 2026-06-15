@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Sparkles, Outlines } from '@react-three/drei';
-import { Occupant, GhibliMaterial, WallPoster, Desk, Character, WallClock, CoffeeMug, Bookshelf, PottedPlant, PendantLamp } from './Shared3D';
+import { Occupant, GhibliMaterial, WallPoster, Desk, Character, WallClock, CoffeeMug, Bookshelf, PottedPlant, PendantLamp, SmokePoof } from './Shared3D';
 
 const OutdoorScenery = () => (
   <group position={[14, 0, 0]}>
@@ -73,6 +73,34 @@ export const ClassroomEnv = ({ occupants, accent }: { occupants: Occupant[], acc
     return { pos: [x, 0, z], deskPos: [x, 0, z] };
   };
 
+  const [poofs, setPoofs] = React.useState<{ id: string; pos: [number, number, number] }[]>([]);
+  const prevOccupantsRef = React.useRef<Occupant[]>([]);
+
+  React.useEffect(() => {
+    const prev = prevOccupantsRef.current;
+    if (prev.length > 0) {
+      const currentIds = new Set(occupants.map(o => o.id));
+      const prevIds = new Set(prev.map(o => o.id));
+
+      // Joins
+      occupants.forEach(occ => {
+        if (!prevIds.has(occ.id)) {
+          const { pos } = getSeatProps(occ.seatIdx);
+          setPoofs(p => [...p, { id: `${occ.id}-join-${Date.now()}`, pos: [pos[0], pos[1], pos[2]] }]);
+        }
+      });
+
+      // Leaves
+      prev.forEach(occ => {
+        if (!currentIds.has(occ.id)) {
+          const { pos } = getSeatProps(occ.seatIdx);
+          setPoofs(p => [...p, { id: `${occ.id}-leave-${Date.now()}`, pos: [pos[0], pos[1], pos[2]] }]);
+        }
+      });
+    }
+    prevOccupantsRef.current = occupants;
+  }, [occupants]);
+
   return (
     <group>
       <ambientLight intensity={0.7} color="#fef08a" />
@@ -138,6 +166,16 @@ export const ClassroomEnv = ({ occupants, accent }: { occupants: Occupant[], acc
           </React.Fragment>
         );
       })}
+
+      {poofs.map(p => (
+        <SmokePoof
+          key={p.id}
+          position={[p.pos[0], p.pos[1] + 0.8, p.pos[2]]}
+          onComplete={() => {
+            setPoofs(prev => prev.filter(x => x.id !== p.id));
+          }}
+        />
+      ))}
     </group>
   );
 };

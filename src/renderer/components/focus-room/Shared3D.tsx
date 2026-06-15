@@ -535,4 +535,94 @@ export const Character = ({ occ, position, rotation = 0, accent, isDarkEnv = fal
   );
 };
 
+// Easing functions for smooth motion
+const easeOutCubic = (x: number): number => 1 - Math.pow(1 - x, 3);
+const easeInQuad = (x: number): number => x * x;
+
+export const SmokePoof = ({ position, onComplete }: { position: [number, number, number], onComplete: () => void }) => {
+  const groupRef = useRef<THREE.Group>(null);
+
+  // Procedural smoke cloud particles
+  const particles = useMemo(() => {
+    return Array.from({ length: 18 }).map((_, idx) => {
+      // Disperse radially with random height velocity
+      const theta = Math.random() * Math.PI * 2;
+      const radius = Math.random() * 0.5 + 0.15;
+      const speedX = Math.cos(theta) * radius * 1.8;
+      const speedZ = Math.sin(theta) * radius * 1.8;
+      const speedY = Math.random() * 1.2 + 0.8; // upwards drift
+
+      return {
+        velocity: new THREE.Vector3(speedX, speedY, speedZ),
+        size: Math.random() * 0.16 + 0.08,
+        delay: Math.random() * 0.12,
+      };
+    });
+  }, []);
+
+  const [elapsed, setElapsed] = useState(0);
+  const duration = 0.85; // slightly longer for smoother transition
+
+  useFrame((state, delta) => {
+    const nextElapsed = elapsed + delta;
+    setElapsed(nextElapsed);
+
+    if (nextElapsed >= duration) {
+      setTimeout(onComplete, 0);
+      return;
+    }
+
+    if (!groupRef.current) return;
+
+    groupRef.current.children.forEach((mesh, idx) => {
+      const p = particles[idx];
+      if (nextElapsed < p.delay) {
+        mesh.visible = false;
+        return;
+      }
+      mesh.visible = true;
+      const t = nextElapsed - p.delay;
+      const maxT = duration - p.delay;
+      const progress = Math.min(1, t / maxT);
+
+      // Smooth easing transitions
+      const posEase = easeOutCubic(progress);
+      const fadeEase = easeInQuad(progress);
+
+      // Expand outwards with ease-out cubic curve
+      mesh.position.x = p.velocity.x * maxT * posEase;
+      mesh.position.y = p.velocity.y * maxT * posEase;
+      mesh.position.z = p.velocity.z * maxT * posEase;
+
+      // Size swells initially, then shrinks smoothly
+      let scaleFactor = 1;
+      if (progress < 0.2) {
+        scaleFactor = easeOutCubic(progress / 0.2); // quick smooth swell
+      } else {
+        scaleFactor = 1 - easeOutCubic((progress - 0.2) / 0.8); // smooth shrink
+      }
+
+      const currentScale = p.size * scaleFactor * 2.2;
+      mesh.scale.set(currentScale, currentScale, currentScale);
+
+      // Smooth opacity fade
+      const mat = (mesh as THREE.Mesh).material as THREE.MeshBasicMaterial;
+      if (mat) {
+        mat.opacity = Math.max(0, 1 - fadeEase) * 0.8;
+      }
+    });
+  });
+
+  return (
+    <group ref={groupRef} position={position}>
+      {particles.map((_, idx) => (
+        <mesh key={idx}>
+          <sphereGeometry args={[1, 10, 10]} />
+          <meshBasicMaterial color="#f1f5f9" transparent opacity={0.8} depthWrite={false} />
+        </mesh>
+      ))}
+    </group>
+  );
+};
+
 

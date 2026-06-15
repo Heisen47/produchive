@@ -8,7 +8,7 @@ import libraryBg from '../../assets/rooms/library.png'
 
 
 export type SceneId = 'classroom' | 'cafe' | 'library';
-export interface Occupant { id: string; name: string; isUser: boolean; elapsedSeconds: number; seatIdx: number; }
+export interface Occupant { id: string; name: string; isUser: boolean; elapsedSeconds: number; seatIdx: number; isPremium?: boolean; isPaused?: boolean; }
 
 export const NPC_NAMES = ['Alex', 'Priya', 'Jordan', 'Sam', 'Mia', 'Yuki', 'Dani', 'Leo', 'Zoe'];
 
@@ -514,12 +514,20 @@ export const Character = ({ occ, position, rotation = 0, accent, isDarkEnv = fal
         }}>
           <div style={{
             fontSize: 10, fontWeight: 800, color: occ.isUser ? accent : '#fff',
-            background: 'rgba(15,23,42,0.85)', padding: '4px 10px', borderRadius: 16,
+            background: 'rgba(15,23,42,0.85)', padding: '4px 12px', borderRadius: 16,
             whiteSpace: 'nowrap', letterSpacing: '0.5px',
             boxShadow: '0 4px 12px rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)',
             border: `1px solid ${occ.isUser ? accent : 'rgba(255,255,255,0.1)'}`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            opacity: occ.isPaused ? 0.65 : 1,
+            transition: 'opacity 0.3s ease',
           }}>
-            {fmtMin(occ.elapsedSeconds)} <span style={{ marginLeft: 4 }}>{icon}</span>
+            <span style={{ fontWeight: 600, opacity: 0.95 }}>{occ.name}</span>
+            <span style={{ width: '1px', height: '10px', background: occ.isUser ? `${accent}40` : 'rgba(255,255,255,0.2)' }} />
+            <span>{fmtMin(occ.elapsedSeconds)}{occ.isPaused ? ' (Paused)' : ''}</span>
+            <span style={{ marginLeft: '2px' }}>{icon}</span>
           </div>
         </div>
       </Html>

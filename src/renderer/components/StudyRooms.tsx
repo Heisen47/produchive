@@ -21,9 +21,14 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
     const [loading, setLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('');
     const [activeRoom, setActiveRoom] = useState<{ id: string; joinCode: string; scene: SceneId; environment: string } | null>(null);
+    const activeRoomRef = useRef(activeRoom);
     const [activeRoomOccupants, setActiveRoomOccupants] = useState<Occupant[]>([]);
     const [socket, setSocket] = useState<WebSocket | null>(null);
     const socketRef = useRef<WebSocket | null>(null);
+
+    useEffect(() => {
+        activeRoomRef.current = activeRoom;
+    }, [activeRoom]);
 
     const [showJoinModal, setShowJoinModal] = useState(false);
     const [joinCode, setJoinCode] = useState('');
@@ -88,6 +93,7 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
                         isUser: p.userId === currentUserId,
                         elapsedSeconds: p.studySeconds,
                         seatIdx: p.seatIdx,
+                        isPaused: p.isPaused,
                     }));
                     setActiveRoomOccupants(occupants);
                     setLoading(false);
@@ -110,6 +116,14 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
 
         ws.onclose = () => {
             console.log('WS connection closed');
+            if (activeRoomRef.current) {
+                console.log('WS connection lost but user still in room. Reconnecting in 3s...');
+                setTimeout(() => {
+                    if (activeRoomRef.current) {
+                        connectToRoomWS(activeRoomRef.current.joinCode, activeRoomRef.current.scene);
+                    }
+                }, 3000);
+            }
         };
     };
 
@@ -432,6 +446,14 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
                         overrideOccupants={activeRoomOccupants}
                         forcedScene={activeRoom.scene}
                         onLeave={handleLeaveRoom}
+                        onTogglePause={(paused) => {
+                            if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+                                socketRef.current.send(JSON.stringify({
+                                    type: 'room:pause',
+                                    payload: { paused }
+                                }));
+                            }
+                        }}
                     />
                 </div>
             </div>

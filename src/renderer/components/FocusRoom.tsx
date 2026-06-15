@@ -880,11 +880,12 @@ export const ScenePicker = ({
 };
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
-export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave }: { 
+export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave, onTogglePause }: { 
   onNavigate?: (view: string) => void, 
   overrideOccupants?: Occupant[],
   forcedScene?: SceneId,
-  onLeave?: () => void
+  onLeave?: () => void,
+  onTogglePause?: (paused: boolean) => void
 }) => {
   const { isDark } = useTheme();
   const [scene, setScene] = useState<SceneId | null>(forcedScene || null);
@@ -904,12 +905,16 @@ export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave 
 
   const togglePause = useCallback(() => {
     setIsPaused(prev => {
-      if (!prev) {
+      const userOcc = overrideOccupants?.find(o => o.isUser);
+      const currentPaused = userOcc ? !!userOcc.isPaused : prev;
+      const nextPaused = !currentPaused;
+      if (nextPaused) {
         setPausedAt(tick);
       }
-      return !prev;
+      onTogglePause?.(nextPaused);
+      return nextPaused;
     });
-  }, [tick]);
+  }, [tick, onTogglePause, overrideOccupants]);
 
   // Timer only ticks in study mode and when not paused
   useEffect(() => {
@@ -966,15 +971,19 @@ export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave 
 
   if (!scene) return <ScenePicker onPick={(s, m) => { setScene(s); setMode(m); }} onNavigate={onNavigate} />;
 
+  const userOcc = overrideOccupants?.find(o => o.isUser);
+  const displaySeconds = userOcc ? userOcc.elapsedSeconds : sessionSeconds;
+  const displayPaused = userOcc ? !!userOcc.isPaused : isPaused;
+
   return (
     <div style={{ height: 'calc(100vh - 135px)', minHeight: 480, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
       <div style={{ width: '100%', height: '100%', position: 'relative', borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden' }}>
         <RoomView
           scene={scene} occupants={occupants}
-          sessionSeconds={sessionSeconds}
+          sessionSeconds={displaySeconds}
           onLeave={handleLeave}
           accent={accent}
-          isPaused={isPaused}
+          isPaused={displayPaused}
           togglePause={togglePause}
           mode={mode}
         />

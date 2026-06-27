@@ -1,0 +1,58 @@
+diff --git a/node_modules/ref-wchar-napi/index.js b/node_modules/ref-wchar-napi/index.js
+index d287603..ae3b314 100644
+--- a/node_modules/ref-wchar-napi/index.js
++++ b/node_modules/ref-wchar-napi/index.js
+@@ -4,7 +4,6 @@
+  */
+ 
+ var ref = require('ref-napi');
+-var Iconv = require('iconv').Iconv;
+ 
+ /**
+  * On Windows they're UTF-16 (2-bytes),
+@@ -20,8 +19,43 @@ if ('win32' == process.platform) {
+   size = 4;
+ }
+ 
+-var getter = new Iconv('UTF-' + (8 * size) + ref.endianness, 'UTF-8');
+-var setter = new Iconv('UTF-8', 'UTF-' + (8 * size) + ref.endianness);
++var getter, setter;
++if (size === 2) {
++  var encoding = 'ucs2';
++  getter = {
++    convert: function (buf) {
++      // Decode buffer to string, then return as UTF-8 buffer for .toString('utf8')
++      var str = buf.toString(encoding);
++      // Remove trailing null character if present
++      if (str.charCodeAt(str.length - 1) === 0) {
++        str = str.slice(0, -1);
++      }
++      return Buffer.from(str, 'utf8');
++    }
++  };
++  setter = {
++    convert: function (str) {
++      return Buffer.from(str, encoding);
++    }
++  };
++} else {
++  try {
++    var Iconv = require('iconv').Iconv;
++    getter = new Iconv('UTF-' + (8 * size) + ref.endianness, 'UTF-8');
++    setter = new Iconv('UTF-8', 'UTF-' + (8 * size) + ref.endianness);
++  } catch (e) {
++    getter = {
++      convert: function () {
++        throw new Error('UTF-32 conversion on non-Windows requires the native "iconv" module.');
++      }
++    };
++    setter = {
++      convert: function () {
++        throw new Error('UTF-32 conversion on non-Windows requires the native "iconv" module.');
++      }
++    };
++  }
++}
+ 
+ 
+ /**

@@ -7,14 +7,15 @@
   "private": true,
   "scripts": {
     "start": "electron-forge start",
-    "start:qa": "cross-env VITE_API_URL=https://qa.produchive.com VITE_WEB_URL=https://produchive-web-qa.vercel.app electron-forge start",
+    "start:qa": "cross-env VITE_API_URL=https://api.produchive.com VITE_WEB_URL=https://produchive-web-qa.vercel.app electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",
-    "make:qa": "cross-env VITE_API_URL=https://qa.produchive.com VITE_WEB_URL=https://produchive-web-qa.vercel.app electron-forge make",
+    "make:qa": "cross-env VITE_API_URL=https://api.produchive.com VITE_WEB_URL=https://produchive-web-qa.vercel.app electron-forge make",
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "postinstall": "patch-package"
   },
   "keywords": [],
   "author": "Rishi",
@@ -47,6 +48,7 @@
     "eslint": "^8.57.1",
     "eslint-plugin-import": "^2.32.0",
     "node-abi": "^4.31.0",
+    "patch-package": "^8.0.1",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.9.3",
@@ -58,8 +60,8 @@
     "@react-three/drei": "^10.0.0",
     "@react-three/fiber": "^9.0.0",
     "active-win": "^7.7.2",
-    "ffi-napi": "^4.0.3",
-    "ref-napi": "^3.0.3",
+    "ffi-napi": "npm:@breush/ffi-napi@^4.0.13",
+    "ref-napi": "npm:@breush/ref-napi@^4.0.9",
     "ref-struct-di": "^1.1.1",
     "ref-wchar-napi": "^1.0.3",
     "axios": "^1.16.1",
@@ -80,6 +82,8 @@
   },
   "overrides": {
     "node-abi": "^4.31.0",
-    "iconv": "npm:iconv-lite@^0.6.3"
+    "iconv": "npm:iconv-lite@^0.6.3",
+    "ref-napi": "npm:@breush/ref-napi@^4.0.9",
+    "ffi-napi": "npm:@breush/ffi-napi@^4.0.13"
   }
 }

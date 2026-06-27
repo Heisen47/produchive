@@ -23,6 +23,6 @@ export const WEB_BASE_URL: string =
 
 /**
  * WebSocket base URL — derived from API_BASE_URL by swapping http → ws.
- * e.g. https://qa.produchive.com → wss://qa.produchive.com
+ * e.g. https://api.produchive.com → wss://api.produchive.com
  */
 export const WS_BASE_URL: string = API_BASE_URL.replace(/^http/, 'ws');

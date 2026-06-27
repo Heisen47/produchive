@@ -7,10 +7,17 @@
   "private": true,
   "scripts": {
     "start": "electron-forge start",
+<<<<<<< HEAD
     "start:qa": "cross-env VITE_API_URL=https://qa.produchive.com VITE_WEB_URL=https://produchive-web-qa.vercel.app electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",
     "make:qa": "cross-env VITE_API_URL=https://qa.produchive.com VITE_WEB_URL=https://produchive-web-qa.vercel.app electron-forge make",
+=======
+    "start:qa": "VITE_API_URL=https://api.produchive.com VITE_WEB_URL=https://produchive-web-qa.vercel.app electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "make:qa": "VITE_API_URL=https://api.produchive.com VITE_WEB_URL=https://produchive-web-qa.vercel.app electron-forge make",
+>>>>>>> 5a58e4a50273f11f5363718bbe68bad5fb1ded04
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
     "test": "vitest run",

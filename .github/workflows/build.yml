@@ -72,5 +72,6 @@ jobs:
             out/make/**/*.msi
             out/make/**/*.dmg
             out/make/**/*.zip
+            out/make/**/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

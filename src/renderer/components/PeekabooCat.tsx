@@ -68,7 +68,7 @@ export const PeekabooCat: React.FC<PeekabooCatProps> = ({ isSidebarOpen }) => {
     }, [triggerCat]);
 
     // Calculate sidebar offset
-    const sidebarWidth = isSidebarOpen ? 256 : 72; 
+    const sidebarWidth = isSidebarOpen ? 100 : 0; 
 
     // Calculate styles based on position
     const getStyles = (): React.CSSProperties => {

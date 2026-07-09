@@ -1,9 +1,9 @@
 // Platform-specific makers: loaded conditionally so the config works on both macOS and Windows.
 // maker-dmg has native macOS deps that can't install on Windows, and vice versa.
-let MakerWix, MakerDMG, MakerSquirrel;
+let MakerWix, MakerDMG, MakerNsis;
 try { ({ MakerWix } = require('@electron-forge/maker-wix')); } catch {}
 try { ({ MakerDMG } = require('@electron-forge/maker-dmg')); } catch {}
-try { ({ MakerSquirrel } = require('@electron-forge/maker-squirrel')); } catch {}
+try { ({ MakerNsis } = require('electron-forge-maker-nsis')); } catch {}
 // const { MakerMSIX } = require('@electron-forge/maker-msix');
 const { MakerZIP } = require('@electron-forge/maker-zip');
 const { MakerDeb } = require('@electron-forge/maker-deb');
@@ -157,12 +157,11 @@ const config = {
         },
     },
     makers: [
-        // ─── Windows: Squirrel.Windows (.exe) ──────────────────────────────────
-        ...(MakerSquirrel ? [new MakerSquirrel({
-            name: 'produchive',
+        // ─── Windows: NSIS (.exe) ── traditional installer wizard
+        ...(MakerNsis ? [new MakerNsis({
+            oneClick: false,
+            allowToChangeInstallationDirectory: true,
             setupIcon: './resources/icon.ico',
-            setupExe: 'produchive-Setup.exe',
-            noMsi: true,
         })] : []),
         // ─── Windows: WiX MSI (.exe) ── traditional installer with directory picker
         ...(MakerWix ? [new MakerWix({

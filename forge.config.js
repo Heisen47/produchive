@@ -1,9 +1,33 @@
+const MakerBase = require('@electron-forge/maker-base').default;
+const { buildForge } = require('app-builder-lib');
+
+class MakerNsis extends MakerBase {
+    name = 'nsis';
+    defaultPlatforms = ['win32'];
+
+    isSupportedOnCurrentPlatform() {
+        return true;
+    }
+
+    async make(options) {
+        return await buildForge(options, {
+            win: [`nsis:${options.targetArch}`],
+            config: {
+                nsis: {
+                    oneClick: false,
+                    allowToChangeInstallationDirectory: true,
+                    installerIcon: './resources/icon.ico',
+                }
+            }
+        });
+    }
+}
+
 // Platform-specific makers: loaded conditionally so the config works on both macOS and Windows.
 // maker-dmg has native macOS deps that can't install on Windows, and vice versa.
-let MakerWix, MakerDMG, MakerNsis;
+let MakerWix, MakerDMG;
 try { ({ MakerWix } = require('@electron-forge/maker-wix')); } catch {}
 try { ({ MakerDMG } = require('@electron-forge/maker-dmg')); } catch {}
-try { ({ MakerNsis } = require('electron-forge-maker-nsis')); } catch {}
 // const { MakerMSIX } = require('@electron-forge/maker-msix');
 const { MakerZIP } = require('@electron-forge/maker-zip');
 const { MakerDeb } = require('@electron-forge/maker-deb');
@@ -158,11 +182,7 @@ const config = {
     },
     makers: [
         // ─── Windows: NSIS (.exe) ── traditional installer wizard
-        ...(MakerNsis ? [new MakerNsis({
-            oneClick: false,
-            allowToChangeInstallationDirectory: true,
-            setupIcon: './resources/icon.ico',
-        })] : []),
+        new MakerNsis(),
         // ─── Windows: WiX MSI (.exe) ── traditional installer with directory picker
         ...(MakerWix ? [new MakerWix({
             icon: './resources/icon.ico',

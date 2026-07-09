@@ -63,4 +63,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSettings: () => ipcRenderer.invoke("get-settings"),
   setSetting: (key: string, value: any) =>
     ipcRenderer.invoke("set-setting", key, value),
+
+  // External URLs
+  openExternalUrl: (url: string) => ipcRenderer.invoke("open-external-url", url),
+
+  // Deep linking authentication events
+  getPendingToken: () => ipcRenderer.invoke("get-pending-token"),
+  onAuthToken: (callback: (token: string) => void) => {
+    ipcRenderer.removeAllListeners("on-auth-token");
+    ipcRenderer.on("on-auth-token", (_event, value) => callback(value));
+  },
 });
+

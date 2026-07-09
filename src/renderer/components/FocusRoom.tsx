@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeft, Maximize2, Minimize2, Lock, Unlock, Pause, Play, Eye, Users, Zap, BookOpen, Coffee, GraduationCap, ChevronDown, Sparkles as SparklesIcon } from 'lucide-react';
+import { ArrowLeft, Maximize2, Minimize2, Lock, Unlock, Pause, Play, Eye, Users, Zap, BookOpen, Coffee, GraduationCap, ChevronDown, Plus, Sparkles as SparklesIcon } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { useStore } from '../lib/store';
 import { Canvas } from '@react-three/fiber';
@@ -218,7 +218,7 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent, isPaused,
       setIsLocked(false);
       setShowUnlockPrompt(false);
       if (document.fullscreenElement) {
-        try { await document.exitFullscreen(); } catch (_) {}
+        try { await document.exitFullscreen(); } catch (e) { console.error(e); }
       }
     });
   }, []);
@@ -539,16 +539,28 @@ const SCENE_ICONS: Record<SceneId, React.ReactNode> = {
 const SCENE_LABEL: Record<string, string> = { classroom: 'Classroom', cafe: 'Café', library: 'Library' };
 const SCENE_EMOJI: Record<string, string> = { classroom: '🎓', cafe: '☕', library: '📚' };
 
-const ScenePicker = ({ onPick, onNavigate }: { onPick: (s: SceneId, mode: RoomMode) => void, onNavigate?: (view: string) => void }) => {
+export const ScenePicker = ({ 
+  onPick, 
+  onNavigate,
+  isMultiplayer,
+  onJoin
+}: { 
+  onPick: (s: SceneId, mode: RoomMode) => void, 
+  onNavigate?: (view: string) => void,
+  isMultiplayer?: boolean,
+  onJoin?: (code: string) => void
+}) => {
   const { isDark } = useTheme();
   const { isMonitoring } = useStore();
   const [expanded, setExpanded] = useState<SceneId | null>(null);
   const [pastSessions, setPastSessions] = useState<any[]>([]);
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [joinCode, setJoinCode] = useState('');
 
   useEffect(() => {
     const api = (window as any).electronAPI;
     if (api?.getFocusSessions) {
-      api.getFocusSessions().then((s: any[]) => setPastSessions(s)).catch(() => {});
+      api.getFocusSessions().then((s: any[]) => setPastSessions(s)).catch((e: any) => console.error(e));
     }
   }, []);
 
@@ -566,7 +578,11 @@ const ScenePicker = ({ onPick, onNavigate }: { onPick: (s: SceneId, mode: RoomMo
           <span style={{ fontSize: 10, fontWeight: 800, color: '#a78bfa', letterSpacing: 2, textTransform: 'uppercase' }}>Focus Rooms</span>
         </div>
         <h2 style={{ fontSize: 28, fontWeight: 800, margin: '0 0 8px', color: base.text, lineHeight: 1.2 }}>Pick your space</h2>
-        <p style={{ fontSize: 13, color: base.sub, margin: 0, lineHeight: 1.6 }}>Immersive 3D environments built for deep work. Study alongside Alex, Priya, Jordan, Sam, Mia, Yuki, Dani, Leo, Zoe — always free.</p>
+        <p style={{ fontSize: 13, color: base.sub, margin: 0, lineHeight: 1.6 }}>
+          {isMultiplayer 
+            ? "Create a private session or join a friend's room."
+            : "Immersive 3D environments built for deep work. Study alongside Alex, Priya, Jordan, Sam, Mia, Yuki, Dani, Leo, Zoe — always free."}
+        </p>
       </div>
 
       {/* Scene cards */}
@@ -606,7 +622,9 @@ const ScenePicker = ({ onPick, onNavigate }: { onPick: (s: SceneId, mode: RoomMo
                       style={{ transition: 'transform 0.25s', transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}
                     />
                   </div>
-                  <p style={{ margin: 0, fontSize: 11, color: base.sub, lineHeight: 1.5 }}>{m.tagline}</p>
+                  <p style={{ margin: 0, fontSize: 11, color: base.sub, lineHeight: 1.5 }}>
+                    {isMultiplayer ? 'Create or join a private session.' : m.tagline}
+                  </p>
                 </div>
               </button>
 
@@ -616,52 +634,94 @@ const ScenePicker = ({ onPick, onNavigate }: { onPick: (s: SceneId, mode: RoomMo
                   {/* Divider */}
                   <div style={{ height: 1, background: `${base.cardBorder}`, marginBottom: 2 }} />
 
-                  {/* View Room */}
-                  <button
-                    onClick={() => onPick(id, 'view')}
-                    style={{
-                      width: '100%', padding: '9px 12px', borderRadius: 10,
-                      background: 'transparent',
-                      border: `1px solid ${base.cardBorder}`,
-                      color: base.sub, fontSize: 12, fontWeight: 600,
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
-                      transition: 'all 0.15s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; e.currentTarget.style.color = base.text; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = base.sub; }}
-                  >
-                    <Eye size={13} strokeWidth={2} /> View Room
-                  </button>
+                  {isMultiplayer ? (
+                    <>
+                      {/* Create Room */}
+                      <button
+                        onClick={() => onPick(id, 'study')}
+                        style={{
+                          width: '100%', padding: '9px 12px', borderRadius: 10,
+                          background: m.accent,
+                          border: 'none',
+                          color: '#000', fontSize: 12, fontWeight: 800,
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                          boxShadow: `0 4px 14px ${m.accent}44`,
+                          transition: 'opacity 0.15s',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = '0.85'; }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+                      >
+                        <Plus size={13} strokeWidth={2.5} /> Create Room
+                      </button>
 
-                  {/* Join Study Group */}
-                  <button
-                    onClick={() => {
-                      if (!isMonitoring) {
-                        if (onNavigate) {
-                          onNavigate('dashboard');
-                          // Give a slight delay for the dashboard view to render before triggering the pulse
-                          setTimeout(() => {
-                            window.dispatchEvent(new Event('highlight-monitoring'));
-                          }, 100);
-                        }
-                        return;
-                      }
-                      onPick(id, 'study');
-                    }}
-                    style={{
-                      width: '100%', padding: '9px 12px', borderRadius: 10,
-                      background: m.accent,
-                      border: 'none',
-                      color: '#000', fontSize: 12, fontWeight: 800,
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
-                      boxShadow: `0 4px 14px ${m.accent}44`,
-                      transition: 'opacity 0.15s',
-                    }}
-                    onMouseEnter={e => { e.currentTarget.style.opacity = '0.85'; }}
-                    onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
-                  >
-                    <Users size={13} strokeWidth={2.5} /> Join Study Group
-                  </button>
+                      {/* Join Room */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setJoinCode('');
+                          setShowJoinModal(true);
+                        }}
+                        style={{
+                          width: '100%', padding: '9px 12px', borderRadius: 10,
+                          background: 'transparent',
+                          border: `1px solid ${base.cardBorder}`,
+                          color: base.text, fontSize: 12, fontWeight: 800,
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7,
+                          transition: 'all 0.15s',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                      >
+                        <Users size={13} strokeWidth={2.5} /> Join Room
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {/* View Room */}
+                      <button
+                        onClick={() => onPick(id, 'view')}
+                        style={{
+                          width: '100%', padding: '9px 12px', borderRadius: 10,
+                          background: 'transparent',
+                          border: `1px solid ${base.cardBorder}`,
+                          color: base.sub, fontSize: 12, fontWeight: 600,
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
+                          transition: 'all 0.15s',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)'; e.currentTarget.style.color = base.text; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = base.sub; }}
+                      >
+                        <Eye size={13} strokeWidth={2} /> View Room
+                      </button>
+
+                      {/* Join Study Group */}
+                      <button
+                        onClick={() => {
+                          if (!isMonitoring) {
+                            if (onNavigate) {
+                              onNavigate('dashboard');
+                              setTimeout(() => { window.dispatchEvent(new Event('highlight-monitoring')); }, 100);
+                            }
+                            return;
+                          }
+                          onPick(id, 'study');
+                        }}
+                        style={{
+                          width: '100%', padding: '9px 12px', borderRadius: 10,
+                          background: m.accent,
+                          border: 'none',
+                          color: '#000', fontSize: 12, fontWeight: 800,
+                          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
+                          boxShadow: `0 4px 14px ${m.accent}44`,
+                          transition: 'opacity 0.15s',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.opacity = '0.85'; }}
+                        onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+                      >
+                        <Users size={13} strokeWidth={2.5} /> Join Study Group
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -759,83 +819,102 @@ const ScenePicker = ({ onPick, onNavigate }: { onPick: (s: SceneId, mode: RoomMo
           </div>
         );
       })()}
-      <div style={{
-        maxWidth: 480, width: '100%',
-        borderRadius: 20,
-        background: isDark ? 'rgba(15,23,42,0.75)' : 'rgba(255,255,255,0.8)',
-        border: '1px solid rgba(167,139,250,0.25)',
-        backdropFilter: 'blur(14px)',
-        overflow: 'hidden',
-        boxShadow: isDark ? '0 8px 32px rgba(0,0,0,0.3)' : '0 8px 32px rgba(0,0,0,0.1)',
-      }}>
-        {/* Header */}
+
+      {/* Join Room Modal */}
+      {showJoinModal && (
         <div style={{
-          background: 'linear-gradient(135deg, #4c1d95 0%, #7c3aed 60%, #a78bfa 100%)',
-          padding: '16px 24px',
-          display: 'flex', alignItems: 'center', gap: 14,
-        }}>
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 100
+        }} onClick={() => setShowJoinModal(false)}>
           <div style={{
-            width: 38, height: 38, borderRadius: 10,
-            background: 'rgba(255,255,255,0.15)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}>
-            <Zap size={18} color="#fff" strokeWidth={2} />
-          </div>
-          <div>
-            <div style={{ color: '#fff', fontSize: 14, fontWeight: 800, letterSpacing: 0.2 }}>Study with real friends</div>
-            <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 11, marginTop: 2, fontWeight: 500 }}>Live multiplayer rooms · Coming soon</div>
-          </div>
-        </div>
-
-        {/* Body */}
-        <div style={{ padding: '20px 24px 22px' }}>
-          <p style={{ margin: '0 0 18px', fontSize: 13, color: base.sub, lineHeight: 1.65 }}>
-            We're building real-time rooms where you can invite your actual friends, see them as characters, and study together — same vibe, real accountability.
-          </p>
-
-          <div>
-            <a
-              href="https://forms.gle/aQJdFwULQiHcnxw37"
-              target="_blank"
-              rel="noopener noreferrer"
+            background: base.card, padding: 24, borderRadius: 16, width: 320,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)', border: `1px solid ${base.cardBorder}`
+          }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 16px', color: base.text, fontSize: 18 }}>Join Room</h3>
+            <input 
+              autoFocus
+              placeholder="Enter Room Code"
+              value={joinCode}
+              onChange={e => setJoinCode(e.target.value)}
               style={{
-                display: 'inline-flex', padding: '10px 20px', borderRadius: 10,
-                background: 'linear-gradient(135deg, #6d28d9, #8b5cf6)',
-                textDecoration: 'none', color: '#fff', fontSize: 12, fontWeight: 800,
-                boxShadow: '0 4px 14px rgba(109,40,217,0.35)',
-                alignItems: 'center', justifyContent: 'center', gap: 6,
-                transition: 'opacity 0.15s',
+                width: '100%', padding: '10px 14px', borderRadius: 8,
+                background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                border: `1px solid ${base.cardBorder}`, color: base.text, outline: 'none',
+                fontSize: 14, marginBottom: 16, boxSizing: 'border-box'
               }}
-              onMouseEnter={e => { e.currentTarget.style.opacity = '0.85'; }}
-              onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
-            >
-              <Users size={13} strokeWidth={2.5} /> Let us know what you want
-            </a>
+              onKeyDown={e => {
+                if (e.key === 'Enter' && joinCode.trim()) {
+                  setShowJoinModal(false);
+                  onJoin?.(joinCode.trim());
+                }
+              }}
+            />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button 
+                onClick={() => setShowJoinModal(false)}
+                style={{ flex: 1, padding: '8px', borderRadius: 8, background: 'transparent', border: `1px solid ${base.cardBorder}`, color: base.text, cursor: 'pointer', fontWeight: 600 }}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={() => {
+                  if (joinCode.trim()) {
+                    setShowJoinModal(false);
+                    onJoin?.(joinCode.trim());
+                  }
+                }}
+                disabled={!joinCode.trim()}
+                style={{ flex: 1, padding: '8px', borderRadius: 8, background: joinCode.trim() ? '#a78bfa' : 'rgba(255,255,255,0.05)', color: joinCode.trim() ? '#000' : base.sub, border: 'none', cursor: joinCode.trim() ? 'pointer' : 'not-allowed', fontWeight: 700 }}
+              >
+                Join
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
     </div>
   );
 };
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
-export const FocusRoom: React.FC<{ onNavigate?: (view: string) => void }> = ({ onNavigate }) => {
-  const [scene, setScene] = useState<SceneId | null>(null);
-  const [mode, setMode] = useState<RoomMode>('study');
+export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave, onTogglePause }: { 
+  onNavigate?: (view: string) => void, 
+  overrideOccupants?: Occupant[],
+  forcedScene?: SceneId,
+  onLeave?: () => void,
+  onTogglePause?: (paused: boolean) => void
+}) => {
+  const { isDark } = useTheme();
+  const [scene, setScene] = useState<SceneId | null>(forcedScene || null);
+  const [mode, setMode] = useState<'study' | 'view'>('study');
   const [tick, setTick] = useState(0);
   const sessionStartRef = useRef(Date.now());
   const sessionStartedAt = useRef<string>(new Date().toISOString());
   const [isPaused, setIsPaused] = useState(false);
   const [pausedAt, setPausedAt] = useState<number>(0);
 
+  useEffect(() => {
+    if (forcedScene) {
+      setScene(forcedScene);
+      setMode('study'); // force study mode when a scene is forced (e.g. multiplayer)
+    }
+  }, [forcedScene]);
+
   const togglePause = useCallback(() => {
     setIsPaused(prev => {
-      if (!prev) {
+      const userOcc = overrideOccupants?.find(o => o.isUser);
+      const currentPaused = userOcc ? !!userOcc.isPaused : prev;
+      const nextPaused = !currentPaused;
+      if (nextPaused) {
         setPausedAt(tick);
       }
-      return !prev;
+      onTogglePause?.(nextPaused);
+      return nextPaused;
     });
-  }, [tick]);
+  }, [tick, onTogglePause, overrideOccupants]);
 
   // Timer only ticks in study mode and when not paused
   useEffect(() => {
@@ -854,12 +933,17 @@ export const FocusRoom: React.FC<{ onNavigate?: (view: string) => void }> = ({ o
   const accent = scene ? SCENE_META[scene].accent : '#4ade80';
 
   // In view mode: no user occupant, NPCs still populate the room for ambience
-  const occupants: Occupant[] = scene ? (mode === 'study' ? [
-    { id: 'user', name: 'You', isUser: true, elapsedSeconds: sessionSeconds, seatIdx: 0 },
-    ...npcs.slice(0, SCENE_META[scene].maxSeats - 1).map(n => ({ ...n, elapsedSeconds: n.elapsedSeconds + tick })),
-  ] : [
-    ...npcs.slice(0, SCENE_META[scene].maxSeats).map(n => ({ ...n, elapsedSeconds: n.elapsedSeconds + tick })),
-  ]) : [];
+  let occupants: Occupant[] = [];
+  if (overrideOccupants) {
+    occupants = overrideOccupants;
+  } else if (scene) {
+    occupants = mode === 'study' ? [
+      { id: 'user', name: 'You', isUser: true, elapsedSeconds: sessionSeconds, seatIdx: 0 },
+      ...npcs.slice(0, SCENE_META[scene].maxSeats - 1).map(n => ({ ...n, elapsedSeconds: n.elapsedSeconds + tick })),
+    ] : [
+      ...npcs.slice(0, SCENE_META[scene].maxSeats).map(n => ({ ...n, elapsedSeconds: n.elapsedSeconds + tick })),
+    ];
+  }
 
   const handleLeave = useCallback(() => {
     // Persist session to DB before tearing down (only study mode > 30s is worth saving)
@@ -870,8 +954,11 @@ export const FocusRoom: React.FC<{ onNavigate?: (view: string) => void }> = ({ o
           scene,
           durationSeconds: sessionSeconds,
           startedAt: sessionStartedAt.current,
-        }).catch(() => {});
+        }).catch((e: any) => console.error(e));
       }
+    }
+    if (onLeave) {
+      onLeave();
     }
     setScene(null);
     setMode('study');
@@ -880,19 +967,23 @@ export const FocusRoom: React.FC<{ onNavigate?: (view: string) => void }> = ({ o
     setPausedAt(0);
     sessionStartRef.current = Date.now();
     sessionStartedAt.current = new Date().toISOString();
-  }, [scene, mode, sessionSeconds]);
+  }, [scene, mode, sessionSeconds, onLeave]);
 
   if (!scene) return <ScenePicker onPick={(s, m) => { setScene(s); setMode(m); }} onNavigate={onNavigate} />;
+
+  const userOcc = overrideOccupants?.find(o => o.isUser);
+  const displaySeconds = userOcc ? userOcc.elapsedSeconds : sessionSeconds;
+  const displayPaused = userOcc ? !!userOcc.isPaused : isPaused;
 
   return (
     <div style={{ height: 'calc(100vh - 135px)', minHeight: 480, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
       <div style={{ width: '100%', height: '100%', position: 'relative', borderRadius: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.1)', overflow: 'hidden' }}>
         <RoomView
           scene={scene} occupants={occupants}
-          sessionSeconds={sessionSeconds}
+          sessionSeconds={displaySeconds}
           onLeave={handleLeave}
           accent={accent}
-          isPaused={isPaused}
+          isPaused={displayPaused}
           togglePause={togglePause}
           mode={mode}
         />

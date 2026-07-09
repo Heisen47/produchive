@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { StudyRooms } from './components/StudyRooms';
 import { FocusRoom } from './components/FocusRoom';
+import { PremiumPaywall } from './components/PremiumPaywall';
 import { GoalSetter } from './components/GoalSetter';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { ProductivityJudge } from './components/ProductivityJudge';
@@ -10,10 +12,12 @@ import { SystemLog } from './components/SystemLog';
 import { GoalOnboarding } from './components/GoalOnboarding';
 import { WelcomeGuide } from './components/WelcomeGuide';
 import { ErrorModal } from './components/ErrorModal';
+import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { initEngine } from './lib/ai';
 import { useStore } from './lib/store';
+import { apiClient } from './lib/api';
 import {
     Loader2,
     Sparkles,
@@ -22,21 +26,24 @@ import {
     BarChart3,
     Activity,
     Brain,
-    Users2
+    Users2,
+    Coffee,
+    UserCircle,
+    Crown
 } from 'lucide-react';
 import { Footer } from './components/Footer';
 import { DownloadProgress } from './components/DownloadProgress';
 import { UpdateBanner } from './components/UpdateBanner';
+import { PeekabooCat } from './components/PeekabooCat';
+import { ModelManager } from './components/ModelManager';
 
 const viewIcons: Record<string, React.ComponentType<any>> = {
     dashboard: LayoutDashboard,
     analytics: BarChart3,
     monitor: Activity,
     ai: Brain,
-    focusroom: Users2,
+    focusroom: Coffee,
 };
-import { PeekabooCat } from './components/PeekabooCat';
-import { ModelManager } from './components/ModelManager';
 
 
 const viewLabels: Record<string, string> = {
@@ -48,12 +55,13 @@ const viewLabels: Record<string, string> = {
 };
 
 const AppContent = () => {
-    const { addActivity, goals, setError, error, selectedModelId } = useStore();
+    const { addActivity, goals, setError, error, selectedModelId, isPremium, user } = useStore();
     const { isDark } = useTheme();
     const [currentView, setCurrentView] = useState('dashboard');
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     const [showOnboarding, setShowOnboarding] = useState(true);
     const [showWelcome, setShowWelcome] = useState(false); // Loaded from DB
+    const [showLoginModal, setShowLoginModal] = useState(false);
     const [isDataLoaded, setDataLoaded] = useState(false);
     const [viewKey, setViewKey] = useState(0);
     const [isCatEnabled, setCatEnabled] = useState(true);
@@ -70,10 +78,23 @@ const AppContent = () => {
         setViewKey(prev => prev + 1);
     };
 
-    // Listen for activity updates
+    // Listen for activity updates and deep link auth tokens
     useEffect(() => {
         window.electronAPI.onActivityUpdate((activity) => {
             addActivity(activity);
+        });
+
+        // Set up real-time listener for deep link auth tokens
+        window.electronAPI.onAuthToken(async (token) => {
+            sessionStorage.setItem('token', token);
+            try {
+                const me = await apiClient.getMe();
+                useStore.getState().setUser(me);
+                setShowLoginModal(false);
+            } catch (err) {
+                console.error('Failed to retrieve user info with deep-linked token:', err);
+                sessionStorage.removeItem('token');
+            }
         });
 
         const init = async () => {
@@ -94,6 +115,25 @@ const AppContent = () => {
                 // Load cat setting
                 if (settings?.catEnabled !== undefined) {
                     setCatEnabled(settings.catEnabled);
+                }
+
+                // Check if we have a pending deep link token from startup
+                let token = await window.electronAPI.getPendingToken();
+                if (token) {
+                    sessionStorage.setItem('token', token);
+                } else {
+                    // Restore user session if token exists in session storage
+                    token = sessionStorage.getItem('token');
+                }
+
+                if (token) {
+                    try {
+                        const me = await apiClient.getMe();
+                        useStore.getState().setUser(me);
+                    } catch (err) {
+                        console.error('Failed to restore user session:', err);
+                        sessionStorage.removeItem('token');
+                    }
                 }
             } catch (e: any) {
                 setError("Failed to load initial data: " + e.message);
@@ -172,6 +212,7 @@ const AppContent = () => {
     return (
         <div className="h-screen w-screen flex overflow-hidden font-sans selection:bg-blue-500/30" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
             <ErrorModal />
+            {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
             {showWelcome && <WelcomeGuide onClose={() => setShowWelcome(false)} />}
             {!showWelcome && showOnboarding && <GoalOnboarding onClose={() => setShowOnboarding(false)} />}
             
@@ -291,6 +332,44 @@ const AppContent = () => {
                                 Activate AI
                             </button>
                         )}
+
+                        <button
+                            onClick={() => setShowLoginModal(true)}
+                            className="p-2 rounded-full transition-all flex items-center justify-center relative group hover:scale-105"
+                            style={isPremium ? {
+                                background: 'linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(218, 165, 32, 0.1) 100%)', 
+                                border: '1px solid rgba(255, 215, 0, 0.5)',
+                                boxShadow: '0 0 15px rgba(255, 215, 0, 0.2), inset 0 0 10px rgba(218, 165, 32, 0.1)'
+                            } : { 
+                                background: 'var(--bg-elevated)', 
+                                border: '1px solid var(--border-primary)',
+                                boxShadow: 'none'
+                            }}
+                            title={user ? `Logged in as ${user.email}${isPremium ? ' (Premium)' : ''}` : "Login"}
+                        >
+                            {isPremium ? (
+                                <Crown 
+                                    size={20} 
+                                    style={{ 
+                                        color: '#FFD700',
+                                        filter: 'drop-shadow(0 0 4px rgba(255,215,0,0.4))'
+                                    }} 
+                                />
+                            ) : (
+                                <UserCircle 
+                                    size={20} 
+                                    style={{ 
+                                        color: user ? 'var(--accent)' : 'var(--text-secondary)' 
+                                    }} 
+                                />
+                            )}
+                            {user && !isPremium && (
+                                <div 
+                                    className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[var(--bg-primary)]"
+                                    style={{ backgroundColor: '#22c55e' }}
+                                />
+                            )}
+                        </button>
                     </div>
                 </header>
 
@@ -322,7 +401,7 @@ const AppContent = () => {
                                 </div>
                             )}
 
-                            {currentView === 'focusroom' && <FocusRoom onNavigate={handleViewChange} />}
+                            {currentView === 'focusroom' && <StudyRooms onNavigate={handleViewChange} />}
                         </div>
 
                         <div className="space-y-6 pt-8" style={{ borderTop: '1px solid var(--border-secondary)' }}>

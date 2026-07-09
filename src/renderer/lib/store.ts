@@ -43,10 +43,18 @@ interface Store {
     // User Settings
     selectedRole: string | null;
     setSelectedRole: (role: string) => void;
+    
+    // Premium Status
+    isPremium: boolean;
+    setPremium: (status: boolean) => void;
 
     // Global Error Handling
     error: string | null;
     setError: (error: string | null) => void;
+    
+    // Auth
+    user: any | null;
+    setUser: (user: any | null) => void;
 }
 
 export const useStore = create<Store>((set, get) => ({
@@ -65,6 +73,16 @@ export const useStore = create<Store>((set, get) => ({
         set({ selectedModelId: modelId });
         localStorage.setItem('selectedModelId', modelId);
     },
+    isPremium: false,
+    setPremium: (status: boolean) => {
+        set({ isPremium: status });
+        // In a real app, persist this securely
+    },
+    user: null,
+    setUser: (user: any | null) => set({ 
+        user,
+        isPremium: user ? !!user.isPremium : false
+    }),
     error: null,
     setError: (error) => set({ error }),
     loadTasks: async () => {

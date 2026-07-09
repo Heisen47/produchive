@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Sparkles, Outlines } from '@react-three/drei';
-import { Occupant, GhibliMaterial, WallPoster, Desk, Character, WallClock, CoffeeMug, Bookshelf, PottedPlant, PendantLamp, CoffeeStand } from './Shared3D';
+import { Occupant, GhibliMaterial, WallPoster, Desk, Character, WallClock, CoffeeMug, Bookshelf, PottedPlant, PendantLamp, CoffeeStand, SmokePoof } from './Shared3D';
 
 const WoodenWindow = ({ position, rotation = [0, 0, 0], width = 3.5, height = 5.5, hasMoon = false }: { position: [number, number, number], rotation?: [number, number, number], width?: number, height?: number, hasMoon?: boolean }) => {
   const fw = 0.4; // chunkier frame
@@ -54,6 +54,47 @@ export const CafeEnv = ({ occupants, accent }: { occupants: Occupant[], accent: 
     const z = table.z + Math.cos(angle) * 1.1;
     return { pos: [x, 0, z], deskPos: [table.x, 0, table.z], rot: angle + Math.PI, desk: true };
   };
+
+  const [poofs, setPoofs] = React.useState<{ id: string; pos: [number, number, number] }[]>([]);
+  const [hasPoofedInitial, setHasPoofedInitial] = React.useState(false);
+  const prevOccupantsRef = React.useRef<Occupant[]>([]);
+
+  React.useEffect(() => {
+    const userOcc = occupants.find(o => o.isUser);
+    if (userOcc && !hasPoofedInitial) {
+      const timer = setTimeout(() => {
+        const { pos } = getSeatProps(userOcc.seatIdx);
+        setPoofs(p => [...p, { id: `initial-user-${Date.now()}`, pos }]);
+      }, 1200);
+      setHasPoofedInitial(true);
+      return () => clearTimeout(timer);
+    }
+  }, [occupants, hasPoofedInitial]);
+
+  React.useEffect(() => {
+    const prev = prevOccupantsRef.current;
+    if (prev.length > 0) {
+      const currentIds = new Set(occupants.map(o => o.id));
+      const prevIds = new Set(prev.map(o => o.id));
+
+      // Joins
+      occupants.forEach(occ => {
+        if (!prevIds.has(occ.id) && !occ.isUser) {
+          const { pos } = getSeatProps(occ.seatIdx);
+          setPoofs(p => [...p, { id: `${occ.id}-join-${Date.now()}`, pos }]);
+        }
+      });
+
+      // Leaves
+      prev.forEach(occ => {
+        if (!currentIds.has(occ.id)) {
+          const { pos } = getSeatProps(occ.seatIdx);
+          setPoofs(p => [...p, { id: `${occ.id}-leave-${Date.now()}`, pos }]);
+        }
+      });
+    }
+    prevOccupantsRef.current = occupants;
+  }, [occupants]);
 
   return (
     <group>
@@ -122,6 +163,16 @@ export const CafeEnv = ({ occupants, accent }: { occupants: Occupant[], accent: 
           </React.Fragment>
         );
       })}
+
+      {poofs.map(p => (
+        <SmokePoof
+          key={p.id}
+          position={[p.pos[0], p.pos[1] + 0.8, p.pos[2]]}
+          onComplete={() => {
+            setPoofs(prev => prev.filter(x => x.id !== p.id));
+          }}
+        />
+      ))}
     </group>
   );
 };

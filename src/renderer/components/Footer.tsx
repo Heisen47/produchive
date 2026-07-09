@@ -4,6 +4,8 @@ import { useTheme } from './ThemeProvider';
 import Lottie from 'lottie-react';
 import catAnimation from '../assets/cat.json';
 import { version } from '../../../package.json';
+import { openUrl, WEB_BASE_URL } from '../lib/urls';
+
 
 interface FooterProps {
     isCatEnabled?: boolean;
@@ -12,7 +14,7 @@ interface FooterProps {
 
 export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }) => {
     const repoUrl = 'https://github.com/Heisen47/produchive';
-    const issuesUrl = `https://www.produchive.com/faq`;
+    const issuesUrl = `${WEB_BASE_URL}/faq`;
     const howToUseItUrl = `${repoUrl}/blob/master/docs/HOW_TO_USE_IT.md`;
     const { isDark } = useTheme();
 
@@ -112,8 +114,10 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                         <a
                             key={i}
                             href={link.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            onClick={(e) => {
+                                e.preventDefault();
+                                openUrl(link.href);
+                            }}
                             className="flex items-center gap-1.5 sm:gap-2 transition-all duration-200"
                             style={{ color: 'var(--text-muted)' }}
                             onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--accent)'; }}
@@ -121,7 +125,6 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                         >
                             <link.icon size={14} className="sm:w-4 sm:h-4" />
                             <span className="hidden xs:inline">{link.label}</span>
-                            {/* <span className="xs:hidden">{link.shortLabel}</span> */}
                         </a>
                     ))}
                 </div>

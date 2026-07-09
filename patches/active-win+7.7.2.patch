@@ -1,0 +1,92 @@
+diff --git a/node_modules/active-win/lib/windows.js b/node_modules/active-win/lib/windows.js
+index 21b30f5..0b61012 100644
+--- a/node_modules/active-win/lib/windows.js
++++ b/node_modules/active-win/lib/windows.js
+@@ -35,7 +35,8 @@ const user32 = new ffi.Library('User32.dll', {
+ 	GetWindowRect: ['bool', ['pointer', RectPointer]],
+ 	// Iterate through child windows
+ 	// https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-enumchildwindows
+-	EnumChildWindows: ['bool', ['pointer', VoidPointer, 'int32']]
++	EnumChildWindows: ['bool', ['pointer', VoidPointer, 'int32']],
++	GetWindow: ['pointer', ['pointer', 'uint32']]
+ });
+ 
+ const SIZE_T = 'uint64';
+@@ -74,8 +75,8 @@ const kernel32 = new ffi.Library('kernel32', {
+ 
+ // Create FFI declarations for the C++ library and functions needed (version.dll)
+ const version = new ffi.Library('version', {
+-	GetFileVersionInfoSizeW: ['uint32', ['string', 'uint32']],
+-	GetFileVersionInfoW: ['int32', ['string', 'uint32', 'uint32', 'pointer']],
++	GetFileVersionInfoSizeW: ['uint32', ['pointer', 'uint32']],
++	GetFileVersionInfoW: ['int32', ['pointer', 'uint32', 'uint32', 'pointer']],
+ 	VerLanguageNameW: ['int32', ['uint32', 'pointer', 'uint32']],
+ 	VerQueryValueW: ['int32', ['pointer', 'pointer', VoidPointer, 'uint32 *']]
+ });
+@@ -91,7 +92,9 @@ function getLanguageId(mem) {
+ 	const result = version.VerQueryValueW(mem, toWstring(String.raw`\\VarFileInfo\\Translation`), value, size);
+ 	if (result) {
+ 		const number = ref.readPointer(value, 0, 4);
+-		return (number.readUInt16LE(0) << 16) | number.readUInt16LE(2);
++		const val1 = ((number.get(0) & 0xff) | ((number.get(1) & 0xff) << 8));
++		const val2 = ((number.get(2) & 0xff) | ((number.get(3) & 0xff) << 8));
++		return (val1 << 16) | val2;
+ 	}
+ 
+ 	return enUsLanguageId;
+@@ -122,25 +125,28 @@ function getVersionInfoForCodePage(block, codePage) {
+ function getSubWindowRealProcessNameAndPath(activeWindowHandle, processName, processPath) {
+ 	let [newProcessName, newProcessPath] = [processName, processPath];
+ 
+-	const windowProcess = ffi.Callback('bool', ['pointer', 'int32'], hwnd => {
+-		// Return the Process ID & Process Handle from the Active Window Handle
+-		const [, processHandle] = getProcessIdAndHandle(hwnd);
+-
+-		if (ref.isNull(processHandle)) {
+-			return false; // Failed to get process handle
+-		}
+-
+-		const [processNameChild, processPathChild] = getProcessNameAndPath(processHandle);
+-
+-		if (processPathChild !== processPath) {
+-			[newProcessName, newProcessPath] = [processNameChild, processPathChild];
+-			return false;
++	function traverse(hwnd) {
++		let childHwnd = user32.GetWindow(hwnd, 5); // GW_CHILD
++		while (childHwnd && !ref.isNull(childHwnd)) {
++			const [, processHandle] = getProcessIdAndHandle(childHwnd);
++			if (!ref.isNull(processHandle)) {
++				const [processNameChild, processPathChild] = getProcessNameAndPath(processHandle);
++				if (processPathChild !== processPath) {
++					[newProcessName, newProcessPath] = [processNameChild, processPathChild];
++					return true; // Found, stop search
++				}
++			}
++			// Recurse into this child's children
++			if (traverse(childHwnd)) {
++				return true;
++			}
++			// Move to sibling
++			childHwnd = user32.GetWindow(childHwnd, 2); // GW_HWNDNEXT
+ 		}
++		return false;
++	}
+ 
+-		return true;
+-	});
+-
+-	user32.EnumChildWindows(activeWindowHandle, windowProcess, 0);
++	traverse(activeWindowHandle);
+ 
+ 	return [newProcessName, newProcessPath];
+ }
+@@ -190,8 +196,7 @@ function getProcessIdAndHandle(windowHandle) {
+ 	user32.GetWindowThreadProcessId(windowHandle, processIdBuffer);
+ 	// Get the process ID as a number from the buffer
+ 	const processId = ref.get(processIdBuffer);
+-	// Get a "handle" of the process
+-	const processHandle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
++	const processHandle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, processId);
+ 
+ 	return [processId, processHandle];
+ }

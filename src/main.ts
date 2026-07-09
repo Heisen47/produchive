@@ -24,20 +24,40 @@ if (started) {
   app.quit();
 }
 
+// Register custom protocol client for deep linking (produchive://)
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('produchive', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('produchive');
+}
+
 // Enforce single instance — if another instance launches, focus the existing window
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
+  app.on("second-instance", (event, commandLine) => {
     // Someone tried to open a second instance — focus our window
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       if (!mainWindow.isVisible()) mainWindow.show();
       mainWindow.focus();
     }
+    // Find deep link in command line args for Windows/Linux
+    const url = commandLine.find((arg) => arg.startsWith("produchive://"));
+    if (url) {
+      handleDeepLink(url);
+    }
   });
 }
+
+// Handle macOS deep linking
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
 
 app.commandLine.appendSwitch("disable-gpu-watchdog");
 app.commandLine.appendSwitch("force_high_performance_gpu");
@@ -175,6 +195,94 @@ async function initDB() {
   }
 }
 
+let pendingToken: string | null = null;
+let localAuthServer: any = null;
+const AUTH_PORT = 43210;
+
+function startLocalAuthServer() {
+  if (localAuthServer) return;
+
+  const http = require("node:http");
+  localAuthServer = http.createServer((req: any, res: any) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    try {
+      const parsedUrl = new URL(req.url || '', `http://localhost:${AUTH_PORT}`);
+      if (parsedUrl.pathname === '/auth') {
+        const token = parsedUrl.searchParams.get('token');
+        if (token) {
+          logger.info('Received token via local auth server');
+          if (mainWindow && mainWindow.webContents) {
+            mainWindow.webContents.send('on-auth-token', token);
+            // Bring window to front
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            if (!mainWindow.isVisible()) mainWindow.show();
+            mainWindow.focus();
+          } else {
+            pendingToken = token;
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+          return;
+        }
+      }
+    } catch (err) {
+      logger.error(`Local auth server error: ${err}`);
+    }
+
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Invalid request' }));
+  });
+
+  localAuthServer.on('error', (err: any) => {
+    logger.error(`Failed to start local auth server: ${err}`);
+  });
+
+  localAuthServer.listen(AUTH_PORT, '127.0.0.1', () => {
+    logger.info(`Local auth server listening on http://127.0.0.1:${AUTH_PORT}`);
+  });
+}
+
+function stopLocalAuthServer() {
+  if (localAuthServer) {
+    try {
+      localAuthServer.close();
+    } catch (_) {}
+    localAuthServer = null;
+  }
+}
+
+function handleDeepLink(urlStr: string) {
+  try {
+    logger.info(`Received deep link: ${urlStr}`);
+    const parsedUrl = new URL(urlStr);
+    if (parsedUrl.hostname === 'auth' || parsedUrl.pathname.includes('auth')) {
+      const token = parsedUrl.searchParams.get('token');
+      if (token) {
+        if (mainWindow && mainWindow.webContents) {
+          mainWindow.webContents.send('on-auth-token', token);
+          // Bring window to front
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          if (!mainWindow.isVisible()) mainWindow.show();
+          mainWindow.focus();
+        } else {
+          pendingToken = token;
+        }
+      }
+    }
+  } catch (err) {
+    logger.error(`Error handling deep link: ${err}`);
+  }
+}
+
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
@@ -232,6 +340,24 @@ const createWindow = () => {
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.webContents.openDevTools();
   }
+
+  // Intercept window.open to open in default system browser
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url);
+    return { action: "deny" };
+  });
+
+  // Catch-all: prevent the main window from navigating away from the app
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    // If the URL is not our local dev server or local file, intercept it
+    if (
+      !url.startsWith(MAIN_WINDOW_VITE_DEV_SERVER_URL || 'file://') &&
+      url.startsWith('http')
+    ) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
 
   if (process.platform === "darwin") {
     app.dock.setIcon(
@@ -628,6 +754,18 @@ const startMonitoring = async (): Promise<boolean> => {
 };
 
 function registerIpcHandlers() {
+  // Open URL in user's default system browser
+  ipcMain.handle("open-external-url", async (_event, url: string) => {
+    await shell.openExternal(url);
+  });
+
+  // Get pending deep-link auth token (used on startup)
+  ipcMain.handle("get-pending-token", () => {
+    const token = pendingToken;
+    pendingToken = null; // Clear after reading
+    return token;
+  });
+
   // Blocking handlers
   ipcMain.handle("get-blocked-activities", () => {
     return Array.from(blockedActivities.values());
@@ -1001,6 +1139,7 @@ app.on("ready", async () => {
   logger.info("=== Produchive Starting ===");
   try {
     registerIpcHandlers();
+    startLocalAuthServer();
 
     // 2. Initialize DB
     await initDB();
@@ -1257,6 +1396,7 @@ app.on("before-quit", () => {
 });
 
 app.on("will-quit", () => {
+  stopLocalAuthServer();
   // Final safety net — ensure fullscreen is cleared even if before-quit was skipped
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFullScreen()) {
     mainWindow.setFullScreen(false);

@@ -23,7 +23,7 @@ interface ProductivityAnalysis {
 }
 
 export const ProductivityJudge = ({ engine }: { engine: any }) => {
-    const { goals, activities, addRating, selectedRole } = useStore();
+    const { goals, activities, addRating, selectedRole, customPrompt } = useStore();
     const { isDark } = useTheme();
     const goal = goals.length > 0 ? goals[0] : null;
     const [analyzing, setAnalyzing] = useState(false);
@@ -134,46 +134,12 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
             // const prompti = `User Goals:\n${goalsText}\n\nActivities Log (App - Title (Duration)):\n${activitySummary}\n\nAnalyze the user's productivity for the day based on their stated goals.\n\nIMPORTANT: Goals like "Coding", "Study", "Work", "Exercise", "Reading", "Learning" are VALID goals - they are common productivity objectives. Only reject goals if they are literal gibberish like "asdfgh", "aaaaa", or random keyboard mashes.\n\nDISTINCTION GUIDANCE:\n- Prioritize ACTIVE work (e.g. IDEs like VS Code, LeetCode, writing documents ,) over PASSIVE consumption (e.g. YouTube tutorials, social media).\n- Watching coding tutorials on YouTube is OKAY but should be scored lower than actual coding practice. Entertainment YouTube is DISTRACTING unless "Relax" is a goal.\n- Be specific in your verdict justification.\n\nProvide the output in STRICT JSON format:\n{\n  "rating": <number 1-10> (use string "NA" if invalid),\n  "verdict": "<productive|neutral|unproductive|NA>",\n  "explanation": "<2-3 sentence summary>",\n  "tips": ["<actionable advice 1>", "<actionable advice 2>", "<actionable advice 3>"],\n  "categorization": {\n    "productive": ["<app name 1>", ...],\n    "neutral": ["<app name 1>", ...],\n    "distracting": ["<app name 1>", ...]\n  }\n}\nDo not include any markdown formatting or text outside the JSON.`;
 
 
-            const prompt = `You are a kind, encouraging, and supportive tutor and guide. Your role is to evaluate a student's progress based on their activity relative to their selected goal, and provide a rating out of 10 along with helpful feedback. You HAVE to generate a report when user has a valid goal setup.
-
-You will receive:
-- goal: The student's selected goal
-- activity: A description of what the student has done
-
-Your behavior rules:
-1. You MUST ALWAYS provide a numeric rating between 1 and 10. NEVER use "NA" or any non-numeric value for the rating.
-2. If the goal seems unclear, still do your best to evaluate the activity and give a fair numeric rating.
-3. Be kind, encouraging, and constructive in all feedback — never harsh or discouraging.
-4. Offer specific guidance on what the student did well and what they can improve.
-5. You MUST return ONLY valid JSON. No markdown, no code blocks, no extra text outside the JSON.
-
-DISTINCTION GUIDANCE:
-- **Role Context**: The user is a **${selectedRole || 'General Student'}**. Evaluate productivity based on this role.
-- **Active vs Passive**: Prioritize ACTIVE work (creation, solving problems, writing, reading questions/articles) over PASSIVE consumption (watching videos, scrolling).
-- **App Context**: Apps should be judged based on the goal and role. For example:
-    - IDEs/Terminal are productive for Software Engineers.
-    - Word/Docs/PDF Readers are productive for Law/Medical students/General students/engineering students.
-    - Creative tools (Figma, Blender) are productive for Designers.
-- **YouTube/Content**: Educational content is "neutral" or "productive" ONLY if it directly aligns with the goal. Entertainment is "distracting".
-
-IMPORTANT: The rating MUST be a number from 1 to 10. The verdict MUST be one of: "productive", "neutral", or "unproductive". Do NOT use "NA" for any field.
-
-Output format:
-{
-  "rating": <number 1-10, MUST be a number, never a string>,
-  "verdict": "<productive|neutral|unproductive>",
-  "explanation": "<2-3 sentences. Be encouraging! Summarize performance and strengths.>",
-  "tips": ["<specific, kind improvement 1>", "<specific, kind improvement 2>", "<motivating closing message>"],
-  "categorization": {
-    "productive": ["<app name 1>", ...],
-    "neutral": ["<app name 1>", ...],
-    "distracting": ["<app name 1>", ...]
-  }
-}
+            const basePrompt = customPrompt.replace('{role}', selectedRole || 'General Student');
+            const prompt = `${basePrompt}
 
 Student input:
 Goal: \n${goalsText}\n\n
-Activity: \n${activitySummary}\n\n${focusSessionText ? `Focus Study Sessions: \n${focusSessionText}\n\n` : ''}`
+Activity: \n${activitySummary}\n\n${focusSessionText ? `Focus Study Sessions: \n${focusSessionText}\n\n` : ''}`;
 
             const isTechRole = selectedRole?.toLowerCase().includes('engineer') || selectedRole?.toLowerCase().includes('computer');
             

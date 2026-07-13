@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { Task, Activity } from '../global';
+import { DEFAULT_PROMPT } from './ai';
 
 
 
@@ -39,6 +40,8 @@ interface Store {
     // AI Settings
     selectedModelId: string | null;
     setSelectedModel: (modelId: string) => void;
+    customPrompt: string;
+    setCustomPrompt: (prompt: string) => void;
 
     // User Settings
     selectedRole: string | null;
@@ -72,6 +75,11 @@ export const useStore = create<Store>((set, get) => ({
     setSelectedModel: (modelId: string) => {
         set({ selectedModelId: modelId });
         localStorage.setItem('selectedModelId', modelId);
+    },
+    customPrompt: localStorage.getItem('customPrompt') || DEFAULT_PROMPT,
+    setCustomPrompt: (prompt: string) => {
+        set({ customPrompt: prompt });
+        localStorage.setItem('customPrompt', prompt);
     },
     isPremium: false,
     setPremium: (status: boolean) => {

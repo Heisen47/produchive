@@ -29,13 +29,15 @@ import {
     Users2,
     Coffee,
     UserCircle,
-    Crown
+    Crown,
+    Settings
 } from 'lucide-react';
 import { Footer } from './components/Footer';
 import { DownloadProgress } from './components/DownloadProgress';
 import { UpdateBanner } from './components/UpdateBanner';
 import { PeekabooCat } from './components/PeekabooCat';
 import { ModelManager } from './components/ModelManager';
+import { PromptEditorModal } from './components/PromptEditorModal';
 
 const viewIcons: Record<string, React.ComponentType<any>> = {
     dashboard: LayoutDashboard,
@@ -148,6 +150,7 @@ const AppContent = () => {
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<{ text: string; progress?: number }>({ text: '' });
     const [showModelSelector, setShowModelSelector] = useState(false);
+    const [showPromptEditor, setShowPromptEditor] = useState(false);
     const loadingRef = useRef(false);
     const selectorRef = useRef<HTMLDivElement>(null);
 
@@ -215,6 +218,7 @@ const AppContent = () => {
             {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
             {showWelcome && <WelcomeGuide onClose={() => setShowWelcome(false)} />}
             {!showWelcome && showOnboarding && <GoalOnboarding onClose={() => setShowOnboarding(false)} />}
+            {showPromptEditor && <PromptEditorModal onClose={() => setShowPromptEditor(false)} />}
             
             {isCatEnabled && <PeekabooCat isSidebarOpen={isSidebarOpen} />}
 
@@ -300,7 +304,7 @@ const AppContent = () => {
                                         <div className="max-h-[60vh] overflow-y-auto custom-scrollbar">
                                             <ModelManager />
                                         </div>
-                                        <div className="mt-4 pt-3 border-t border-white/10 text-center">
+                                        <div className="mt-4 pt-3 border-t border-white/10 flex gap-2">
                                             <button
                                                 onClick={() => {
                                                     // Trigger reload if model changed
@@ -310,9 +314,20 @@ const AppContent = () => {
                                                     }
                                                     setShowModelSelector(false);
                                                 }}
-                                                className="w-full py-2 rounded-lg text-xs font-bold transition-colors hover:bg-white/10 bg-white/5"
+                                                className="flex-grow py-2 rounded-lg text-xs font-bold transition-colors hover:bg-white/10 bg-white/5"
                                             >
-                                                Apply & Reload Engine
+                                                Apply & Reload
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    setShowModelSelector(false);
+                                                    setShowPromptEditor(true);
+                                                }}
+                                                className="px-3 py-2 rounded-lg text-xs font-bold transition-colors hover:bg-white/10 bg-white/5 flex items-center gap-1"
+                                                title="Edit AI system prompt"
+                                            >
+                                                <Settings size={12} />
+                                                Prompt
                                             </button>
                                         </div>
                                     </div>

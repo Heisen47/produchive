@@ -518,11 +518,190 @@ function updateBlockEnforcement() {
   }
 }
 
+let lastWinResult: any = null;
+let powershellProcess: any = null;
+
+const startPowershellMonitor = async () => {
+  if (powershellProcess) return;
+
+  const fs = require("node:fs");
+  const { spawn } = require("node:child_process");
+  const scriptPath = path.join(app.getPath("userData"), "active-window-monitor.ps1");
+  
+  const scriptContent = `$code = @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public class OwnerInfo {
+    public string name { get; set; }
+    public string path { get; set; }
+}
+
+public class WindowInfo {
+    public string title { get; set; }
+    public uint pid { get; set; }
+    public OwnerInfo owner { get; set; }
+}
+
+public class ActiveWinHelper {
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern bool CloseHandle(IntPtr hObject);
+
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    public static extern bool QueryFullProcessImageName(IntPtr hProcess, uint dwFlags, StringBuilder lpExeName, ref uint lpdwSize);
+
+    private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+    public static WindowInfo GetActiveWindow() {
+        IntPtr hwnd = GetForegroundWindow();
+        if (hwnd == IntPtr.Zero) return null;
+
+        uint pid;
+        GetWindowThreadProcessId(hwnd, out pid);
+        if (pid == 0) return null;
+
+        StringBuilder titleBuilder = new StringBuilder(1024);
+        GetWindowText(hwnd, titleBuilder, titleBuilder.Capacity);
+        string title = titleBuilder.ToString();
+
+        string path = "";
+        string name = "";
+        IntPtr hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (hProcess != IntPtr.Zero) {
+            try {
+                StringBuilder pathBuilder = new StringBuilder(2048);
+                uint size = (uint)pathBuilder.Capacity;
+                if (QueryFullProcessImageName(hProcess, 0, pathBuilder, ref size)) {
+                    path = pathBuilder.ToString();
+                    name = System.IO.Path.GetFileName(path);
+                }
+            } finally {
+                CloseHandle(hProcess);
+            }
+        }
+
+        if (string.IsNullOrEmpty(path)) {
+            try {
+                using (var proc = System.Diagnostics.Process.GetProcessById((int)pid)) {
+                    name = proc.ProcessName;
+                    path = proc.MainModule.FileName;
+                }
+            } catch {}
+        }
+
+        if (string.IsNullOrEmpty(name)) {
+            try {
+                using (var proc = System.Diagnostics.Process.GetProcessById((int)pid)) {
+                    name = proc.ProcessName;
+                }
+            } catch {}
+        }
+
+        WindowInfo info = new WindowInfo();
+        info.title = title;
+        info.pid = pid;
+        info.owner = new OwnerInfo();
+        info.owner.name = name;
+        info.owner.path = path;
+        return info;
+    }
+}
+"@
+
+Add-Type -TypeDefinition $code -ErrorAction SilentlyContinue
+
+while ($true) {
+    try {
+        $info = [ActiveWinHelper]::GetActiveWindow()
+        if ($info) {
+            $info | ConvertTo-Json -Compress
+        } else {
+            Write-Output "null"
+        }
+    } catch {
+        Write-Output "null"
+    }
+    Start-Sleep -Milliseconds 1000
+}
+`;
+
+  try {
+    fs.writeFileSync(scriptPath, scriptContent, "utf8");
+  } catch (err) {
+    logger.error("Failed to write active-window-monitor.ps1:", err);
+  }
+
+  logger.info("Spawning powershell active window monitor...");
+  powershellProcess = spawn("powershell.exe", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    scriptPath
+  ]);
+
+  let buffer = "";
+  powershellProcess.stdout.on("data", (data: any) => {
+    buffer += data.toString();
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (trimmed === "null") {
+        lastWinResult = null;
+      } else {
+        try {
+          lastWinResult = JSON.parse(trimmed);
+        } catch (err) {
+          logger.error("Failed to parse window info JSON:", err, "Line was:", trimmed);
+        }
+      }
+    }
+  });
+
+  powershellProcess.stderr.on("data", (data: any) => {
+    logger.info("Powershell monitor stderr:", data.toString().trim());
+  });
+
+  powershellProcess.on("close", (code: any) => {
+    logger.info(`Powershell monitor exited with code \${code}`);
+    powershellProcess = null;
+  });
+};
+
+const stopPowershellMonitor = () => {
+  if (powershellProcess) {
+    logger.info("Stopping powershell active window monitor...");
+    powershellProcess.kill();
+    powershellProcess = null;
+  }
+  lastWinResult = null;
+};
+
 const stopMonitoring = () => {
   if (monitoringInterval) {
     clearInterval(monitoringInterval);
     monitoringInterval = null;
     logger.info("Monitoring stopped");
+  }
+  if (process.platform === "win32") {
+    stopPowershellMonitor();
   }
 };
 
@@ -568,29 +747,36 @@ const startMonitoring = async (): Promise<boolean> => {
 
   logger.info("Starting activity monitoring...");
   try {
-    let activeWin;
-    if (app.isPackaged) {
-      const activeWinPath = path.join(process.resourcesPath, "active-win");
-      activeWin = require(activeWinPath);
+    let activeWin: () => Promise<any>;
+    if (process.platform === "win32") {
+      await startPowershellMonitor();
+      activeWin = async () => lastWinResult;
     } else {
-      activeWin = require("active-win");
-    }
+      let activeWinModule: any;
+      if (app.isPackaged) {
+        const activeWinPath = path.join(process.resourcesPath, "active-win");
+        activeWinModule = require(activeWinPath);
+      } else {
+        activeWinModule = require("active-win");
+      }
+      activeWin = activeWinModule;
 
-    // Test run to ensure it works immediately
-    try {
-      const testResult = await activeWin();
-      logger.info(
-        "Active-win test successful:",
-        testResult ? "got window data" : "null result",
-      );
-    } catch (initialError: any) {
-      logger.error("Active-win test failed:", {
-        message: initialError?.message,
-        stderr: initialError?.stderr,
-        stdout: initialError?.stdout,
-        code: initialError?.code,
-      });
-      throw initialError; // Throw so we land in the outer catch block
+      // Test run to ensure it works immediately
+      try {
+        const testResult = await activeWin();
+        logger.info(
+          "Active-win test successful:",
+          testResult ? "got window data" : "null result",
+        );
+      } catch (initialError: any) {
+        logger.error("Active-win test failed:", {
+          message: initialError?.message,
+          stderr: initialError?.stderr,
+          stdout: initialError?.stdout,
+          code: initialError?.code,
+        });
+        throw initialError; // Throw so we land in the outer catch block
+      }
     }
 
     monitoringInterval = setInterval(async () => {

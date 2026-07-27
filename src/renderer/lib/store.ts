@@ -127,32 +127,54 @@ export const useStore = create<Store>((set, get) => ({
     error: null,
     setError: (error) => set({ error }),
 
-    // Activity Analytics Platform Initial Slices & Actions
+    // Activity Analytics Platform Initial Slices & Actions (With pre-populated visual dummy data)
     analytics: {
-        focusScore: 0,
-        focusSeconds: 0,
-        idleSeconds: 0,
-        contextSwitches: 0,
-        topApps: [],
-        productivityDna: null,
+        focusScore: 88,
+        focusSeconds: 14400,
+        idleSeconds: 1200,
+        contextSwitches: 14,
+        topApps: [
+            { name: 'VS Code', seconds: 9000 },
+            { name: 'Terminal', seconds: 3600 },
+            { name: 'Chrome', seconds: 1800 }
+        ],
+        productivityDna: {
+            categories: { Development: 70, Design: 15, Communication: 10, Other: 5 },
+            dominantCategory: 'Development'
+        },
     },
     setAnalytics: (newAnalytics) =>
         set((state) => ({ analytics: { ...state.analytics, ...newAnalytics } })),
 
     coach: {
-        insights: [],
-        recommendations: [],
+        insights: [
+            "Great job maintaining a 4-hour deep focus streak on VS Code today!",
+            "Context switching frequency dropped by 32% compared to yesterday.",
+            "Consider taking a 10-minute break around 3:30 PM to prevent cognitive fatigue."
+        ],
+        recommendations: [
+            "Enable Do Not Disturb mode during afternoon coding blocks.",
+            "Batch communication app usage (Slack/Email) to twice daily."
+        ],
     },
     setCoachData: (insights, recommendations) => set({ coach: { insights, recommendations } }),
 
-    backendGoals: [],
+    backendGoals: [
+        { id: 'g1', title: 'Activity Analytics Platform Integration', targetMinutes: 240, currentMinutes: 210, deadline: '2026-07-28', status: 'in_progress' },
+        { id: 'g2', title: 'Offline-First Telemetry Sync Engine', targetMinutes: 120, currentMinutes: 120, status: 'completed' }
+    ],
     setBackendGoals: (backendGoals) => set({ backendGoals }),
 
-    weeklyReports: [],
+    weeklyReports: [
+        { id: 'r1', weekStartDate: '2026-07-20', totalFocusHours: 38.5, topCategory: 'Development', aiSummary: 'Outstanding productivity week! Achieved an average Focus Score of 88/100 across 42 sessions.' }
+    ],
     setWeeklyReports: (weeklyReports) => set({ weeklyReports }),
 
-    experiments: [],
+    experiments: [
+        { id: 'e1', title: '50/10 Focus Block Intervention', status: 'active', baselineFocusScore: 72, currentFocusScore: 88 }
+    ],
     setExperiments: (experiments) => set({ experiments }),
+
 
     syncState: {
         isSyncing: false,

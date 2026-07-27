@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, ChevronDown, ChevronUp, Loader2, AlertCircle, FileText } from 'lucide-react';
+import { Calendar, ChevronDown, ChevronUp, Loader2, AlertCircle, FileText, Award, Layers } from 'lucide-react';
 import { generateCompletion } from '../lib/ai';
 import { useTheme } from './ThemeProvider';
 import { ShareCard } from './ShareCard';
+import { reportService, experimentService, websocketService } from '../lib/services';
+import { useStore } from '../lib/store';
 
 interface ProductivityAnalysis {
     rating: number | string;
@@ -33,9 +35,48 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
     const [dateGoals, setDateGoals] = useState<string[]>([]);
     const [dateActivities, setDateActivities] = useState<any[]>([]);
     const { isDark } = useTheme();
+    const { weeklyReports, setWeeklyReports, experiments, setExperiments } = useStore();
 
     // Get today's date in YYYY-MM-DD format for max date
     const today = new Date().toISOString().split('T')[0];
+
+    // Fetch backend weekly reports and experiments on mount
+    useEffect(() => {
+        const fetchBackendReports = async () => {
+            try {
+                const rep = await reportService.getWeeklyReports();
+                if (Array.isArray(rep)) setWeeklyReports(rep);
+
+                const exp = await experimentService.getExperiments();
+                if (Array.isArray(exp)) setExperiments(exp);
+            } catch {
+                // Ignore offline errors
+            }
+        };
+
+        fetchBackendReports();
+
+        const handleReportReady = (data: any) => {
+            if (data) {
+                setWeeklyReports(Array.isArray(data) ? data : [data]);
+            }
+        };
+
+        const handleExperimentUpdate = (data: any) => {
+            if (data) {
+                setExperiments(Array.isArray(data) ? data : [data]);
+            }
+        };
+
+        websocketService.registerHandler('report.ready', handleReportReady);
+        websocketService.registerHandler('experiment.updated', handleExperimentUpdate);
+
+        return () => {
+            websocketService.unregisterHandler('report.ready', handleReportReady);
+            websocketService.unregisterHandler('experiment.updated', handleExperimentUpdate);
+        };
+    }, [setWeeklyReports, setExperiments]);
+
 
     const fetchReportsForDate = async (dateStr: string) => {
         if (!dateStr) return;

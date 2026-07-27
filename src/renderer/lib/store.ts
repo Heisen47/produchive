@@ -58,7 +58,40 @@ interface Store {
     // Auth
     user: any | null;
     setUser: (user: any | null) => void;
+
+    // Activity Analytics Platform Slices
+    analytics: {
+        focusScore: number;
+        focusSeconds: number;
+        idleSeconds: number;
+        contextSwitches: number;
+        topApps: Array<{ name: string; seconds: number }>;
+        productivityDna: { categories: Record<string, number>; dominantCategory: string } | null;
+    };
+    setAnalytics: (analytics: Partial<Store['analytics']>) => void;
+
+    coach: {
+        insights: string[];
+        recommendations: string[];
+    };
+    setCoachData: (insights: string[], recommendations: string[]) => void;
+
+    backendGoals: Array<{ id: string; title: string; targetMinutes: number; currentMinutes: number; deadline?: string; status: string }>;
+    setBackendGoals: (goals: Store['backendGoals']) => void;
+
+    weeklyReports: Array<{ id: string; weekStartDate: string; totalFocusHours: number; topCategory: string; aiSummary: string }>;
+    setWeeklyReports: (reports: Store['weeklyReports']) => void;
+
+    experiments: Array<{ id: string; title: string; status: string; baselineFocusScore: number; currentFocusScore: number }>;
+    setExperiments: (experiments: Store['experiments']) => void;
+
+    syncState: {
+        isSyncing: boolean;
+        pendingEventsCount: number;
+    };
+    setSyncState: (syncState: Partial<Store['syncState']>) => void;
 }
+
 
 export const useStore = create<Store>((set, get) => ({
     tasks: [],
@@ -93,6 +126,41 @@ export const useStore = create<Store>((set, get) => ({
     }),
     error: null,
     setError: (error) => set({ error }),
+
+    // Activity Analytics Platform Initial Slices & Actions
+    analytics: {
+        focusScore: 0,
+        focusSeconds: 0,
+        idleSeconds: 0,
+        contextSwitches: 0,
+        topApps: [],
+        productivityDna: null,
+    },
+    setAnalytics: (newAnalytics) =>
+        set((state) => ({ analytics: { ...state.analytics, ...newAnalytics } })),
+
+    coach: {
+        insights: [],
+        recommendations: [],
+    },
+    setCoachData: (insights, recommendations) => set({ coach: { insights, recommendations } }),
+
+    backendGoals: [],
+    setBackendGoals: (backendGoals) => set({ backendGoals }),
+
+    weeklyReports: [],
+    setWeeklyReports: (weeklyReports) => set({ weeklyReports }),
+
+    experiments: [],
+    setExperiments: (experiments) => set({ experiments }),
+
+    syncState: {
+        isSyncing: false,
+        pendingEventsCount: 0,
+    },
+    setSyncState: (newSyncState) =>
+        set((state) => ({ syncState: { ...state.syncState, ...newSyncState } })),
+
     loadTasks: async () => {
         const { tasks, activities, goals, ratings, stats } = await window.electronAPI.getTasks() as any;
         const settings = await window.electronAPI.getSettings();

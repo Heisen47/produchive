@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { Target, Check, Plus, X, Edit2, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Target, Check, Plus, X, Edit2, AlertCircle, TrendingUp } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { LuffyBg } from './LuffyBg';
+import { goalService, websocketService } from '../lib/services';
 
 import { GOAL_SUGGESTIONS_BY_ROLE, GoalRole } from '../lib/GoalSuggestions';
 
@@ -14,16 +15,49 @@ export const GoalSetter = () => {
     const [editValue, setEditValue] = useState('');
     const { isDark } = useTheme();
 
-    const { goals, addGoal, removeGoal, editGoal, selectedRole } = useStore();
+    const { goals, addGoal, removeGoal, editGoal, selectedRole, backendGoals, setBackendGoals } = useStore();
     
     const suggestions = GOAL_SUGGESTIONS_BY_ROLE[(selectedRole as GoalRole) || 'Software Engineer'] || DEFAULT_SUGGESTIONS;
 
-    const handleAddGoal = () => {
+    useEffect(() => {
+        const fetchBackendGoals = async () => {
+            try {
+                const res = await goalService.getGoals();
+                if (Array.isArray(res)) {
+                    setBackendGoals(res);
+                }
+            } catch {
+                // Ignore offline errors
+            }
+        };
+
+        fetchBackendGoals();
+
+        const handleGoalUpdate = (data: any) => {
+            if (Array.isArray(data)) {
+                setBackendGoals(data);
+            }
+        };
+
+        websocketService.registerHandler('goal.updated', handleGoalUpdate);
+        return () => {
+            websocketService.unregisterHandler('goal.updated', handleGoalUpdate);
+        };
+    }, [setBackendGoals]);
+
+    const handleAddGoal = async () => {
         if (inputGoal.trim().length > 2 && goals.length < 5) {
-            addGoal(inputGoal.trim());
+            const goalText = inputGoal.trim();
+            addGoal(goalText);
             setInputGoal('');
+            try {
+                await goalService.createGoal(goalText, 120);
+            } catch {
+                // Fallback to local goal tracking
+            }
         }
     };
+
 
     const startEditing = (index: number, currentGoal: string) => {
         setEditingIndex(index);

@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
+import { analyticsService, websocketService } from '../lib/services';
 
 import { TotoroBg } from './TotoroBg';
 import { NoFaceBg } from './NoFaceBg';
@@ -35,7 +36,7 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any
     let BgComponent = null;
     if (title === 'Total Time Tracked') BgComponent = TotoroBg;
     if (title === 'Most Used App') BgComponent = NoFaceBg;
-    if (title === 'Active Sessions') BgComponent = SootSpriteBg;
+    if (title === 'Active Sessions' || title === 'Focus Score') BgComponent = SootSpriteBg;
 
     const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
         const card = cardRef.current;
@@ -122,7 +123,7 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any
 };
 
 export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
-    const { activities, isMonitoring, setMonitoring, stats: userStats } = useStore();
+    const { activities, isMonitoring, setMonitoring, stats: userStats, analytics, setAnalytics } = useStore();
     const { isDark } = useTheme();
 
     const usageStats = useMemo(() => {
@@ -155,7 +156,45 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
         }
     };
 
+    // Fetch backend analytics summary on mount
+    React.useEffect(() => {
+        const fetchAnalytics = async () => {
+            try {
+                const summary = await analyticsService.getDailySummary();
+                if (summary) {
+                    setAnalytics({
+                        focusScore: summary.focusScore || 0,
+                        focusSeconds: summary.focusSeconds || 0,
+                        idleSeconds: summary.idleSeconds || 0,
+                        contextSwitches: summary.contextSwitches || 0,
+                        topApps: summary.topApps || [],
+                    });
+                }
+                const dna = await analyticsService.getProductivityDna();
+                if (dna) {
+                    setAnalytics({ productivityDna: dna });
+                }
+            } catch {
+                // Fallback to local calculations if offline or backend unauthenticated
+            }
+        };
+
+        fetchAnalytics();
+
+        const handleAnalyticsUpdate = (data: any) => {
+            if (data) {
+                setAnalytics(data);
+            }
+        };
+
+        websocketService.registerHandler('analytics.updated', handleAnalyticsUpdate);
+        return () => {
+            websocketService.unregisterHandler('analytics.updated', handleAnalyticsUpdate);
+        };
+    }, [setAnalytics]);
+
     const [showHalo, setShowHalo] = React.useState(false);
+
 
     React.useEffect(() => {
         const handleHighlight = () => {
@@ -231,7 +270,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
             <ScreenPermissionBanner />
 
             {/* Metrics Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <MetricCard
                     title="Total Time Tracked"
                     value={formatDuration(usageStats.totalDuration)}
@@ -253,7 +292,15 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     icon={ActivityIcon}
                     delay={160}
                 />
+                <MetricCard
+                    title="Focus Score"
+                    value={analytics?.focusScore ? `${analytics.focusScore}/100` : 'Calculating...'}
+                    subtext={analytics?.productivityDna?.dominantCategory ? `DNA: ${analytics.productivityDna.dominantCategory}` : 'Context & Focus Analytics'}
+                    icon={Hourglass}
+                    delay={240}
+                />
             </div>
+
 
             {/* Activity Table */}
             <div className="glass-card-static rounded-2xl overflow-hidden relative">

@@ -270,4 +270,101 @@ export interface APIContract {
       res: { received: boolean };
     };
   };
+
+  // Activity Telemetry & Ingestion
+  '/activity/event': {
+    POST: {
+      req: { eventType: string; payload: Record<string, any>; timestamp: string };
+      res: { success: boolean; eventId: string };
+    };
+  };
+  '/activity/batch': {
+    POST: {
+      req: { events: Array<{ eventType: string; payload: Record<string, any>; timestamp: string }> };
+      res: { success: boolean; ingestedCount: number };
+    };
+  };
+
+  // Analytics Platform
+  '/analytics/summary': {
+    GET: {
+      req: null;
+      res: { focusSeconds: number; idleSeconds: number; contextSwitches: number; focusScore: number; topApps: Array<{ name: string; seconds: number }> };
+    };
+  };
+  '/analytics/dna': {
+    GET: {
+      req: null;
+      res: { categories: Record<string, number>; dominantCategory: string };
+    };
+  };
+  '/analytics/context-switches': {
+    GET: {
+      req: null;
+      res: { count: number; breakdown: Array<{ hour: number; count: number }> };
+    };
+  };
+
+  // AI Coach Platform
+  '/coach/insights': {
+    GET: {
+      req: null;
+      res: { insights: string[]; focusScore: number; recommendations: string[] };
+    };
+  };
+  '/coach/recommend': {
+    POST: {
+      req: { context?: Record<string, any> };
+      res: { recommendation: string };
+    };
+  };
+
+  // Goals & Completion Velocity
+  '/goals/backend': {
+    GET: {
+      req: null;
+      res: Array<{ id: string; title: string; targetMinutes: number; currentMinutes: number; deadline?: string; status: string }>;
+    };
+    POST: {
+      req: { title: string; targetMinutes: number; deadline?: string };
+      res: { id: string; title: string; targetMinutes: number; currentMinutes: number; status: string };
+    };
+  };
+  '/goals/backend/:id/forecast': {
+    GET: {
+      req: null;
+      res: { goalId: string; estimatedCompletionDate: string; dailyVelocityMinutes: number; onTrack: boolean };
+    };
+  };
+
+  // Executive Reports & Experiments
+  '/reports/weekly': {
+    GET: {
+      req: null;
+      res: Array<{ id: string; weekStartDate: string; totalFocusHours: number; topCategory: string; aiSummary: string }>;
+    };
+  };
+  '/reports/weekly/:id': {
+    GET: {
+      req: null;
+      res: { id: string; weekStartDate: string; reportData: any; aiInsights: any };
+    };
+  };
+  '/experiments': {
+    GET: {
+      req: null;
+      res: Array<{ id: string; title: string; status: string; baselineFocusScore: number; currentFocusScore: number }>;
+    };
+    POST: {
+      req: { title: string; ruleConfig: Record<string, any>; startDate: string; endDate: string };
+      res: { id: string; title: string; status: string };
+    };
+  };
+  '/replay/:date': {
+    GET: {
+      req: null;
+      res: { dateBucket: string; snapshots: Array<{ timestamp: string; activeApp: string; windowTitle: string; focusScore: number }> };
+    };
+  };
 }
+

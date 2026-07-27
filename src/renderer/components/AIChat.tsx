@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Loader2, MessageCircle } from 'lucide-react';
+import { Send, Bot, User, Loader2, MessageCircle, Sparkles } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
+import { coachService, websocketService } from '../lib/services';
+import { useStore } from '../lib/store';
 
 interface Message {
     role: 'user' | 'assistant';
@@ -8,7 +10,7 @@ interface Message {
 }
 
 interface AIChatProps {
-    engine: any;
+    engine?: any;
 }
 
 export const AIChat: React.FC<AIChatProps> = ({ engine }) => {
@@ -17,6 +19,7 @@ export const AIChat: React.FC<AIChatProps> = ({ engine }) => {
     const [isLoading, setIsLoading] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
     const { isDark } = useTheme();
+    const { coach, setCoachData } = useStore();
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -24,32 +27,69 @@ export const AIChat: React.FC<AIChatProps> = ({ engine }) => {
         }
     }, [messages]);
 
+    // Fetch initial AI coach insights from backend on mount
+    useEffect(() => {
+        const fetchInsights = async () => {
+            try {
+                const res = await coachService.getInsights();
+                if (res) {
+                    setCoachData(res.insights || [], res.recommendations || []);
+                }
+            } catch {
+                // Ignore offline errors
+            }
+        };
+
+        fetchInsights();
+
+        const handleCoachUpdate = (data: any) => {
+            if (data?.insights || data?.recommendations) {
+                setCoachData(data.insights || [], data.recommendations || []);
+            }
+        };
+
+        websocketService.registerHandler('coach.updated', handleCoachUpdate);
+        return () => {
+            websocketService.unregisterHandler('coach.updated', handleCoachUpdate);
+        };
+    }, [setCoachData]);
+
     const sendMessage = async () => {
-        if (!input.trim() || !engine || isLoading) return;
+        if (!input.trim() || isLoading) return;
 
         const userMessage: Message = { role: 'user', content: input.trim() };
+        const userPrompt = input.trim();
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
 
         try {
-            const completion = await engine.chat.completions.create({
-                messages: [
-                    { role: 'system', content: 'You are a helpful productivity coach. Keep responses concise and actionable.' },
-                    ...messages.map(m => ({ role: m.role, content: m.content })),
-                    { role: 'user', content: input.trim() }
-                ],
-                temperature: 0.7,
-            });
+            if (engine) {
+                // Strategy 1: Local WebLLM Engine
+                const completion = await engine.chat.completions.create({
+                    messages: [
+                        { role: 'system', content: 'You are a helpful productivity coach. Keep responses concise and actionable.' },
+                        ...messages.map(m => ({ role: m.role, content: m.content })),
+                        { role: 'user', content: userPrompt }
+                    ],
+                    temperature: 0.7,
+                });
 
-            const responseText = completion.choices[0]?.message?.content || "I couldn't generate a response.";
-            setMessages(prev => [...prev, { role: 'assistant', content: responseText }]);
+                const responseText = completion.choices[0]?.message?.content || "I couldn't generate a response.";
+                setMessages(prev => [...prev, { role: 'assistant', content: responseText }]);
+            } else {
+                // Strategy 2: Backend AI Coach API Service
+                const res = await coachService.generateRecommendation({ prompt: userPrompt });
+                const responseText = res?.recommendation || "Backend AI Coach recommendation generated.";
+                setMessages(prev => [...prev, { role: 'assistant', content: responseText }]);
+            }
         } catch (err) {
             setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' }]);
         } finally {
             setIsLoading(false);
         }
     };
+
 
     if (!engine) {
         return (

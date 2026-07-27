@@ -136,5 +136,76 @@ export const apiClient = {
   checkout: async () => {
     const res = await api.post<APIContract['/payments/checkout']['POST']['res']>('/payments/checkout');
     return res.data;
+  },
+
+  // Activity Ingestion
+  logActivityEvent: async (data: APIContract['/activity/event']['POST']['req']) => {
+    const res = await api.post<APIContract['/activity/event']['POST']['res']>('/activity/event', data);
+    return res.data;
+  },
+  logActivityBatch: async (data: APIContract['/activity/batch']['POST']['req']) => {
+    const res = await api.post<APIContract['/activity/batch']['POST']['res']>('/activity/batch', data);
+    return res.data;
+  },
+
+  // Analytics Platform
+  getAnalyticsSummary: async (params?: { dateBucket?: string }) => {
+    const res = await api.get<APIContract['/analytics/summary']['GET']['res']>('/analytics/summary', { params });
+    return res.data;
+  },
+  getProductivityDna: async (params?: { range?: '7d' | '30d' }) => {
+    const res = await api.get<APIContract['/analytics/dna']['GET']['res']>('/analytics/dna', { params });
+    return res.data;
+  },
+  getContextSwitches: async (params?: { dateBucket?: string }) => {
+    const res = await api.get<APIContract['/analytics/context-switches']['GET']['res']>('/analytics/context-switches', { params });
+    return res.data;
+  },
+
+  // AI Coach Platform
+  getCoachInsights: async () => {
+    const res = await api.get<APIContract['/coach/insights']['GET']['res']>('/coach/insights');
+    return res.data;
+  },
+  generateCoachRecommendation: async (data: APIContract['/coach/recommend']['POST']['req']) => {
+    const res = await api.post<APIContract['/coach/recommend']['POST']['res']>('/coach/recommend', data);
+    return res.data;
+  },
+
+  // Goals & Velocity
+  getBackendGoals: async () => {
+    const res = await api.get<APIContract['/goals/backend']['GET']['res']>('/goals/backend');
+    return res.data;
+  },
+  createBackendGoal: async (data: APIContract['/goals/backend']['POST']['req']) => {
+    const res = await api.post<APIContract['/goals/backend']['POST']['res']>('/goals/backend', data);
+    return res.data;
+  },
+  getGoalForecast: async (id: string) => {
+    const res = await api.get<APIContract['/goals/backend/:id/forecast']['GET']['res']>(`/goals/backend/${id}/forecast`);
+    return res.data;
+  },
+
+  // Reports, Experiments & Replay
+  getWeeklyReports: async () => {
+    const res = await api.get<APIContract['/reports/weekly']['GET']['res']>('/reports/weekly');
+    return res.data;
+  },
+  getWeeklyReportById: async (id: string) => {
+    const res = await api.get<APIContract['/reports/weekly/:id']['GET']['res']>(`/reports/weekly/${id}`);
+    return res.data;
+  },
+  getExperiments: async () => {
+    const res = await api.get<APIContract['/experiments']['GET']['res']>('/experiments');
+    return res.data;
+  },
+  createExperiment: async (data: APIContract['/experiments']['POST']['req']) => {
+    const res = await api.post<APIContract['/experiments']['POST']['res']>('/experiments', data);
+    return res.data;
+  },
+  getReplaySnapshots: async (date: string) => {
+    const res = await api.get<APIContract['/replay/:date']['GET']['res']>(`/replay/${date}`);
+    return res.data;
   }
 };
+

@@ -38,6 +38,7 @@ import { UpdateBanner } from './components/UpdateBanner';
 import { PeekabooCat } from './components/PeekabooCat';
 import { ModelManager } from './components/ModelManager';
 import { PromptEditorModal } from './components/PromptEditorModal';
+import { StudyRoomMiniPlayer } from './components/StudyRoomMiniPlayer';
 
 const viewIcons: Record<string, React.ComponentType<any>> = {
     dashboard: LayoutDashboard,
@@ -219,6 +220,7 @@ const AppContent = () => {
             {showWelcome && <WelcomeGuide onClose={() => setShowWelcome(false)} />}
             {!showWelcome && showOnboarding && <GoalOnboarding onClose={() => setShowOnboarding(false)} />}
             {showPromptEditor && <PromptEditorModal onClose={() => setShowPromptEditor(false)} />}
+            <StudyRoomMiniPlayer onNavigate={handleViewChange} />
             
             {isCatEnabled && <PeekabooCat isSidebarOpen={isSidebarOpen} />}
 

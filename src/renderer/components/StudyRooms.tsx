@@ -5,7 +5,7 @@ import { useStore } from '../lib/store';
 import { apiClient } from '../lib/api';
 import {
     Users, Plus, ArrowRight, X, Crown, Target, BookOpen, GraduationCap, Coffee,
-    ArrowLeft, Loader2, Check, Copy
+    ArrowLeft, Loader2, Check, Copy, PictureInPicture, Sparkles
 } from 'lucide-react';
 import { PremiumPaywall } from './PremiumPaywall';
 import { useTheme } from './ThemeProvider';
@@ -17,14 +17,18 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
     const [mode, setMode] = useState<'lobby' | 'solo' | 'multiplayer'>('lobby');
     const isPremium = useStore(state => state.isPremium);
     const user = useStore(state => state.user);
+    const activeRoomSession = useStore(state => state.activeRoomSession);
+    const setActiveRoomSession = useStore(state => state.setActiveRoomSession);
+    const setIsPiPActive = useStore(state => state.setIsPiPActive);
+    const leaveActiveRoomSession = useStore(state => state.leaveActiveRoomSession);
 
     const [loading, setLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('');
-    const [activeRoom, setActiveRoom] = useState<{ id: string; joinCode: string; scene: SceneId; environment: string } | null>(null);
+    const [activeRoom, setActiveRoom] = useState<{ id: string; joinCode: string; scene: SceneId; environment: string } | null>(activeRoomSession ? { id: activeRoomSession.id, joinCode: activeRoomSession.joinCode, scene: activeRoomSession.scene, environment: activeRoomSession.environment } : null);
     const activeRoomRef = useRef(activeRoom);
-    const [activeRoomOccupants, setActiveRoomOccupants] = useState<Occupant[]>([]);
-    const [socket, setSocket] = useState<WebSocket | null>(null);
-    const socketRef = useRef<WebSocket | null>(null);
+    const [activeRoomOccupants, setActiveRoomOccupants] = useState<Occupant[]>(activeRoomSession?.occupants || []);
+    const [socket, setSocket] = useState<WebSocket | null>(activeRoomSession?.socket || null);
+    const socketRef = useRef<WebSocket | null>(activeRoomSession?.socket || null);
 
     useEffect(() => {
         activeRoomRef.current = activeRoom;
@@ -97,6 +101,20 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
                     }));
                     setActiveRoomOccupants(occupants);
                     setLoading(false);
+
+                    // Sync global room session for Picture-in-Picture miniplayer
+                    const currentActiveRoom = activeRoomRef.current;
+                    if (currentActiveRoom) {
+                        useStore.getState().setActiveRoomSession({
+                            id: currentActiveRoom.id,
+                            joinCode: currentActiveRoom.joinCode,
+                            scene: targetScene,
+                            environment: currentActiveRoom.environment,
+                            occupants,
+                            socket: ws,
+                            isPaused: occupants.some((o: any) => o.isUser && o.isPaused)
+                        });
+                    }
                 } else if (data.type === 'error') {
                     console.error('WS Error:', data.message);
                     alert(`Room connection error: ${data.message}`);
@@ -411,34 +429,69 @@ export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void
                         </span>
                     </div>
 
-                    <button
-                        onClick={async () => {
-                            try {
-                                await navigator.clipboard.writeText(activeRoom.joinCode);
-                                setCopiedActive(true);
-                                setTimeout(() => setCopiedActive(false), 2000);
-                            } catch (e) {
-                                console.error(e);
-                            }
-                        }}
-                        style={{
-                            background: copiedActive ? 'rgba(52, 211, 153, 0.15)' : 'rgba(167, 139, 250, 0.15)',
-                            color: copiedActive ? '#34d399' : '#a78bfa',
-                            border: copiedActive ? '1px solid rgba(52, 211, 153, 0.3)' : '1px solid rgba(167, 139, 250, 0.3)',
-                            padding: '6px 16px',
-                            borderRadius: 8,
-                            fontSize: 12,
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6
-                        }}
-                    >
-                        {copiedActive ? <Check size={14} /> : <Copy size={14} />}
-                        {copiedActive ? 'Copied!' : 'Copy Code'}
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <button
+                            onClick={() => {
+                                if (isPremium) {
+                                    setIsPiPActive(true);
+                                    if (onNavigate) {
+                                        onNavigate('dashboard');
+                                    }
+                                } else {
+                                    openWebPage('/premium');
+                                }
+                            }}
+                            title={isPremium ? "Enable Picture-in-Picture YouTube miniplayer mode" : "Unlock P2P Picture-in-Picture (Premium Only)"}
+                            style={{
+                                background: isPremium ? 'linear-gradient(135deg, rgba(167, 139, 250, 0.2), rgba(245, 158, 11, 0.2))' : 'rgba(255, 255, 255, 0.05)',
+                                color: isPremium ? '#fbbf24' : base.sub,
+                                border: isPremium ? '1px solid rgba(245, 158, 11, 0.5)' : `1px solid ${base.cardBorder}`,
+                                padding: '6px 14px',
+                                borderRadius: 8,
+                                fontSize: 12,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                boxShadow: isPremium ? '0 0 12px rgba(245, 158, 11, 0.2)' : 'none'
+                            }}
+                        >
+                            <PictureInPicture size={14} />
+                            <span>P2P PiP</span>
+                            <Crown size={12} style={{ color: '#f59e0b' }} />
+                        </button>
+
+                        <button
+                            onClick={async () => {
+                                try {
+                                    await navigator.clipboard.writeText(activeRoom.joinCode);
+                                    setCopiedActive(true);
+                                    setTimeout(() => setCopiedActive(false), 2000);
+                                } catch (e) {
+                                    console.error(e);
+                                }
+                            }}
+                            style={{
+                                background: copiedActive ? 'rgba(52, 211, 153, 0.15)' : 'rgba(167, 139, 250, 0.15)',
+                                color: copiedActive ? '#34d399' : '#a78bfa',
+                                border: copiedActive ? '1px solid rgba(52, 211, 153, 0.3)' : '1px solid rgba(167, 139, 250, 0.3)',
+                                padding: '6px 16px',
+                                borderRadius: 8,
+                                fontSize: 12,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6
+                            }}
+                        >
+                            {copiedActive ? <Check size={14} /> : <Copy size={14} />}
+                            {copiedActive ? 'Copied!' : 'Copy Code'}
+                        </button>
+                    </div>
                 </div>
                 <div style={{ flex: 1, position: 'relative' }}>
                     <FocusRoom

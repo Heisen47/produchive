@@ -58,6 +58,22 @@ interface Store {
     // Auth
     user: any | null;
     setUser: (user: any | null) => void;
+
+    // Study Room & Picture-in-Picture State
+    activeRoomSession: {
+        id: string;
+        joinCode: string;
+        scene: any;
+        environment: string;
+        occupants: any[];
+        socket: WebSocket | null;
+        isPaused?: boolean;
+    } | null;
+    isPiPActive: boolean;
+    setActiveRoomSession: (session: Store['activeRoomSession']) => void;
+    updateActiveRoomOccupants: (occupants: any[]) => void;
+    setIsPiPActive: (active: boolean) => void;
+    leaveActiveRoomSession: () => void;
 }
 
 export const useStore = create<Store>((set, get) => ({
@@ -205,5 +221,31 @@ export const useStore = create<Store>((set, get) => ({
     unblockActivity: async (activity: Activity) => {
         const blockedActivities = await window.electronAPI.unblockActivity(activity);
         set({ blockedActivities });
+    },
+
+    // Study Room & PiP State Implementation
+    activeRoomSession: null,
+    isPiPActive: false,
+    setActiveRoomSession: (session) => set({ activeRoomSession: session }),
+    updateActiveRoomOccupants: (occupants) => {
+        const current = get().activeRoomSession;
+        if (current) {
+            set({ activeRoomSession: { ...current, occupants } });
+        }
+    },
+    setIsPiPActive: (isPiPActive) => set({ isPiPActive }),
+    leaveActiveRoomSession: () => {
+        const current = get().activeRoomSession;
+        if (current?.socket) {
+            try {
+                if (current.socket.readyState === WebSocket.OPEN) {
+                    current.socket.send(JSON.stringify({ type: 'room:leave' }));
+                }
+                current.socket.close();
+            } catch (err) {
+                console.error('Error closing WS on leaveActiveRoomSession:', err);
+            }
+        }
+        set({ activeRoomSession: null, isPiPActive: false });
     },
 }));

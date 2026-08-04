@@ -100,9 +100,16 @@ declare global {
       getSettings: () => Promise<Record<string, any>>;
       setSetting: (key: string, value: any) => Promise<Record<string, any>>;
 
-      // Focus Room sessions
+      // Focus Room & Pomodoro sessions
       saveFocusSession: (session: { scene: string; durationSeconds: number; startedAt: string }) => Promise<FocusSession>;
       getFocusSessions: () => Promise<FocusSession[]>;
+      savePomodoroSession: (session: { phase: string; durationSeconds: number; cycleNumber: number; scene?: string; startedAt?: string }) => Promise<any>;
+      getPomodoroSessions: () => Promise<any[]>;
+
+      // Spaced Repetition Practice Reminders
+      saveSpacedRepetition: (item: { title?: string; topic?: string; daysDelay?: number }) => Promise<any>;
+      getSpacedRepetitions: () => Promise<any[]>;
+      toggleSpacedRepetition: (id: string) => Promise<any[]>;
 
       // External URLs
       openExternalUrl: (url: string) => Promise<void>;

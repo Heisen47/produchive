@@ -74,6 +74,10 @@ interface Store {
     updateActiveRoomOccupants: (occupants: any[]) => void;
     setIsPiPActive: (active: boolean) => void;
     leaveActiveRoomSession: () => void;
+
+    // Spaced Repetition Practice Status
+    isSpacedReviewScheduled: boolean;
+    setSpacedReviewScheduled: (scheduled: boolean) => void;
 }
 
 export const useStore = create<Store>((set, get) => ({
@@ -247,5 +251,11 @@ export const useStore = create<Store>((set, get) => ({
             }
         }
         set({ activeRoomSession: null, isPiPActive: false });
+    },
+
+    isSpacedReviewScheduled: localStorage.getItem('isSpacedReviewScheduled') === 'true',
+    setSpacedReviewScheduled: (scheduled: boolean) => {
+        set({ isSpacedReviewScheduled: scheduled });
+        localStorage.setItem('isSpacedReviewScheduled', scheduled ? 'true' : 'false');
     },
 }));

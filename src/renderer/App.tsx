@@ -65,6 +65,7 @@ const AppContent = () => {
     const [showOnboarding, setShowOnboarding] = useState(true);
     const [showWelcome, setShowWelcome] = useState(false); // Loaded from DB
     const [showLoginModal, setShowLoginModal] = useState(false);
+    const [showPremiumModal, setShowPremiumModal] = useState(false);
     const [isDataLoaded, setDataLoaded] = useState(false);
     const [viewKey, setViewKey] = useState(0);
     const [isCatEnabled, setCatEnabled] = useState(true);
@@ -217,12 +218,19 @@ const AppContent = () => {
         <div className="h-screen w-screen flex overflow-hidden font-sans selection:bg-blue-500/30" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
             <ErrorModal />
             {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
+            {showPremiumModal && (
+                <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in" onClick={() => setShowPremiumModal(false)}>
+                    <div className="max-w-lg w-full rounded-3xl overflow-hidden shadow-2xl border border-white/10" onClick={e => e.stopPropagation()}>
+                        <PremiumPaywall onClose={() => setShowPremiumModal(false)} />
+                    </div>
+                </div>
+            )}
             {showWelcome && <WelcomeGuide onClose={() => setShowWelcome(false)} />}
             {!showWelcome && showOnboarding && <GoalOnboarding onClose={() => setShowOnboarding(false)} />}
             {showPromptEditor && <PromptEditorModal onClose={() => setShowPromptEditor(false)} />}
             <StudyRoomMiniPlayer onNavigate={handleViewChange} />
             
-            {isCatEnabled && <PeekabooCat isSidebarOpen={isSidebarOpen} />}
+            {isCatEnabled && <PeekabooCat isSidebarOpen={isSidebarOpen} onNavigate={handleViewChange} />}
 
             {/* Sidebar */}
             <Navbar
@@ -406,7 +414,7 @@ const AppContent = () => {
 
                             {currentView === 'monitor' && (
                                 <div className="space-y-6">
-                                    <ActivityMonitor />
+                                    <ActivityMonitor onOpenPaywall={() => setShowPremiumModal(true)} />
                                     <SystemLog />
                                 </div>
                             )}

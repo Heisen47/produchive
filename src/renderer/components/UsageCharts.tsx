@@ -331,8 +331,39 @@ export const UsageCharts = () => {
         ? Math.round(filteredRatings.filter((r: any) => typeof r.rating === 'number').reduce((s: number, r: any) => s + r.rating, 0) / filteredRatings.filter((r: any) => typeof r.rating === 'number').length * 10) / 10
         : null;
 
+    const goals = useStore(state => state.goals);
+    const isSpacedReviewScheduled = useStore(state => state.isSpacedReviewScheduled);
+
     return (
         <div className="space-y-8">
+            {/* Spaced Repetition Review Scheduled Status Banner */}
+            {isSpacedReviewScheduled && (
+                <div className="p-4 rounded-2xl border flex items-center justify-between gap-4 animate-fade-in-up"
+                    style={{
+                        background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.12))',
+                        borderColor: 'rgba(168, 85, 247, 0.3)'
+                    }}
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'rgba(168, 85, 247, 0.2)', color: '#c084fc' }}>
+                            <Brain size={20} />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h4 className="font-bold text-sm text-purple-300">
+                                    🧠 3-Day Spaced Repetition Practice Scheduled
+                                </h4>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                    Scheduled ✓
+                                </span>
+                            </div>
+                            <p className="text-xs opacity-90 mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                                You have scheduled a 3-Day Practice Review for <strong>"{goals[0] || 'LeetCode & Study Practice'}"</strong>. Reviewing after 3–4 days leverages cognitive science to lock knowledge into permanent long-term memory!
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
             {/* Period Tabs */}
             <div className="flex items-center gap-2 animate-fade-in-up">
                 {(Object.keys(PERIOD_LABELS) as TimePeriod[]).map((p) => (

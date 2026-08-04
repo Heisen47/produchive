@@ -2,6 +2,9 @@ import React, { useEffect, useMemo } from 'react';
 import { Activity, Lock, Unlock, ShieldBan, FileText, Globe } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
+import { InstantGoalEvaluator } from './InstantGoalEvaluator';
+import { LiveRatingGraph } from './LiveRatingGraph';
+import { openWebPage } from '../lib/urls';
 
 const CHART_COLORS = [
     '#3b82f6', '#8b5cf6', '#06b6d4', '#f59e0b', '#10b981',
@@ -25,9 +28,11 @@ const getAppIcon = (appName: string) => {
     return <FileText size={14} />;
 };
 
-export const ActivityMonitor = () => {
+export const ActivityMonitor = ({ onOpenPaywall }: { onOpenPaywall?: () => void }) => {
     const { activities, addActivity, blockedActivities, blockActivity, unblockActivity } = useStore();
     const { isDark } = useTheme();
+
+    const handlePaywall = onOpenPaywall || (() => openWebPage('/premium'));
 
     useEffect(() => {
         window.electronAPI.onActivityUpdate((activity) => {
@@ -98,7 +103,11 @@ export const ActivityMonitor = () => {
     }
 
     return (
-        <div className="glass-card-static rounded-2xl p-5 animate-fade-in-up">
+        <div className="space-y-6">
+            <InstantGoalEvaluator onOpenPaywall={handlePaywall} />
+            <LiveRatingGraph onOpenPaywall={handlePaywall} />
+
+            <div className="glass-card-static rounded-2xl p-5 animate-fade-in-up">
             {/* Header */}
             <div className="flex items-center gap-2 mb-5">
                 <Activity size={20} style={{ color: '#2dd4bf' }} />
@@ -239,5 +248,6 @@ export const ActivityMonitor = () => {
                 })}
             </div>
         </div>
+    </div>
     );
 };

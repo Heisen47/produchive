@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeft, Maximize2, Minimize2, Lock, Unlock, Pause, Play, Eye, Users, Zap, BookOpen, Coffee, GraduationCap, ChevronDown, Plus, Sparkles as SparklesIcon } from 'lucide-react';
+import { ArrowLeft, Maximize2, Minimize2, Lock, Unlock, Pause, Play, Eye, Users, Zap, BookOpen, Coffee, GraduationCap, ChevronDown, Plus, Sparkles as SparklesIcon, Timer, RotateCcw, FastForward, CheckCircle2 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { useStore } from '../lib/store';
+import { usePomodoroTimer, TimerMode, PomodoroPhase } from '../lib/usePomodoroTimer';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Environment, ContactShadows } from '@react-three/drei';
 import { SceneId, Occupant, SCENE_META, fmtHMS, GhibliMaterial, NPC_NAMES } from './focus-room/Shared3D';
@@ -292,79 +293,142 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent, isPaused,
       )}
 
       {/* Timer banner — study mode only; plain when unlocked, clickable when locked */}
-      {mode === 'study' && (isLocked ? (
-        <button
-          onClick={togglePause}
-          title={isPaused ? 'Resume timer' : 'Pause timer'}
-          style={{
-            position: 'absolute', top: 20, left: '50%', transform: 'translateX(-50%)',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            background: scene === 'classroom' ? '#064e3b' : scene === 'library' ? '#78350f' : '#451a03',
-            border: `3px solid ${isPaused ? accent : scene === 'classroom' ? '#78350f' : scene === 'library' ? '#451a03' : '#291811'}`,
-            borderRadius: 8, padding: '8px 32px',
-            boxShadow: isPaused
-              ? `0 8px 24px rgba(0,0,0,0.5), inset 0 0 10px rgba(0,0,0,0.4), 0 0 0 2px ${accent}44`
-              : `0 8px 24px rgba(0,0,0,0.5), inset 0 0 10px rgba(0,0,0,0.4)`,
-            zIndex: 5, cursor: 'pointer',
-            transition: 'border-color 0.2s, box-shadow 0.2s, transform 0.15s',
-            whiteSpace: 'nowrap',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.transform = 'translateX(-50%) scale(1.04)'; }}
-          onMouseLeave={e => { e.currentTarget.style.transform = 'translateX(-50%) scale(1)'; }}
-        >
-          {/* Label */}
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 5,
-            color: 'rgba(255,255,255,0.95)',
-            fontSize: 9, fontWeight: 800, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 2,
-          }}>
-            {isPaused ? 'PAUSED' : meta.label}
-          </div>
-          {/* Timer + icon row */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{
-              color: '#ffffff',
-              fontSize: 28, fontWeight: 700, fontFamily: 'Georgia, serif', letterSpacing: 2,
-              textShadow: '0 1px 3px rgba(0,0,0,1)',
-              opacity: isPaused ? 0.55 : 1,
-              transition: 'opacity 0.3s',
-            }}>
-              {fmtHMS(sessionSeconds)}
+      {mode === 'study' && (() => {
+        const pomodoro = usePomodoroTimer();
+        const isPomo = pomodoro.mode === 'pomodoro';
+
+        const phaseColor = pomodoro.phase === 'focus' ? '#34d399' : pomodoro.phase === 'shortBreak' ? '#60a5fa' : '#f59e0b';
+        const phaseLabel = pomodoro.phase === 'focus' ? '🍅 Focus Session' : pomodoro.phase === 'shortBreak' ? '☕ Short Break' : '🌴 Long Break';
+
+        return (
+          <div
+            style={{
+              position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              background: scene === 'classroom' ? 'rgba(6, 78, 59, 0.92)' : scene === 'library' ? 'rgba(120, 53, 15, 0.92)' : 'rgba(69, 26, 3, 0.92)',
+              border: `2px solid ${isPaused ? accent : isPomo ? phaseColor : 'rgba(255,255,255,0.2)'}`,
+              borderRadius: 16, padding: '8px 24px',
+              boxShadow: `0 12px 32px rgba(0,0,0,0.5), inset 0 0 10px rgba(0,0,0,0.4)`,
+              zIndex: 25,
+              backdropFilter: 'blur(12px)',
+              minWidth: 260
+            }}
+          >
+            {/* Mode Switcher & Phase Badges (Side-by-Side Stopwatch & Pomodoro) */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              {/* Stopwatch Option */}
+              <button
+                onClick={() => pomodoro.switchTimerMode('stopwatch')}
+                title="Count-up Stopwatch Mode"
+                style={{
+                  background: !isPomo ? 'rgba(52, 211, 153, 0.25)' : 'rgba(255, 255, 255, 0.12)',
+                  border: !isPomo ? '1px solid rgba(52, 211, 153, 0.5)' : '1px solid rgba(255, 255, 255, 0.15)',
+                  color: !isPomo ? '#34d399' : 'rgba(255, 255, 255, 0.7)',
+                  borderRadius: 10, padding: '3px 10px', fontSize: 10, fontWeight: 800,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.2s'
+                }}
+              >
+                <Timer size={11} />
+                <span>Stopwatch</span>
+              </button>
+
+              {/* Pomodoro Option */}
+              <button
+                onClick={() => pomodoro.switchTimerMode('pomodoro')}
+                title="25m Focus / 5m Break Pomodoro Technique"
+                style={{
+                  background: isPomo ? 'rgba(245, 158, 11, 0.25)' : 'rgba(255, 255, 255, 0.12)',
+                  border: isPomo ? '1px solid rgba(245, 158, 11, 0.5)' : '1px solid rgba(255, 255, 255, 0.15)',
+                  color: isPomo ? '#fbbf24' : 'rgba(255, 255, 255, 0.7)',
+                  borderRadius: 10, padding: '3px 10px', fontSize: 10, fontWeight: 800,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.2s'
+                }}
+              >
+                <span>🍅 Pomodoro</span>
+              </button>
+
+              {isPomo && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 4 }}>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: phaseColor }}>
+                    {phaseLabel}
+                  </span>
+                  <div style={{ display: 'flex', gap: 3 }}>
+                    {[1, 2, 3, 4].map(c => (
+                      <div
+                        key={c}
+                        style={{
+                          width: 6, height: 6, borderRadius: '50%',
+                          background: c <= (pomodoro.completedCycles % 4 || (pomodoro.completedCycles > 0 ? 4 : 0)) ? phaseColor : 'rgba(255,255,255,0.2)'
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            {/* Pause / play icon embedded in banner */}
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: 32, height: 32, borderRadius: 8,
-              background: isPaused ? accent : 'rgba(255,255,255,0.12)',
-              color: isPaused ? '#000' : 'rgba(255,255,255,0.85)',
-              flexShrink: 0,
-              transition: 'background 0.2s, color 0.2s',
-              boxShadow: isPaused ? `0 0 10px ${accent}88` : 'none',
-            }}>
-              {isPaused ? <Play size={16} strokeWidth={2.5} /> : <Pause size={16} strokeWidth={2.5} />}
+
+            {/* Timer + Controls Row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{
+                color: '#ffffff',
+                fontSize: 26, fontWeight: 800, fontFamily: 'Georgia, serif', letterSpacing: 2,
+                textShadow: '0 2px 4px rgba(0,0,0,0.8)',
+                opacity: isPaused ? 0.6 : 1,
+              }}>
+                {isPomo ? pomodoro.formattedTime : fmtHMS(sessionSeconds)}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  onClick={togglePause}
+                  title={isPaused ? 'Resume Timer' : 'Pause Timer'}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 30, height: 30, borderRadius: 8,
+                    background: isPaused ? accent : 'rgba(255,255,255,0.15)',
+                    color: isPaused ? '#000' : '#fff',
+                    border: 'none', cursor: 'pointer', transition: 'all 0.2s'
+                  }}
+                >
+                  {isPaused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
+                </button>
+
+                {isPomo && (
+                  <>
+                    <button
+                      onClick={pomodoro.skipPhase}
+                      title="Skip to next Pomodoro phase"
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        width: 30, height: 30, borderRadius: 8,
+                        background: 'rgba(255,255,255,0.1)',
+                        color: 'rgba(255,255,255,0.8)',
+                        border: 'none', cursor: 'pointer', transition: 'all 0.2s'
+                      }}
+                    >
+                      <FastForward size={14} />
+                    </button>
+
+                    <button
+                      onClick={pomodoro.resetPomodoro}
+                      title="Reset Pomodoro cycles"
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        width: 30, height: 30, borderRadius: 8,
+                        background: 'rgba(255,255,255,0.1)',
+                        color: 'rgba(255,255,255,0.8)',
+                        border: 'none', cursor: 'pointer', transition: 'all 0.2s'
+                      }}
+                    >
+                      <RotateCcw size={13} />
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </button>
-      ) : (
-        <div
-          style={{
-            position: 'absolute', top: 20, left: '50%', transform: 'translateX(-50%)',
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            background: scene === 'classroom' ? '#064e3b' : scene === 'library' ? '#78350f' : '#451a03',
-            border: `3px solid ${scene === 'classroom' ? '#78350f' : scene === 'library' ? '#451a03' : '#291811'}`,
-            borderRadius: 8, padding: '8px 32px',
-            boxShadow: `0 8px 24px rgba(0,0,0,0.5), inset 0 0 10px rgba(0,0,0,0.4)`,
-            zIndex: 5, pointerEvents: 'none',
-          }}
-        >
-          <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 9, fontWeight: 800, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 2 }}>
-            {meta.label}
-          </div>
-          <div style={{ color: '#fef3c7', fontSize: 28, fontWeight: 700, fontFamily: 'Georgia, serif', letterSpacing: 2, textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>
-            {fmtHMS(sessionSeconds)}
-          </div>
-        </div>
-      ))}
+        );
+      })()}
 
       {/* Locked top bar — replaces the HUD when locked, always reachable */}
       {isLocked && (

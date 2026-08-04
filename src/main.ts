@@ -1171,7 +1171,7 @@ function registerIpcHandlers() {
     },
   );
 
-  // ─── Focus Room Session Persistence ──────────────────────────────────────
+  // ─── Focus Room & Pomodoro Session Persistence ────────────────────────────
   ipcMain.handle("save-focus-session", async (event, session) => {
     const newSession = {
       id: crypto.randomUUID(),
@@ -1182,6 +1182,7 @@ function registerIpcHandlers() {
       endedAtReadable: new Date().toLocaleString(),
       startedAtReadable: new Date(session.startedAt).toLocaleString(),
     };
+    db.data.focusSessions ||= [];
     db.data.focusSessions.push(newSession);
     await db.write();
     logger.info(`[focus-session] Saved session: ${newSession.id} (${newSession.durationSeconds}s in ${newSession.scene})`);
@@ -1191,6 +1192,66 @@ function registerIpcHandlers() {
   ipcMain.handle("get-focus-sessions", async () => {
     // Return newest first
     return [...(db.data.focusSessions || [])].reverse();
+  });
+
+  ipcMain.handle("save-pomodoro-session", async (event, session) => {
+    const newSession = {
+      id: crypto.randomUUID(),
+      mode: 'pomodoro',
+      phase: session.phase || 'focus',
+      durationSeconds: session.durationSeconds || 1500,
+      cycleNumber: session.cycleNumber || 1,
+      scene: session.scene || 'classroom',
+      startedAt: session.startedAt || new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      endedAtReadable: new Date().toLocaleString(),
+    };
+    db.data.pomodoroSessions ||= [];
+    db.data.pomodoroSessions.push(newSession);
+    await db.write();
+    logger.info(`[pomodoro-session] Saved local Pomodoro session: ${newSession.id} (${newSession.phase}, ${newSession.durationSeconds}s)`);
+    return newSession;
+  });
+
+  ipcMain.handle("get-pomodoro-sessions", async () => {
+    return [...(db.data.pomodoroSessions || [])].reverse();
+  });
+
+  // ─── Spaced Repetition Practice Reminders ──────────────────────────────────
+  ipcMain.handle("save-spaced-repetition", async (event, item) => {
+    const dueTime = Date.now() + (item.daysDelay || 3.5) * 24 * 60 * 60 * 1000;
+    const dueDate = new Date(dueTime);
+
+    const newReminder = {
+      id: item.id || crypto.randomUUID(),
+      title: item.title || `3-Day Review: ${item.topic || 'Study Practice'}`,
+      originalTopic: item.topic || 'Practice Session',
+      createdDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      dueDate: dueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      dueTimestamp: dueTime,
+      completed: false,
+      scientificNote: "Scientific Insight: Based on the Ebbinghaus Spaced Repetition Curve, reviewing topics after 3–4 days converts short-term knowledge into permanent long-term memory."
+    };
+
+    db.data.spacedRepetitions ||= [];
+    db.data.spacedRepetitions.push(newReminder);
+    await db.write();
+    logger.info(`[spaced-repetition] Saved practice reminder: ${newReminder.id} for ${newReminder.dueDate}`);
+    return newReminder;
+  });
+
+  ipcMain.handle("get-spaced-repetitions", async () => {
+    return db.data.spacedRepetitions || [];
+  });
+
+  ipcMain.handle("toggle-spaced-repetition", async (event, id) => {
+    db.data.spacedRepetitions ||= [];
+    const found = db.data.spacedRepetitions.find((r: any) => r.id === id);
+    if (found) {
+      found.completed = !found.completed;
+      await db.write();
+    }
+    return db.data.spacedRepetitions;
   });
 
   // Debug and system info handlers

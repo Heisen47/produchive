@@ -16,6 +16,7 @@ import { TotoroBusStopBg } from './TotoroBusStopBg';
 import { PeekabooCat } from './PeekabooCat';
 import { StreakCard } from './StreakCard';
 import { ScreenPermissionBanner } from './ScreenPermissionBanner';
+import { SpacedRepetitionWidget } from './SpacedRepetitionWidget';
 
 // Helper for formatting duration
 const formatDuration = (seconds: number) => {

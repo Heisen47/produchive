@@ -55,9 +55,16 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("app-before-quit", () => callback());
   },
 
-  // Focus Room sessions
+  // Focus Room & Pomodoro sessions
   saveFocusSession: (session: any) => ipcRenderer.invoke("save-focus-session", session),
   getFocusSessions: () => ipcRenderer.invoke("get-focus-sessions"),
+  savePomodoroSession: (session: any) => ipcRenderer.invoke("save-pomodoro-session", session),
+  getPomodoroSessions: () => ipcRenderer.invoke("get-pomodoro-sessions"),
+
+  // Spaced Repetition Practice Reminders
+  saveSpacedRepetition: (item: any) => ipcRenderer.invoke("save-spaced-repetition", item),
+  getSpacedRepetitions: () => ipcRenderer.invoke("get-spaced-repetitions"),
+  toggleSpacedRepetition: (id: string) => ipcRenderer.invoke("toggle-spaced-repetition", id),
 
   // App settings
   getSettings: () => ipcRenderer.invoke("get-settings"),

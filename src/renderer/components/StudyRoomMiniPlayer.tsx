@@ -11,6 +11,7 @@ import { CafeEnv } from './focus-room/CafeEnv';
 import { LibraryEnv } from './focus-room/LibraryEnv';
 import { SceneId, fmtHMS } from './focus-room/Shared3D';
 import { apiClient } from '../lib/api';
+import { usePomodoroTimer } from '../lib/usePomodoroTimer';
 
 interface StudyRoomMiniPlayerProps {
     onNavigate: (view: string) => void;
@@ -197,11 +198,17 @@ export const StudyRoomMiniPlayer: React.FC<StudyRoomMiniPlayerProps> = ({ onNavi
             <div className="flex-1 relative overflow-hidden" ref={canvasContainerRef}>
                 {render3DScene()}
 
-                {/* Focus Timer Overlay */}
-                <div className="absolute top-2 left-2 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-md border border-white/10 text-white font-mono text-xs font-bold">
-                    <div className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'}`} />
-                    <span>{fmtHMS(maxStudySeconds)}</span>
-                </div>
+                {/* Focus Timer & Pomodoro Overlay */}
+                {(() => {
+                    const pomodoro = usePomodoroTimer();
+                    const isPomo = pomodoro.mode === 'pomodoro';
+                    return (
+                        <div className="absolute top-2 left-2 pointer-events-none flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/70 backdrop-blur-md border border-white/10 text-white font-mono text-xs font-bold shadow-lg">
+                            <div className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-amber-400' : isPomo ? 'bg-purple-400 animate-pulse' : 'bg-emerald-400 animate-pulse'}`} />
+                            <span>{isPomo ? `${pomodoro.phase === 'focus' ? '🍅' : '☕'} ${pomodoro.formattedTime}` : fmtHMS(maxStudySeconds)}</span>
+                        </div>
+                    );
+                })()}
             </div>
 
             {/* Bottom Controls Bar (YouTube Style Miniplayer Controls) */}

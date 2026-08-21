@@ -18,6 +18,7 @@ import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { initEngine } from './lib/ai';
 import { useStore } from './lib/store';
 import { apiClient } from './lib/api';
+import { syncEngine } from './lib/services';
 import {
     Loader2,
     Sparkles,
@@ -82,9 +83,13 @@ const AppContent = () => {
 
     // Listen for activity updates and deep link auth tokens
     useEffect(() => {
+        syncEngine.start();
+
         window.electronAPI.onActivityUpdate((activity) => {
             addActivity(activity);
+            syncEngine.enqueueActivity(activity);
         });
+
 
         // Set up real-time listener for deep link auth tokens
         window.electronAPI.onAuthToken(async (token) => {

@@ -13,6 +13,7 @@ class MakerNsis extends MakerBase {
         return await buildForge(options, {
             win: [`nsis:${options.targetArch}`],
             config: {
+                publish: null,
                 nsis: {
                     oneClick: false,
                     allowToChangeInstallationDirectory: true,

@@ -18,7 +18,6 @@ import {
     GripVertical,
     Edit3,
     Activity as ActivityIcon,
-    Layers,
     Save
 } from 'lucide-react';
 import { useStore } from '../lib/store';
@@ -51,17 +50,35 @@ export interface ActivityGuess {
     appBreakdown: Array<{ name: string; seconds: number }>;
 }
 
-// ─── Categories & Styling Matching Teams Calendar ───
-const EVENT_COLORS: Record<string, { bg: string; border: string; accent: string; text: string }> = {
-    development: { bg: '#2b2d42', border: '#4f52b2', accent: '#7b83eb', text: '#e2e8f0' },
-    meeting: { bg: '#373059', border: '#6e65a0', accent: '#a594f9', text: '#f3f4f6' },
-    research: { bg: '#253342', border: '#3b82f6', accent: '#60a5fa', text: '#e2e8f0' },
-    design: { bg: '#1e3a47', border: '#06b6d4', accent: '#22d3ee', text: '#e2e8f0' },
-    writing: { bg: '#1f3d36', border: '#10b981', accent: '#34d399', text: '#e2e8f0' },
-    meal: { bg: '#3f2d24', border: '#f97316', accent: '#fb923c', text: '#ffedd5' },
-    break: { bg: '#3a3022', border: '#f59e0b', accent: '#fbbf24', text: '#fef3c7' },
-    sleep: { bg: '#1e2238', border: '#6366f1', accent: '#818cf8', text: '#e0e7ff' },
-    other: { bg: '#282b36', border: '#64748b', accent: '#94a3b8', text: '#e2e8f0' },
+// ─── Categories & Styling with Proper Contrast for Light & Dark Mode ───
+const getEventColors = (category: string, isDark: boolean) => {
+    if (isDark) {
+        const darkMap: Record<string, { bg: string; border: string; accent: string; text: string; subtext: string }> = {
+            development: { bg: '#232738', border: '#4f52b2', accent: '#7b83eb', text: '#f8fafc', subtext: '#94a3b8' },
+            meeting: { bg: '#2e2646', border: '#7c6cb8', accent: '#a594f9', text: '#f8fafc', subtext: '#cbd5e1' },
+            research: { bg: '#1c2b3d', border: '#3b82f6', accent: '#60a5fa', text: '#f8fafc', subtext: '#94a3b8' },
+            design: { bg: '#16313f', border: '#06b6d4', accent: '#22d3ee', text: '#f8fafc', subtext: '#94a3b8' },
+            writing: { bg: '#16332d', border: '#10b981', accent: '#34d399', text: '#f8fafc', subtext: '#94a3b8' },
+            meal: { bg: '#36241a', border: '#f97316', accent: '#fb923c', text: '#fff7ed', subtext: '#fed7aa' },
+            break: { bg: '#322817', border: '#f59e0b', accent: '#fbbf24', text: '#fefce8', subtext: '#fde68a' },
+            sleep: { bg: '#191b30', border: '#6366f1', accent: '#818cf8', text: '#e0e7ff', subtext: '#c7d2fe' },
+            other: { bg: '#1e222e', border: '#64748b', accent: '#94a3b8', text: '#f8fafc', subtext: '#94a3b8' },
+        };
+        return darkMap[category] || darkMap.other;
+    } else {
+        const lightMap: Record<string, { bg: string; border: string; accent: string; text: string; subtext: string }> = {
+            development: { bg: '#eef2ff', border: '#818cf8', accent: '#4338ca', text: '#1e1b4b', subtext: '#4338ca' },
+            meeting: { bg: '#f5f3ff', border: '#a78bfa', accent: '#6d28d9', text: '#2e1065', subtext: '#5b21b6' },
+            research: { bg: '#eff6ff', border: '#60a5fa', accent: '#1d4ed8', text: '#172554', subtext: '#1e40af' },
+            design: { bg: '#ecfeff', border: '#22d3ee', accent: '#0e7490', text: '#083344', subtext: '#0e7490' },
+            writing: { bg: '#ecfdf5', border: '#34d399', accent: '#047857', text: '#022c22', subtext: '#065f46' },
+            meal: { bg: '#fff7ed', border: '#fb923c', accent: '#c2410c', text: '#431407', subtext: '#9a3412' },
+            break: { bg: '#fefce8', border: '#fcd34d', accent: '#b45309', text: '#451a03', subtext: '#92400e' },
+            sleep: { bg: '#e0e7ff', border: '#818cf8', accent: '#3730a3', text: '#1e1b4b', subtext: '#312e81' },
+            other: { bg: '#f1f5f9', border: '#94a3b8', accent: '#334155', text: '#0f172a', subtext: '#475569' },
+        };
+        return lightMap[category] || lightMap.other;
+    }
 };
 
 // ─── Date Helpers ───
@@ -98,6 +115,41 @@ const formatTimeSlot = (hour: number, minute: number = 0) => {
     const displayHour = hour % 12 === 0 ? 12 : hour % 12;
     const minStr = minute < 10 ? `0${minute}` : `${minute}`;
     return `${displayHour}:${minStr} ${period}`;
+};
+
+const getDaysInMonthGrid = (year: number, month: number) => {
+    const firstDayOfMonth = new Date(year, month, 1);
+    const lastDayOfMonth = new Date(year, month + 1, 0);
+
+    let startingDay = firstDayOfMonth.getDay() - 1;
+    if (startingDay === -1) startingDay = 6;
+
+    const days: Array<{ date: Date; isCurrentMonth: boolean }> = [];
+
+    const prevMonthLastDay = new Date(year, month, 0).getDate();
+    for (let i = startingDay - 1; i >= 0; i--) {
+        days.push({
+            date: new Date(year, month - 1, prevMonthLastDay - i),
+            isCurrentMonth: false,
+        });
+    }
+
+    for (let i = 1; i <= lastDayOfMonth.getDate(); i++) {
+        days.push({
+            date: new Date(year, month, i),
+            isCurrentMonth: true,
+        });
+    }
+
+    const remaining = (7 - (days.length % 7)) % 7;
+    for (let i = 1; i <= remaining; i++) {
+        days.push({
+            date: new Date(year, month + 1, i),
+            isCurrentMonth: false,
+        });
+    }
+
+    return days;
 };
 
 // ─── Activity Guesser Engine ───
@@ -224,9 +276,16 @@ export const Routine = () => {
     // ─── View Modes: 'work_week' (5 days) | 'week' (7 days) | 'day' (1 day) ───
     const [viewMode, setViewMode] = useState<'work_week' | 'week' | 'day'>('work_week');
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+    const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+    const [pickerMonth, setPickerMonth] = useState<Date>(new Date());
     const [isMakerOpen, setIsMakerOpen] = useState(false);
     const [draggedItem, setDraggedItem] = useState<PlannedRoutineItem | null>(null);
     const [dragError, setDragError] = useState<string | null>(null);
+
+    // Sync picker month when selectedDate changes
+    useEffect(() => {
+        setPickerMonth(new Date(selectedDate));
+    }, [selectedDate]);
 
     // ─── Double-Click Detail Modal States ───
     const [selectedRoutineDetails, setSelectedRoutineDetails] = useState<PlannedRoutineItem | null>(null);
@@ -239,11 +298,24 @@ export const Routine = () => {
     // Range activities from database
     const [rangeActivities, setRangeActivities] = useState<Record<string, { activities: Activity[] }>>({});
 
-    // Current Time
+    // Current Time & TimeZone
     const now = new Date();
     const currentHour = now.getHours();
     const currentMinute = now.getMinutes();
     const todayStr = formatDateStr(now);
+
+    const userTimeZoneLabel = useMemo(() => {
+        try {
+            const offset = -new Date().getTimezoneOffset();
+            const sign = offset >= 0 ? '+' : '-';
+            const absOffset = Math.abs(offset);
+            const hours = Math.floor(absOffset / 60);
+            const mins = absOffset % 60;
+            return `GMT${sign}${hours}${mins > 0 ? `:${mins < 10 ? '0' : ''}${mins}` : ''}`;
+        } catch {
+            return 'Local';
+        }
+    }, []);
 
     // ─── Week Days Calculation ───
     const startOfWeek = useMemo(() => getStartOfWeek(selectedDate), [selectedDate]);
@@ -315,10 +387,32 @@ export const Routine = () => {
         setAllRoutines(items);
         try {
             localStorage.setItem('produchive_master_routines', JSON.stringify(items));
+            window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
         } catch (e) {
             console.error('Failed to save master routines:', e);
         }
     };
+
+    // ─── Listen for external routine updates (e.g. from Auto-Confirmation popup) ───
+    useEffect(() => {
+        const handleRoutineUpdate = () => {
+            try {
+                const saved = localStorage.getItem('produchive_master_routines');
+                if (saved) {
+                    setAllRoutines(JSON.parse(saved));
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        };
+
+        window.addEventListener('produchive_routine_updated', handleRoutineUpdate);
+        window.addEventListener('storage', handleRoutineUpdate);
+        return () => {
+            window.removeEventListener('produchive_routine_updated', handleRoutineUpdate);
+            window.removeEventListener('storage', handleRoutineUpdate);
+        };
+    }, []);
 
     // ─── Fetch Activity Data for displayed range ───
     useEffect(() => {
@@ -471,7 +565,6 @@ export const Routine = () => {
         e.preventDefault();
         if (!draggedItem) return;
 
-        // Validation 1: Dragged task must NOT be a past task
         const isSourcePast = draggedItem.dateStr < todayStr || (draggedItem.dateStr === todayStr && draggedItem.startHour < currentHour);
         if (isSourcePast) {
             setDragError(`Past tasks cannot be dragged to the future! (${draggedItem.title} belongs to a past timeslot).`);
@@ -480,7 +573,6 @@ export const Routine = () => {
             return;
         }
 
-        // Validation 2: Target timeslot must NOT be in the past
         const isTargetPast = targetDateStr < todayStr || (targetDateStr === todayStr && targetHour < currentHour);
         if (isTargetPast) {
             setDragError(`Cannot drag tasks into the past! (${formatHourLabel(targetHour)} has already passed). Drag to ${formatHourLabel(currentHour)} or later.`);
@@ -489,7 +581,6 @@ export const Routine = () => {
             return;
         }
 
-        // Move the item to new date & hour
         const updated = allRoutines.map((item) => {
             if (item.id === draggedItem.id) {
                 return {
@@ -533,23 +624,26 @@ export const Routine = () => {
         <div className="space-y-4 animate-fade-in-up pb-10 select-none">
             {/* 1. Teams Top Navigation Header */}
             <div
-                className="rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                className="rounded-2xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors"
                 style={{
-                    background: isDark ? '#1f1f23' : '#ffffff',
+                    background: 'var(--bg-card-solid)',
                     border: '1px solid var(--border-secondary)',
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                    boxShadow: 'var(--shadow-card)',
                 }}
             >
                 {/* Left: Icon & Title */}
                 <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#5b5fc7]/20 border border-[#5b5fc7]/40 text-[#7b83eb] shadow-sm">
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-[#5b5fc7]/20 border border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb] shadow-sm">
                         <CalendarIcon size={20} />
                     </div>
                     <div>
-                        <h1 className="text-xl font-display font-bold text-slate-100 flex items-center gap-2">
-                            Calendar
+                        <h1
+                            className="text-xl font-display font-bold flex items-center gap-2"
+                            style={{ color: 'var(--text-primary)' }}
+                        >
+                            Routine
                         </h1>
-                        <p className="text-xs text-slate-400">
+                        <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                             Teams Schedule Timeline • Double-click any activity to view & edit details
                         </p>
                     </div>
@@ -559,7 +653,12 @@ export const Routine = () => {
                 <div className="flex items-center gap-2.5">
                     <button
                         onClick={() => setSelectedDate(new Date())}
-                        className="px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all hover:bg-white/5 border border-slate-700 text-slate-300"
+                        className="px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all border"
+                        style={{
+                            background: 'var(--bg-elevated)',
+                            color: 'var(--text-primary)',
+                            borderColor: 'var(--border-card)',
+                        }}
                     >
                         <RefreshCw size={13} /> Today
                     </button>
@@ -580,9 +679,9 @@ export const Routine = () => {
 
             {/* 2. Teams Sub-Header Toolbar (Date Nav & View Selector) */}
             <div
-                className="rounded-2xl px-5 py-3 flex flex-wrap items-center justify-between gap-4"
+                className="rounded-2xl px-5 py-3 flex flex-wrap items-center justify-between gap-4 transition-colors"
                 style={{
-                    background: isDark ? '#1a1a1e' : '#f8f9fa',
+                    background: 'var(--bg-card-solid)',
                     border: '1px solid var(--border-secondary)',
                 }}
             >
@@ -590,7 +689,12 @@ export const Routine = () => {
                 <div className="flex items-center gap-3">
                     <button
                         onClick={() => setSelectedDate(new Date())}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white/5 hover:bg-white/10 text-slate-200 border border-slate-700 transition-all"
+                        className="px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all"
+                        style={{
+                            background: 'var(--bg-elevated)',
+                            color: 'var(--text-primary)',
+                            borderColor: 'var(--border-card)',
+                        }}
                     >
                         Today
                     </button>
@@ -598,51 +702,214 @@ export const Routine = () => {
                     <div className="flex items-center gap-1">
                         <button
                             onClick={() => handleDateStep(-1)}
-                            className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-all"
+                            className="p-1.5 rounded-lg transition-all hover:bg-black/5 dark:hover:bg-white/10"
+                            style={{ color: 'var(--text-secondary)' }}
                             title="Previous"
                         >
                             <ChevronLeft size={16} />
                         </button>
                         <button
                             onClick={() => handleDateStep(1)}
-                            className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-all"
+                            className="p-1.5 rounded-lg transition-all hover:bg-black/5 dark:hover:bg-white/10"
+                            style={{ color: 'var(--text-secondary)' }}
                             title="Next"
                         >
                             <ChevronRight size={16} />
                         </button>
                     </div>
 
-                    <div className="font-display font-bold text-sm text-slate-100 flex items-center gap-1 ml-2">
-                        <span>
-                            {selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                        </span>
-                        <ChevronDown size={14} className="text-slate-400" />
+                    {/* Interactive Calendar Popover Trigger */}
+                    <div className="relative ml-2">
+                        <button
+                            type="button"
+                            onClick={() => setIsDatePickerOpen((prev) => !prev)}
+                            className="font-display font-bold text-sm flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all border border-transparent hover:border-slate-300 dark:hover:border-slate-700 active:scale-95"
+                            style={{ color: 'var(--text-primary)' }}
+                            title="Open Calendar"
+                        >
+                            <span>
+                                {selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                            </span>
+                            <ChevronDown
+                                size={14}
+                                style={{ color: 'var(--text-secondary)' }}
+                                className={`transition-transform duration-200 ${
+                                    isDatePickerOpen ? 'rotate-180 text-[#5b5fc7]' : ''
+                                }`}
+                            />
+                        </button>
+
+                        {/* Dropdown Mini Calendar Popover */}
+                        {isDatePickerOpen && (
+                            <>
+                                <div
+                                    className="fixed inset-0 z-40"
+                                    onClick={() => setIsDatePickerOpen(false)}
+                                />
+                                <div
+                                    className="absolute top-full left-0 mt-2 z-50 w-72 rounded-2xl p-4 shadow-2xl border animate-scale-in"
+                                    style={{
+                                        background: 'var(--bg-card-solid)',
+                                        borderColor: 'var(--border-card)',
+                                        boxShadow: isDark
+                                            ? '0 20px 45px rgba(0,0,0,0.6)'
+                                            : '0 15px 35px rgba(0,0,0,0.15)',
+                                    }}
+                                >
+                                    {/* Month Navigation */}
+                                    <div className="flex items-center justify-between mb-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const d = new Date(pickerMonth);
+                                                d.setMonth(d.getMonth() - 1);
+                                                setPickerMonth(d);
+                                            }}
+                                            className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                                            style={{ color: 'var(--text-secondary)' }}
+                                        >
+                                            <ChevronLeft size={16} />
+                                        </button>
+
+                                        <span className="font-bold text-xs" style={{ color: 'var(--text-primary)' }}>
+                                            {pickerMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                                        </span>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const d = new Date(pickerMonth);
+                                                d.setMonth(d.getMonth() + 1);
+                                                setPickerMonth(d);
+                                            }}
+                                            className="p-1 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                                            style={{ color: 'var(--text-secondary)' }}
+                                        >
+                                            <ChevronRight size={16} />
+                                        </button>
+                                    </div>
+
+                                    {/* Weekday headers */}
+                                    <div
+                                        className="grid grid-cols-7 gap-1 text-center text-[10px] font-semibold mb-1"
+                                        style={{ color: 'var(--text-muted)' }}
+                                    >
+                                        {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((d) => (
+                                            <div key={d}>{d}</div>
+                                        ))}
+                                    </div>
+
+                                    {/* Day grid */}
+                                    <div className="grid grid-cols-7 gap-1 text-center">
+                                        {getDaysInMonthGrid(pickerMonth.getFullYear(), pickerMonth.getMonth()).map(
+                                            (cell, idx) => {
+                                                const cellDateStr = formatDateStr(cell.date);
+                                                const isSelected = cellDateStr === formatDateStr(selectedDate);
+                                                const isCellToday = cellDateStr === todayStr;
+
+                                                return (
+                                                    <button
+                                                        key={idx}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setSelectedDate(cell.date);
+                                                            setIsDatePickerOpen(false);
+                                                        }}
+                                                        className={`h-7 w-7 rounded-lg text-xs font-semibold flex items-center justify-center transition-all ${
+                                                            isSelected
+                                                                ? 'bg-[#5b5fc7] text-white shadow-md font-bold'
+                                                                : isCellToday
+                                                                ? 'border border-[#5b5fc7] text-[#5b5fc7] dark:text-[#7b83eb] font-bold'
+                                                                : cell.isCurrentMonth
+                                                                ? 'hover:bg-black/5 dark:hover:bg-white/10'
+                                                                : 'opacity-40 hover:bg-black/5 dark:hover:bg-white/5'
+                                                        }`}
+                                                        style={{
+                                                            color: isSelected
+                                                                ? '#ffffff'
+                                                                : isCellToday
+                                                                ? undefined
+                                                                : cell.isCurrentMonth
+                                                                ? 'var(--text-primary)'
+                                                                : 'var(--text-muted)',
+                                                        }}
+                                                    >
+                                                        {cell.date.getDate()}
+                                                    </button>
+                                                );
+                                            }
+                                        )}
+                                    </div>
+
+                                    {/* Footer */}
+                                    <div
+                                        className="mt-3 pt-2.5 border-t flex items-center justify-between text-[11px]"
+                                        style={{ borderColor: 'var(--border-secondary)' }}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const t = new Date();
+                                                setSelectedDate(t);
+                                                setPickerMonth(t);
+                                                setIsDatePickerOpen(false);
+                                            }}
+                                            className="text-[#5b5fc7] dark:text-[#7b83eb] hover:underline font-semibold"
+                                        >
+                                            Jump to Today
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsDatePickerOpen(false)}
+                                            style={{ color: 'var(--text-muted)' }}
+                                        >
+                                            Close
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
 
                 {/* View Switcher Dropdown */}
-                <div className="flex items-center rounded-xl p-1 bg-slate-900/60 border border-slate-700">
+                <div
+                    className="flex items-center rounded-xl p-1 border"
+                    style={{
+                        background: 'var(--bg-elevated)',
+                        borderColor: 'var(--border-card)',
+                    }}
+                >
                     <button
                         onClick={() => setViewMode('day')}
                         className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                            viewMode === 'day' ? 'bg-[#5b5fc7] text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                            viewMode === 'day' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
                         }`}
+                        style={{
+                            color: viewMode === 'day' ? '#ffffff' : 'var(--text-secondary)',
+                        }}
                     >
                         Day
                     </button>
                     <button
                         onClick={() => setViewMode('work_week')}
                         className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                            viewMode === 'work_week' ? 'bg-[#5b5fc7] text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                            viewMode === 'work_week' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
                         }`}
+                        style={{
+                            color: viewMode === 'work_week' ? '#ffffff' : 'var(--text-secondary)',
+                        }}
                     >
                         Work week
                     </button>
                     <button
                         onClick={() => setViewMode('week')}
                         className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                            viewMode === 'week' ? 'bg-[#5b5fc7] text-white shadow-sm' : 'text-slate-400 hover:text-white'
+                            viewMode === 'week' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
                         }`}
+                        style={{
+                            color: viewMode === 'week' ? '#ffffff' : 'var(--text-secondary)',
+                        }}
                     >
                         Week
                     </button>
@@ -651,24 +918,36 @@ export const Routine = () => {
 
             {/* Drag Error Toast Alert */}
             {dragError && (
-                <div className="p-3.5 rounded-2xl bg-red-500/15 border border-red-500/30 text-red-300 text-xs font-semibold flex items-center gap-2.5 animate-fade-in shadow-lg">
-                    <AlertCircle size={16} className="text-red-400 shrink-0" />
+                <div className="p-3.5 rounded-2xl bg-red-500/15 border border-red-500/30 text-red-500 dark:text-red-300 text-xs font-semibold flex items-center gap-2.5 animate-fade-in shadow-lg">
+                    <AlertCircle size={16} className="text-red-500 dark:text-red-400 shrink-0" />
                     <span>{dragError}</span>
                 </div>
             )}
 
             {/* 3. Teams Calendar Grid Table */}
             <div
-                className="rounded-3xl overflow-hidden border"
+                className="rounded-3xl overflow-hidden border transition-colors"
                 style={{
-                    background: isDark ? '#141416' : '#ffffff',
+                    background: 'var(--bg-card-solid)',
                     borderColor: 'var(--border-secondary)',
                 }}
             >
                 {/* Column Headers (Days of the week) */}
-                <div className="grid grid-cols-[80px_repeat(auto-fit,minmax(0,1fr))] border-b border-slate-800 bg-slate-900/40">
-                    <div className="p-3 border-r border-slate-800 text-[11px] font-semibold text-slate-500 text-center">
-                        GMT+5:30
+                <div
+                    className="grid grid-cols-[80px_repeat(auto-fit,minmax(0,1fr))] border-b"
+                    style={{
+                        background: 'var(--bg-secondary)',
+                        borderColor: 'var(--border-secondary)',
+                    }}
+                >
+                    <div
+                        className="p-3 border-r text-[11px] font-semibold text-center"
+                        style={{
+                            color: 'var(--text-muted)',
+                            borderColor: 'var(--border-secondary)',
+                        }}
+                    >
+                        {userTimeZoneLabel}
                     </div>
 
                     {displayDays.map((day, idx) => {
@@ -680,12 +959,27 @@ export const Routine = () => {
                         return (
                             <div
                                 key={idx}
-                                className={`p-3 text-left border-r border-slate-800/80 transition-colors ${
-                                    isDayToday ? 'bg-blue-500/5' : ''
+                                className={`p-3 text-left border-r transition-colors ${
+                                    isDayToday ? 'bg-indigo-500/10' : ''
                                 }`}
+                                style={{ borderColor: 'var(--border-secondary)' }}
                             >
-                                <div className="text-xl font-display font-bold text-slate-100">{dayNum}</div>
-                                <div className={`text-xs font-medium ${isDayToday ? 'text-[#7b83eb] font-bold' : 'text-slate-400'}`}>
+                                <div
+                                    className="text-xl font-display font-bold"
+                                    style={{ color: 'var(--text-primary)' }}
+                                >
+                                    {dayNum}
+                                </div>
+                                <div
+                                    className={`text-xs font-medium ${
+                                        isDayToday
+                                            ? 'text-[#5b5fc7] dark:text-[#7b83eb] font-bold'
+                                            : ''
+                                    }`}
+                                    style={{
+                                        color: isDayToday ? undefined : 'var(--text-secondary)',
+                                    }}
+                                >
                                     {dayName}
                                 </div>
                             </div>
@@ -701,11 +995,18 @@ export const Routine = () => {
                         return (
                             <div
                                 key={hour}
-                                className={`grid grid-cols-[80px_repeat(auto-fit,minmax(0,1fr))] min-h-[90px] border-b border-slate-800/50 relative ${
-                                    isCurrentHourRow ? 'bg-white/[0.01]' : ''
+                                className={`grid grid-cols-[80px_repeat(auto-fit,minmax(0,1fr))] min-h-[90px] border-b relative ${
+                                    isCurrentHourRow ? 'bg-indigo-500/[0.03]' : ''
                                 }`}
+                                style={{ borderColor: 'var(--border-secondary)' }}
                             >
-                                <div className="p-2.5 text-right pr-4 text-xs font-semibold text-slate-400 border-r border-slate-800/80 select-none flex flex-col justify-start">
+                                <div
+                                    className="p-2.5 text-right pr-4 text-xs font-semibold border-r select-none flex flex-col justify-start"
+                                    style={{
+                                        color: 'var(--text-secondary)',
+                                        borderColor: 'var(--border-secondary)',
+                                    }}
+                                >
                                     <span>{formatHourLabel(hour)}</span>
                                 </div>
 
@@ -746,13 +1047,14 @@ export const Routine = () => {
                                             key={colIdx}
                                             onDragOver={(e) => handleDragOver(e, hour, dateStr)}
                                             onDrop={(e) => handleDrop(e, hour, dateStr)}
-                                            className={`p-1.5 border-r border-slate-800/60 transition-colors relative flex flex-col gap-1.5 ${
-                                                isDayToday ? 'bg-blue-500/[0.02]' : ''
-                                            } hover:bg-white/[0.02]`}
+                                            className={`p-1.5 border-r transition-colors relative flex flex-col gap-1.5 ${
+                                                isDayToday ? 'bg-indigo-500/[0.03]' : ''
+                                            } hover:bg-black/[0.02] dark:hover:bg-white/[0.02]`}
+                                            style={{ borderColor: 'var(--border-secondary)' }}
                                         >
                                             {/* Draggable Routine Cards */}
                                             {cellRoutines.map((item) => {
-                                                const colors = EVENT_COLORS[item.category] || EVENT_COLORS.other;
+                                                const colors = getEventColors(item.category, isDark);
                                                 const isPastTask = item.dateStr < todayStr || (item.dateStr === todayStr && item.startHour < currentHour);
 
                                                 return (
@@ -772,16 +1074,27 @@ export const Routine = () => {
                                                         style={{
                                                             background: colors.bg,
                                                             borderColor: colors.border,
-                                                            boxShadow: `0 4px 12px rgba(0,0,0,0.25)`,
+                                                            boxShadow: isDark
+                                                                ? '0 4px 12px rgba(0,0,0,0.25)'
+                                                                : '0 2px 8px rgba(0,0,0,0.06)',
                                                         }}
                                                     >
                                                         <div className="flex items-start justify-between gap-1.5">
                                                             <div className="flex items-center gap-1.5 min-w-0">
-                                                                <h4 className="font-semibold text-xs text-slate-100 leading-tight truncate">
+                                                                <h4
+                                                                    className="font-semibold text-xs leading-tight truncate"
+                                                                    style={{ color: colors.text }}
+                                                                >
                                                                     {item.title}
                                                                 </h4>
                                                                 {isPastTask && (
-                                                                    <span className="text-[9px] px-1 py-0.2 rounded bg-black/40 text-slate-400 shrink-0 font-medium">
+                                                                    <span
+                                                                        className="text-[9px] px-1 py-0.2 rounded font-medium shrink-0"
+                                                                        style={{
+                                                                            background: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.08)',
+                                                                            color: colors.subtext,
+                                                                        }}
+                                                                    >
                                                                         Past
                                                                     </span>
                                                                 )}
@@ -789,18 +1102,28 @@ export const Routine = () => {
                                                             {!isPastTask && (
                                                                 <GripVertical
                                                                     size={12}
-                                                                    className="text-slate-400 opacity-0 group-hover:opacity-100 shrink-0 cursor-grab"
+                                                                    style={{ color: colors.subtext }}
+                                                                    className="opacity-0 group-hover:opacity-100 shrink-0 cursor-grab"
                                                                 />
                                                             )}
                                                         </div>
 
                                                         {item.subtitle && (
-                                                            <p className="text-[11px] text-slate-300 mt-1 truncate">
+                                                            <p
+                                                                className="text-[11px] mt-1 truncate"
+                                                                style={{ color: colors.subtext }}
+                                                            >
                                                                 {item.subtitle}
                                                             </p>
                                                         )}
 
-                                                        <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-white/10 text-[10px] text-slate-400">
+                                                        <div
+                                                            className="flex items-center justify-between mt-2 pt-1.5 border-t text-[10px]"
+                                                            style={{
+                                                                borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                                                                color: colors.subtext,
+                                                            }}
+                                                        >
                                                             <span>
                                                                 {formatTimeSlot(item.startHour, item.startMinute)} ({item.durationMinutes}m)
                                                             </span>
@@ -815,11 +1138,11 @@ export const Routine = () => {
                                                                             )
                                                                         );
                                                                     }}
-                                                                    className="hover:text-emerald-400 transition-colors"
+                                                                    className="hover:text-emerald-500 transition-colors"
                                                                     title="Mark done"
                                                                 >
                                                                     {item.completed ? (
-                                                                        <CheckCircle2 size={13} className="text-emerald-400" />
+                                                                        <CheckCircle2 size={13} className="text-emerald-500" />
                                                                     ) : (
                                                                         <Circle size={13} />
                                                                     )}
@@ -829,7 +1152,7 @@ export const Routine = () => {
                                                                         e.stopPropagation();
                                                                         setSelectedRoutineDetails({ ...item });
                                                                     }}
-                                                                    className="hover:text-indigo-300 opacity-0 group-hover:opacity-100 transition-all"
+                                                                    className="opacity-0 group-hover:opacity-100 hover:text-indigo-500 transition-all"
                                                                     title="Edit Details"
                                                                 >
                                                                     <Edit3 size={12} />
@@ -839,7 +1162,7 @@ export const Routine = () => {
                                                                         e.stopPropagation();
                                                                         saveMasterRoutines(allRoutines.filter((r) => r.id !== item.id));
                                                                     }}
-                                                                    className="hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+                                                                    className="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"
                                                                     title="Delete"
                                                                 >
                                                                     <Trash2 size={12} />
@@ -857,18 +1180,28 @@ export const Routine = () => {
                                                         e.stopPropagation();
                                                         setSelectedActivityDetails({ dateStr, hour, guess });
                                                     }}
-                                                    className="p-2 rounded-xl bg-slate-900/80 border border-emerald-500/30 text-xs shadow-md cursor-pointer hover:border-emerald-400 transition-all"
+                                                    className="p-2 rounded-xl border text-xs shadow-md cursor-pointer transition-all hover:scale-[1.02]"
+                                                    style={{
+                                                        background: isDark ? 'rgba(15, 23, 42, 0.85)' : '#f0fdf4',
+                                                        borderColor: isDark ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.4)',
+                                                    }}
                                                     title={`Double-click for details. Tracked: ${guess.topApp} (${Math.round(guess.totalSeconds / 60)}m)`}
                                                 >
                                                     <div className="flex items-center justify-between gap-1">
-                                                        <span className="font-bold text-[11px] text-emerald-400 truncate">
+                                                        <span className="font-bold text-[11px] text-emerald-600 dark:text-emerald-400 truncate">
                                                             🤖 {guess.label}
                                                         </span>
-                                                        <span className="text-[10px] text-slate-400 font-mono">
+                                                        <span
+                                                            className="text-[10px] font-mono"
+                                                            style={{ color: 'var(--text-muted)' }}
+                                                        >
                                                             {formatDuration(guess.totalSeconds)}
                                                         </span>
                                                     </div>
-                                                    <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                                                    <p
+                                                        className="text-[10px] truncate mt-0.5"
+                                                        style={{ color: 'var(--text-secondary)' }}
+                                                    >
                                                         {guess.topApp}: {guess.topTitle}
                                                     </p>
                                                 </div>
@@ -882,56 +1215,67 @@ export const Routine = () => {
                 </div>
             </div>
 
-            {/* 4. Task Details / Edit Modal (Triggered by Double Clicking a Routine Card) */}
+            {/* 4. Task Details Modal */}
             {selectedRoutineDetails && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in">
                     <div
-                        className="w-full max-w-lg rounded-3xl p-6 shadow-2xl relative"
+                        className="w-full max-w-lg rounded-3xl p-6 shadow-2xl relative border"
                         style={{
-                            background: isDark ? '#1a1a20' : '#ffffff',
-                            border: '1px solid var(--border-primary)',
-                            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+                            background: 'var(--bg-card-solid)',
+                            borderColor: 'var(--border-card)',
+                            boxShadow: 'var(--shadow-card)',
                         }}
                     >
-                        <div className="flex items-center justify-between pb-4 border-b border-slate-700/50 mb-5">
+                        <div
+                            className="flex items-center justify-between pb-4 border-b mb-5"
+                            style={{ borderColor: 'var(--border-secondary)' }}
+                        >
                             <div className="flex items-center gap-3">
-                                <div className="p-2.5 rounded-2xl bg-[#5b5fc7]/20 text-[#7b83eb] border border-[#5b5fc7]/40">
+                                <div className="p-2.5 rounded-2xl bg-[#5b5fc7]/20 text-[#5b5fc7] dark:text-[#7b83eb] border border-[#5b5fc7]/40">
                                     <Edit3 size={18} />
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-display font-bold text-slate-100">
+                                    <h3 className="text-base font-display font-bold" style={{ color: 'var(--text-primary)' }}>
                                         Task & Routine Details
                                     </h3>
-                                    <p className="text-xs text-slate-400">
+                                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                                         {selectedRoutineDetails.dateStr} • {formatTimeSlot(selectedRoutineDetails.startHour, selectedRoutineDetails.startMinute)}
                                     </p>
                                 </div>
                             </div>
                             <button
                                 onClick={() => setSelectedRoutineDetails(null)}
-                                className="p-2 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all"
+                                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-all"
+                                style={{ color: 'var(--text-secondary)' }}
                             >
                                 <X size={18} />
                             </button>
                         </div>
 
                         <div className="space-y-4">
-                            {/* Title */}
                             <div>
-                                <label className="text-xs font-semibold text-slate-400 mb-1.5 block">Title</label>
+                                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                    Title
+                                </label>
                                 <input
                                     type="text"
                                     value={selectedRoutineDetails.title}
                                     onChange={(e) =>
                                         setSelectedRoutineDetails({ ...selectedRoutineDetails, title: e.target.value })
                                     }
-                                    className="w-full px-3.5 py-2 rounded-xl text-xs bg-slate-800 border border-slate-700 text-slate-100 focus:outline-none focus:border-[#5b5fc7]"
+                                    className="w-full px-3.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                    style={{
+                                        background: 'var(--bg-input)',
+                                        color: 'var(--text-primary)',
+                                        borderColor: 'var(--border-input)',
+                                    }}
                                 />
                             </div>
 
-                            {/* Subtitle / Notes */}
                             <div>
-                                <label className="text-xs font-semibold text-slate-400 mb-1.5 block">Subtitle / Location</label>
+                                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                    Subtitle / Location
+                                </label>
                                 <input
                                     type="text"
                                     value={selectedRoutineDetails.subtitle || ''}
@@ -939,14 +1283,20 @@ export const Routine = () => {
                                         setSelectedRoutineDetails({ ...selectedRoutineDetails, subtitle: e.target.value })
                                     }
                                     placeholder="e.g. Engineering Room / VS Code"
-                                    className="w-full px-3.5 py-2 rounded-xl text-xs bg-slate-800 border border-slate-700 text-slate-100 focus:outline-none focus:border-[#5b5fc7]"
+                                    className="w-full px-3.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                    style={{
+                                        background: 'var(--bg-input)',
+                                        color: 'var(--text-primary)',
+                                        borderColor: 'var(--border-input)',
+                                    }}
                                 />
                             </div>
 
                             <div className="grid grid-cols-2 gap-3">
-                                {/* Category */}
                                 <div>
-                                    <label className="text-xs font-semibold text-slate-400 mb-1.5 block">Category</label>
+                                    <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                        Category
+                                    </label>
                                     <select
                                         value={selectedRoutineDetails.category}
                                         onChange={(e) =>
@@ -955,7 +1305,12 @@ export const Routine = () => {
                                                 category: e.target.value as any,
                                             })
                                         }
-                                        className="w-full px-3 py-2 rounded-xl text-xs bg-slate-800 border border-slate-700 text-slate-200 focus:outline-none focus:border-[#5b5fc7]"
+                                        className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            borderColor: 'var(--border-input)',
+                                        }}
                                     >
                                         <option value="development">💻 Development</option>
                                         <option value="research">📚 Research</option>
@@ -969,9 +1324,10 @@ export const Routine = () => {
                                     </select>
                                 </div>
 
-                                {/* Duration */}
                                 <div>
-                                    <label className="text-xs font-semibold text-slate-400 mb-1.5 block">Duration (Minutes)</label>
+                                    <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                        Duration (Minutes)
+                                    </label>
                                     <input
                                         type="number"
                                         min={15}
@@ -984,14 +1340,24 @@ export const Routine = () => {
                                                 durationMinutes: Number(e.target.value),
                                             })
                                         }
-                                        className="w-full px-3 py-2 rounded-xl text-xs bg-slate-800 border border-slate-700 text-slate-200 focus:outline-none focus:border-[#5b5fc7]"
+                                        className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            borderColor: 'var(--border-input)',
+                                        }}
                                     />
                                 </div>
                             </div>
 
-                            {/* Status */}
-                            <div className="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60 flex items-center justify-between">
-                                <span className="text-xs text-slate-300">Completion Status</span>
+                            <div
+                                className="p-3 rounded-xl border flex items-center justify-between"
+                                style={{
+                                    background: 'var(--bg-elevated)',
+                                    borderColor: 'var(--border-secondary)',
+                                }}
+                            >
+                                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Completion Status</span>
                                 <button
                                     type="button"
                                     onClick={() =>
@@ -1002,9 +1368,12 @@ export const Routine = () => {
                                     }
                                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
                                         selectedRoutineDetails.completed
-                                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                            : 'bg-white/5 text-slate-300 hover:bg-white/10'
+                                            ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 border border-emerald-500/40'
+                                            : 'bg-black/5 dark:bg-white/5'
                                     }`}
+                                    style={{
+                                        color: selectedRoutineDetails.completed ? undefined : 'var(--text-primary)',
+                                    }}
                                 >
                                     {selectedRoutineDetails.completed ? <CheckCircle2 size={13} /> : <Circle size={13} />}
                                     {selectedRoutineDetails.completed ? 'Completed' : 'Mark as Done'}
@@ -1012,15 +1381,17 @@ export const Routine = () => {
                             </div>
                         </div>
 
-                        {/* Modal Footer Actions */}
-                        <div className="flex items-center justify-between gap-3 mt-6 pt-4 border-t border-slate-700/60">
+                        <div
+                            className="flex items-center justify-between gap-3 mt-6 pt-4 border-t"
+                            style={{ borderColor: 'var(--border-secondary)' }}
+                        >
                             <button
                                 type="button"
                                 onClick={() => {
                                     saveMasterRoutines(allRoutines.filter((r) => r.id !== selectedRoutineDetails.id));
                                     setSelectedRoutineDetails(null);
                                 }}
-                                className="px-4 py-2 rounded-xl text-xs font-semibold text-red-400 hover:bg-red-500/10 transition-all flex items-center gap-1.5"
+                                className="px-4 py-2 rounded-xl text-xs font-semibold text-red-500 hover:bg-red-500/10 transition-all flex items-center gap-1.5"
                             >
                                 <Trash2 size={14} /> Delete
                             </button>
@@ -1029,7 +1400,8 @@ export const Routine = () => {
                                 <button
                                     type="button"
                                     onClick={() => setSelectedRoutineDetails(null)}
-                                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition-all"
+                                    className="px-4 py-2 rounded-xl text-xs font-semibold transition-all hover:bg-black/5 dark:hover:bg-white/10"
+                                    style={{ color: 'var(--text-secondary)' }}
                                 >
                                     Cancel
                                 </button>
@@ -1056,63 +1428,74 @@ export const Routine = () => {
                 </div>
             )}
 
-            {/* 5. Tracked Activity Inspection Modal (Triggered by Double Clicking an Activity Guess Card) */}
+            {/* 5. Tracked Activity Inspection Modal */}
             {selectedActivityDetails && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in">
                     <div
-                        className="w-full max-w-lg rounded-3xl p-6 shadow-2xl relative"
+                        className="w-full max-w-lg rounded-3xl p-6 shadow-2xl relative border"
                         style={{
-                            background: isDark ? '#1a1a20' : '#ffffff',
-                            border: '1px solid var(--border-primary)',
-                            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+                            background: 'var(--bg-card-solid)',
+                            borderColor: 'var(--border-card)',
+                            boxShadow: 'var(--shadow-card)',
                         }}
                     >
-                        <div className="flex items-center justify-between pb-4 border-b border-slate-700/50 mb-5">
+                        <div
+                            className="flex items-center justify-between pb-4 border-b mb-5"
+                            style={{ borderColor: 'var(--border-secondary)' }}
+                        >
                             <div className="flex items-center gap-3">
-                                <div className="p-2.5 rounded-2xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                                <div className="p-2.5 rounded-2xl bg-emerald-500/20 text-emerald-500 border border-emerald-500/40">
                                     <ActivityIcon size={18} />
                                 </div>
                                 <div>
-                                    <h3 className="text-base font-display font-bold text-slate-100">
+                                    <h3 className="text-base font-display font-bold" style={{ color: 'var(--text-primary)' }}>
                                         Tracked Activity Inspection
                                     </h3>
-                                    <p className="text-xs text-slate-400">
+                                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                                         {selectedActivityDetails.dateStr} • {formatHourLabel(selectedActivityDetails.hour)} Slot
                                     </p>
                                 </div>
                             </div>
                             <button
                                 onClick={() => setSelectedActivityDetails(null)}
-                                className="p-2 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all"
+                                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-all"
+                                style={{ color: 'var(--text-secondary)' }}
                             >
                                 <X size={18} />
                             </button>
                         </div>
 
                         <div className="space-y-4">
-                            {/* Classification */}
-                            <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30">
+                            <div
+                                className="p-3.5 rounded-2xl border"
+                                style={{
+                                    background: isDark ? 'rgba(16, 185, 129, 0.1)' : '#f0fdf4',
+                                    borderColor: 'rgba(16, 185, 129, 0.3)',
+                                }}
+                            >
                                 <div className="flex items-center justify-between mb-1">
-                                    <span className="text-xs font-bold text-emerald-400">
+                                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
                                         🤖 {selectedActivityDetails.guess.label}
                                     </span>
-                                    <span className="text-xs font-mono text-emerald-300">
+                                    <span className="text-xs font-mono text-emerald-600 dark:text-emerald-300">
                                         {selectedActivityDetails.guess.confidence}% Confidence
                                     </span>
                                 </div>
-                                <p className="text-xs text-slate-300">
+                                <p className="text-xs" style={{ color: 'var(--text-primary)' }}>
                                     Primary Application: <strong>{selectedActivityDetails.guess.topApp}</strong>
                                 </p>
-                                <p className="text-[11px] text-slate-400 truncate mt-1">
+                                <p className="text-[11px] truncate mt-1" style={{ color: 'var(--text-secondary)' }}>
                                     Window: {selectedActivityDetails.guess.topTitle}
                                 </p>
                             </div>
 
-                            {/* Total Time & Breakdown */}
                             <div>
-                                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center justify-between">
+                                <h4
+                                    className="text-xs font-bold uppercase tracking-wider mb-2 flex items-center justify-between"
+                                    style={{ color: 'var(--text-secondary)' }}
+                                >
                                     <span>App Usage Breakdown</span>
-                                    <span className="font-mono text-indigo-400">
+                                    <span className="font-mono text-[#5b5fc7] dark:text-indigo-400">
                                         Total: {formatDuration(selectedActivityDetails.guess.totalSeconds)}
                                     </span>
                                 </h4>
@@ -1123,16 +1506,25 @@ export const Routine = () => {
                                             (app.seconds / (selectedActivityDetails.guess.totalSeconds || 1)) * 100
                                         );
                                         return (
-                                            <div key={i} className="p-2 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs">
+                                            <div
+                                                key={i}
+                                                className="p-2 rounded-xl border text-xs"
+                                                style={{
+                                                    background: 'var(--bg-elevated)',
+                                                    borderColor: 'var(--border-secondary)',
+                                                }}
+                                            >
                                                 <div className="flex items-center justify-between mb-1">
-                                                    <span className="font-semibold text-slate-200">{app.name}</span>
-                                                    <span className="text-slate-400 font-mono">
+                                                    <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                                        {app.name}
+                                                    </span>
+                                                    <span className="font-mono" style={{ color: 'var(--text-secondary)' }}>
                                                         {formatDuration(app.seconds)} ({pct}%)
                                                     </span>
                                                 </div>
-                                                <div className="w-full h-1.5 rounded-full bg-slate-700 overflow-hidden">
+                                                <div className="w-full h-1.5 rounded-full bg-black/10 dark:bg-slate-700 overflow-hidden">
                                                     <div
-                                                        className="h-full bg-emerald-400 rounded-full"
+                                                        className="h-full bg-emerald-500 rounded-full"
                                                         style={{ width: `${pct}%` }}
                                                     />
                                                 </div>
@@ -1143,12 +1535,13 @@ export const Routine = () => {
                             </div>
                         </div>
 
-                        {/* Modal Footer Actions */}
-                        <div className="flex items-center justify-between gap-3 mt-6 pt-4 border-t border-slate-700/60">
+                        <div
+                            className="flex items-center justify-between gap-3 mt-6 pt-4 border-t"
+                            style={{ borderColor: 'var(--border-secondary)' }}
+                        >
                             <button
                                 type="button"
                                 onClick={() => {
-                                    // Convert this tracked activity into a planned routine item!
                                     const newRoutine: PlannedRoutineItem = {
                                         id: `converted-${Date.now()}`,
                                         title: selectedActivityDetails.guess.label,
@@ -1165,7 +1558,7 @@ export const Routine = () => {
                                     saveMasterRoutines([...allRoutines, newRoutine]);
                                     setSelectedActivityDetails(null);
                                 }}
-                                className="px-4 py-2 rounded-xl text-xs font-semibold text-indigo-300 hover:bg-indigo-500/15 transition-all flex items-center gap-1.5"
+                                className="px-4 py-2 rounded-xl text-xs font-semibold text-[#5b5fc7] dark:text-indigo-300 hover:bg-indigo-500/15 transition-all flex items-center gap-1.5"
                             >
                                 <Plus size={14} /> Add as Routine Block
                             </button>
@@ -1173,7 +1566,12 @@ export const Routine = () => {
                             <button
                                 type="button"
                                 onClick={() => setSelectedActivityDetails(null)}
-                                className="px-5 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white transition-all"
+                                className="px-5 py-2 rounded-xl text-xs font-semibold border transition-all"
+                                style={{
+                                    background: 'var(--bg-elevated)',
+                                    color: 'var(--text-primary)',
+                                    borderColor: 'var(--border-card)',
+                                }}
                             >
                                 Close
                             </button>
@@ -1186,46 +1584,65 @@ export const Routine = () => {
             {isMakerOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in">
                     <div
-                        className="w-full max-w-2xl rounded-3xl p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar"
+                        className="w-full max-w-2xl rounded-3xl p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar border"
                         style={{
-                            background: isDark ? '#1a1a20' : '#ffffff',
-                            border: '1px solid var(--border-primary)',
-                            boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)',
+                            background: 'var(--bg-card-solid)',
+                            borderColor: 'var(--border-card)',
+                            boxShadow: 'var(--shadow-card)',
                         }}
                     >
-                        <div className="flex items-center justify-between pb-4 border-b border-slate-700/50 mb-6">
+                        <div
+                            className="flex items-center justify-between pb-4 border-b mb-6"
+                            style={{ borderColor: 'var(--border-secondary)' }}
+                        >
                             <div className="flex items-center gap-3">
-                                <div className="p-2.5 rounded-2xl bg-[#5b5fc7]/20 text-[#7b83eb] border border-[#5b5fc7]/40">
+                                <div className="p-2.5 rounded-2xl bg-[#5b5fc7]/20 text-[#5b5fc7] dark:text-[#7b83eb] border border-[#5b5fc7]/40">
                                     <Sparkles size={20} />
                                 </div>
                                 <div>
-                                    <h3 className="text-lg font-display font-bold text-slate-100">Your Daily Plans</h3>
-                                    <p className="text-xs text-slate-400">
+                                    <h3 className="text-lg font-display font-bold" style={{ color: 'var(--text-primary)' }}>
+                                        Your Daily Plans
+                                    </h3>
+                                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                                         Tell us how much time you have and what you want to do today. We'll smart-schedule meals, deep work, and rest.
                                     </p>
                                 </div>
                             </div>
                             <button
                                 onClick={() => setIsMakerOpen(false)}
-                                className="p-2 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all"
+                                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-all"
+                                style={{ color: 'var(--text-secondary)' }}
                             >
                                 <X size={18} />
                             </button>
                         </div>
 
                         <div className="space-y-6">
-                            <div className="p-4 rounded-2xl bg-slate-900/40 border border-slate-700/60 space-y-4">
-                                <h4 className="text-xs font-bold uppercase tracking-wider text-[#7b83eb] flex items-center gap-2">
+                            <div
+                                className="p-4 rounded-2xl border space-y-4"
+                                style={{
+                                    background: 'var(--bg-elevated)',
+                                    borderColor: 'var(--border-secondary)',
+                                }}
+                            >
+                                <h4 className="text-xs font-bold uppercase tracking-wider text-[#5b5fc7] dark:text-[#7b83eb] flex items-center gap-2">
                                     <Clock size={14} /> Step 1: Daily Time Budget & Routines
                                 </h4>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="text-xs text-slate-400 mb-1.5 block">Start Hour</label>
+                                        <label className="text-xs mb-1.5 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                                            Start Hour
+                                        </label>
                                         <select
                                             value={startHourInput}
                                             onChange={(e) => setStartHourInput(Number(e.target.value))}
-                                            className="w-full px-3 py-2 rounded-xl text-xs bg-slate-800 border border-slate-700 text-slate-200 focus:outline-none focus:border-[#5b5fc7]"
+                                            className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                color: 'var(--text-primary)',
+                                                borderColor: 'var(--border-input)',
+                                            }}
                                         >
                                             {hours.map((h) => (
                                                 <option key={h} value={h}>
@@ -1236,25 +1653,38 @@ export const Routine = () => {
                                     </div>
 
                                     <div>
-                                        <label className="text-xs text-slate-400 mb-1.5 block">Available Work Hours</label>
+                                        <label className="text-xs mb-1.5 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                                            Available Work Hours
+                                        </label>
                                         <input
                                             type="number"
                                             min={1}
                                             max={16}
                                             value={availableHours}
                                             onChange={(e) => setAvailableHours(Number(e.target.value))}
-                                            className="w-full px-3 py-2 rounded-xl text-xs bg-slate-800 border border-slate-700 text-slate-200 focus:outline-none focus:border-[#5b5fc7]"
+                                            className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                color: 'var(--text-primary)',
+                                                borderColor: 'var(--border-input)',
+                                            }}
                                         />
                                     </div>
                                 </div>
 
-                                <div className="flex flex-wrap gap-4 pt-2 border-t border-slate-800 text-xs text-slate-300">
+                                <div
+                                    className="flex flex-wrap gap-4 pt-2 border-t text-xs"
+                                    style={{
+                                        borderColor: 'var(--border-secondary)',
+                                        color: 'var(--text-primary)',
+                                    }}
+                                >
                                     <label className="flex items-center gap-2 cursor-pointer">
                                         <input
                                             type="checkbox"
                                             checked={includeLunch}
                                             onChange={(e) => setIncludeLunch(e.target.checked)}
-                                            className="rounded bg-slate-800 border-slate-600 text-[#5b5fc7]"
+                                            className="rounded text-[#5b5fc7]"
                                         />
                                         <span>Auto-slot Lunch Break (12:30 PM)</span>
                                     </label>
@@ -1263,16 +1693,22 @@ export const Routine = () => {
                                             type="checkbox"
                                             checked={includeDinner}
                                             onChange={(e) => setIncludeDinner(e.target.checked)}
-                                            className="rounded bg-slate-800 border-slate-600 text-[#5b5fc7]"
+                                            className="rounded text-[#5b5fc7]"
                                         />
                                         <span>Auto-slot Dinner Break (7:30 PM)</span>
                                     </label>
                                 </div>
                             </div>
 
-                            <div className="p-4 rounded-2xl bg-slate-900/40 border border-slate-700/60 space-y-4">
+                            <div
+                                className="p-4 rounded-2xl border space-y-4"
+                                style={{
+                                    background: 'var(--bg-elevated)',
+                                    borderColor: 'var(--border-secondary)',
+                                }}
+                            >
                                 <div className="flex items-center justify-between">
-                                    <h4 className="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-2">
+                                    <h4 className="text-xs font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 flex items-center gap-2">
                                         <ListTodo size={14} /> Step 2: What tasks do you want to accomplish today?
                                     </h4>
 
@@ -1280,7 +1716,7 @@ export const Routine = () => {
                                         <button
                                             type="button"
                                             onClick={handleImportTasks}
-                                            className="text-xs px-2.5 py-1 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/30 hover:bg-purple-500/20 transition-all flex items-center gap-1"
+                                            className="text-xs px-2.5 py-1 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 hover:bg-purple-500/25 transition-all flex items-center gap-1"
                                         >
                                             <Download size={12} /> Import from Tasks ({tasks.filter(t => !t.completed).length})
                                         </button>
@@ -1293,13 +1729,23 @@ export const Routine = () => {
                                         placeholder="Task title (e.g. Implement GraphQL endpoint)"
                                         value={newTaskTitle}
                                         onChange={(e) => setNewTaskTitle(e.target.value)}
-                                        className="sm:col-span-5 px-3 py-2 rounded-xl text-xs bg-slate-800 border border-slate-700 text-slate-200 focus:outline-none focus:border-[#5b5fc7]"
+                                        className="sm:col-span-5 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            borderColor: 'var(--border-input)',
+                                        }}
                                     />
 
                                     <select
                                         value={newTaskCategory}
                                         onChange={(e) => setNewTaskCategory(e.target.value as any)}
-                                        className="sm:col-span-3 px-2.5 py-2 rounded-xl text-xs bg-slate-800 border border-slate-700 text-slate-200 focus:outline-none focus:border-[#5b5fc7]"
+                                        className="sm:col-span-3 px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            borderColor: 'var(--border-input)',
+                                        }}
                                     >
                                         <option value="development">💻 Coding / Dev</option>
                                         <option value="research">📚 Research</option>
@@ -1313,7 +1759,12 @@ export const Routine = () => {
                                     <select
                                         value={newTaskDuration}
                                         onChange={(e) => setNewTaskDuration(Number(e.target.value))}
-                                        className="sm:col-span-2 px-2.5 py-2 rounded-xl text-xs bg-slate-800 border border-slate-700 text-slate-200 focus:outline-none focus:border-[#5b5fc7]"
+                                        className="sm:col-span-2 px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            borderColor: 'var(--border-input)',
+                                        }}
                                     >
                                         <option value={30}>30m</option>
                                         <option value={45}>45m</option>
@@ -1347,23 +1798,39 @@ export const Routine = () => {
                                     {makerTasks.map((t, idx) => (
                                         <div
                                             key={idx}
-                                            className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60"
+                                            className="flex items-center justify-between p-2.5 rounded-xl border"
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                borderColor: 'var(--border-secondary)',
+                                            }}
                                         >
                                             <div className="flex items-center gap-2 min-w-0">
-                                                <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-white/5 border border-white/10 text-slate-300">
+                                                <span
+                                                    className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border"
+                                                    style={{
+                                                        background: 'var(--bg-elevated)',
+                                                        borderColor: 'var(--border-card)',
+                                                        color: 'var(--text-secondary)',
+                                                    }}
+                                                >
                                                     {t.category}
                                                 </span>
-                                                <span className="text-xs font-semibold text-slate-200 truncate">
+                                                <span
+                                                    className="text-xs font-semibold truncate"
+                                                    style={{ color: 'var(--text-primary)' }}
+                                                >
                                                     {t.title}
                                                 </span>
                                             </div>
 
                                             <div className="flex items-center gap-3">
-                                                <span className="text-xs text-slate-400">{t.duration}m</span>
+                                                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                                    {t.duration}m
+                                                </span>
                                                 <button
                                                     type="button"
                                                     onClick={() => setMakerTasks((prev) => prev.filter((_, i) => i !== idx))}
-                                                    className="p-1 rounded text-slate-500 hover:text-red-400 transition-colors"
+                                                    className="p-1 rounded text-slate-400 hover:text-red-500 transition-colors"
                                                 >
                                                     <Trash2 size={13} />
                                                 </button>
@@ -1374,11 +1841,15 @@ export const Routine = () => {
                             </div>
                         </div>
 
-                        <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-slate-700/60">
+                        <div
+                            className="flex items-center justify-end gap-3 mt-6 pt-4 border-t"
+                            style={{ borderColor: 'var(--border-secondary)' }}
+                        >
                             <button
                                 type="button"
                                 onClick={() => setIsMakerOpen(false)}
-                                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition-all"
+                                className="px-4 py-2 rounded-xl text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10 transition-all"
+                                style={{ color: 'var(--text-secondary)' }}
                             >
                                 Cancel
                             </button>

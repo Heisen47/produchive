@@ -9,6 +9,7 @@ import { DebugPanel } from './components/DebugPanel';
 import { Dashboard } from './components/Dashboard';
 import { UsageCharts } from './components/UsageCharts';
 import { WelcomeModal } from './components/WelcomeModal';
+import { ActivityConfirmationPopup } from './components/ActivityConfirmationPopup';
 import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
@@ -221,6 +222,7 @@ const AppContent = () => {
     return (
         <div className="h-screen w-screen flex overflow-hidden font-sans selection:bg-blue-500/30" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
             <ErrorModal />
+            <ActivityConfirmationPopup />
             {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
             {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
             {showPromptEditor && <PromptEditorModal onClose={() => setShowPromptEditor(false)} />}

@@ -104,8 +104,21 @@ declare global {
       saveFocusSession: (session: { scene: string; durationSeconds: number; startedAt: string }) => Promise<FocusSession>;
       getFocusSessions: () => Promise<FocusSession[]>;
 
-      // External URLs
+      // External URLs & Safe Fetch
       openExternalUrl: (url: string) => Promise<void>;
+      fetchUrl: (url: string, options?: any) => Promise<{
+        ok: boolean;
+        status: number;
+        statusText: string;
+        data: string | null;
+        error?: string;
+      }>;
+      googleOAuthLogin: (clientId?: string) => Promise<{
+        success: boolean;
+        token?: string;
+        email?: string;
+        error?: string;
+      }>;
 
       // Deep linking authentication events
       getPendingToken: () => Promise<string | null>;

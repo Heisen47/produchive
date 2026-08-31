@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { Task, Activity } from '../global';
 import { DEFAULT_PROMPT } from './ai';
+import { syncTaskToRoutineCalendar, syncMultipleGoalsToRoutineCalendar } from './routineSync';
 
 
 
@@ -207,6 +208,8 @@ export const useStore = create<Store>((set, get) => ({
         };
         const tasks = await window.electronAPI.addTask(newTask);
         set({ tasks });
+        // Automatically reflect in Routine calendar
+        syncTaskToRoutineCalendar(text);
     },
     toggleTask: async (id: string) => {
         const task = get().tasks.find((t) => t.id === id);
@@ -226,6 +229,8 @@ export const useStore = create<Store>((set, get) => ({
             const newGoals = [...goals, goal];
             set({ goals: newGoals });
             window.electronAPI.saveGoals(newGoals);
+            // Automatically reflect in Routine calendar
+            syncTaskToRoutineCalendar(goal);
         }
     },
     editGoal: (index: number, newGoal: string) => {
@@ -234,6 +239,7 @@ export const useStore = create<Store>((set, get) => ({
         newGoals[index] = newGoal;
         set({ goals: newGoals });
         window.electronAPI.saveGoals(newGoals);
+        syncTaskToRoutineCalendar(newGoal);
     },
     removeGoal: (index: number) => {
         const { goals } = get();
@@ -244,6 +250,7 @@ export const useStore = create<Store>((set, get) => ({
     setGoals: (goals: string[]) => {
         set({ goals });
         window.electronAPI.saveGoals(goals);
+        syncMultipleGoalsToRoutineCalendar(goals);
     },
     addActivity: (activity: Activity) => {
         const { activities } = get();

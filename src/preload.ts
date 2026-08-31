@@ -64,8 +64,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setSetting: (key: string, value: any) =>
     ipcRenderer.invoke("set-setting", key, value),
 
-  // External URLs
+  // External URLs & Safe Fetch
   openExternalUrl: (url: string) => ipcRenderer.invoke("open-external-url", url),
+  fetchUrl: (url: string, options?: any) => ipcRenderer.invoke("fetch-url", { url, options }),
+  googleOAuthLogin: (clientId?: string) => ipcRenderer.invoke("google-oauth-login", clientId),
 
   // Deep linking authentication events
   getPendingToken: () => ipcRenderer.invoke("get-pending-token"),

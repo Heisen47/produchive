@@ -18,11 +18,15 @@ import {
     GripVertical,
     Edit3,
     Activity as ActivityIcon,
-    Save
+    Save,
+    ArrowRightLeft
 } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { Activity } from '../global';
+import { GoogleOAuthModal } from './GoogleOAuthModal';
+import { getGoogleAuthToken, getGoogleCalendarConfig, performGoogleCalendarSync } from '../lib/googleCalendar';
+import { distributeSmartSchedule, TaskToSchedule } from '../lib/smartScheduler';
 
 // ─── Types ───
 export interface PlannedRoutineItem {
@@ -279,8 +283,34 @@ export const Routine = () => {
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
     const [pickerMonth, setPickerMonth] = useState<Date>(new Date());
     const [isMakerOpen, setIsMakerOpen] = useState(false);
+    const [isGoogleSyncOpen, setIsGoogleSyncOpen] = useState(false);
+    const [isGoogleLoggedIn, setIsGoogleLoggedIn] = useState(false);
+    const [isDirectSyncing, setIsDirectSyncing] = useState(false);
+    const [syncToast, setSyncToast] = useState<string | null>(null);
     const [draggedItem, setDraggedItem] = useState<PlannedRoutineItem | null>(null);
     const [dragError, setDragError] = useState<string | null>(null);
+
+    const checkGoogleAuth = () => {
+        const token = getGoogleAuthToken();
+        const config = getGoogleCalendarConfig();
+        setIsGoogleLoggedIn(Boolean(token || config.icalUrl));
+    };
+
+    // Background Google Calendar Auto-Sync on startup
+    useEffect(() => {
+        checkGoogleAuth();
+        const config = getGoogleCalendarConfig();
+        const token = getGoogleAuthToken();
+        if (config.autoSync && (config.icalUrl || token)) {
+            performGoogleCalendarSync(allRoutines)
+                .then((res) => {
+                    if (res.pulledCount > 0) {
+                        setAllRoutines(res.updatedRoutines);
+                    }
+                })
+                .catch((e) => console.log('Auto GCal sync:', e.message));
+        }
+    }, []);
 
     // Sync picker month when selectedDate changes
     useEffect(() => {
@@ -434,16 +464,13 @@ export const Routine = () => {
     // ─── Routine Maker Form State ───
     const [availableHours, setAvailableHours] = useState<number>(8);
     const [startHourInput, setStartHourInput] = useState<number>(9);
+    const [includeBreakfast, setIncludeBreakfast] = useState<boolean>(false);
     const [includeLunch, setIncludeLunch] = useState<boolean>(true);
+    const [includeRestBlocks, setIncludeRestBlocks] = useState<boolean>(true);
     const [includeDinner, setIncludeDinner] = useState<boolean>(true);
     const [makerTasks, setMakerTasks] = useState<
         Array<{ title: string; duration: number; category: PlannedRoutineItem['category']; priority: PlannedRoutineItem['priority'] }>
-    >([
-        { title: 'Feature Implementation & Coding', duration: 120, category: 'development', priority: 'high' },
-        { title: 'Code Review & Pull Requests', duration: 45, category: 'development', priority: 'medium' },
-        { title: 'Technical Documentation & Architecture', duration: 60, category: 'writing', priority: 'medium' },
-        { title: 'Project Deployment & Sync', duration: 45, category: 'meeting', priority: 'low' },
-    ]);
+    >([]);
     const [newTaskTitle, setNewTaskTitle] = useState('');
     const [newTaskDuration, setNewTaskDuration] = useState(60);
     const [newTaskCategory, setNewTaskCategory] = useState<PlannedRoutineItem['category']>('development');
@@ -456,87 +483,87 @@ export const Routine = () => {
         const targetDateStr = formatDateStr(selectedDate);
         const otherRoutines = allRoutines.filter((r) => r.dateStr !== targetDateStr);
 
-        const priorityOrder = { high: 1, medium: 2, low: 3 };
-        const sorted = [...makerTasks].sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+        const tasksToDistribute: TaskToSchedule[] = makerTasks.map((t) => ({
+            title: t.title,
+            category: t.category,
+            priority: t.priority,
+            duration: t.duration,
+            subtitle: t.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
+        }));
 
-        const newItems: PlannedRoutineItem[] = [];
-        let cursorHour = startHourInput;
-        let cursorMin = 0;
-
-        sorted.forEach((task, index) => {
-            // Lunch Break insertion at 12:30 PM
-            if (includeLunch && cursorHour === 12 && cursorMin >= 30) {
-                newItems.push({
-                    id: `meal-lunch-${Date.now()}`,
-                    title: 'Lunch Break & Recharge 🥗',
-                    category: 'meal',
-                    priority: 'high',
-                    dayIndex: selectedDate.getDay(),
-                    dateStr: targetDateStr,
-                    startHour: 12,
-                    startMinute: 30,
-                    durationMinutes: 60,
-                    completed: false,
-                    subtitle: 'Healthy meal & fresh air',
-                });
-                cursorHour = 13;
-                cursorMin = 30;
-            }
-
-            // Dinner Break insertion at 7:30 PM
-            if (includeDinner && cursorHour === 19 && cursorMin >= 30) {
-                newItems.push({
-                    id: `meal-dinner-${Date.now()}`,
-                    title: 'Dinner & Relaxation 🍽️',
-                    category: 'meal',
-                    priority: 'high',
-                    dayIndex: selectedDate.getDay(),
-                    dateStr: targetDateStr,
-                    startHour: 19,
-                    startMinute: 30,
-                    durationMinutes: 60,
-                    completed: false,
-                    subtitle: 'Family / Rest',
-                });
-                cursorHour = 20;
-                cursorMin = 30;
-            }
-
-            if (cursorHour >= 23) return;
-
-            newItems.push({
-                id: `routine-${Date.now()}-${index}`,
-                title: task.title,
-                category: task.category,
-                priority: task.priority,
-                dayIndex: selectedDate.getDay(),
-                dateStr: targetDateStr,
-                startHour: cursorHour,
-                startMinute: cursorMin,
-                durationMinutes: task.duration,
-                completed: false,
-                subtitle: task.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
+        // Breakfast insertion at 8:00 AM (Optional)
+        if (includeBreakfast && !tasksToDistribute.some((t) => t.title.toLowerCase().includes('breakfast'))) {
+            tasksToDistribute.push({
+                title: 'Breakfast & Morning Routine ☕',
+                category: 'meal',
+                priority: 'high',
+                duration: 45,
+                subtitle: 'Healthy breakfast & mindset prep',
             });
+        }
 
-            const totalMins = cursorMin + task.duration;
-            cursorHour += Math.floor(totalMins / 60);
-            cursorMin = totalMins % 60;
-        });
+        // Lunch Break insertion at 1:00 PM (Default)
+        if (includeLunch && !tasksToDistribute.some((t) => t.title.toLowerCase().includes('lunch'))) {
+            tasksToDistribute.push({
+                title: 'Lunch Break & Recharge 🥗',
+                category: 'meal',
+                priority: 'high',
+                duration: 60,
+                subtitle: 'Healthy meal & fresh air',
+            });
+        }
 
-        // Add Night Sleep indicator at 11:00 PM
-        newItems.push({
-            id: `sleep-${Date.now()}`,
-            title: 'Night Sleep & Recovery 🌙',
-            category: 'sleep',
-            priority: 'high',
-            dayIndex: selectedDate.getDay(),
-            dateStr: targetDateStr,
-            startHour: 23,
-            startMinute: 0,
-            durationMinutes: 60,
-            completed: false,
-            subtitle: 'Recommended 7-8 hrs rest',
-        });
+        // Rest & Recharge Blocks (Default: Afternoon coffee/stretch & Evening walk)
+        if (includeRestBlocks) {
+            if (!tasksToDistribute.some((t) => t.title.toLowerCase().includes('recharge') || t.title.toLowerCase().includes('coffee') || t.title.toLowerCase().includes('tea') || t.title.toLowerCase().includes('snack'))) {
+                tasksToDistribute.push({
+                    title: 'Afternoon Recharge & Coffee ☕',
+                    category: 'break',
+                    priority: 'medium',
+                    duration: 30,
+                    subtitle: 'Hydration, quick stretch & recharge',
+                });
+            }
+            if (!tasksToDistribute.some((t) => t.title.toLowerCase().includes('walk') || t.title.toLowerCase().includes('stretch') || t.title.toLowerCase().includes('gym') || t.title.toLowerCase().includes('workout') || t.title.toLowerCase().includes('exercise'))) {
+                tasksToDistribute.push({
+                    title: 'Evening Walk & Unwind 🌿',
+                    category: 'break',
+                    priority: 'medium',
+                    duration: 30,
+                    subtitle: 'Fresh air & physical break',
+                });
+            }
+        }
+
+        // Dinner Break insertion at 8:00 PM (Default)
+        if (includeDinner && !tasksToDistribute.some((t) => t.title.toLowerCase().includes('dinner'))) {
+            tasksToDistribute.push({
+                title: 'Dinner & Relaxation 🍽️',
+                category: 'meal',
+                priority: 'high',
+                duration: 60,
+                subtitle: 'Family / Rest',
+            });
+        }
+
+        // Night Sleep indicator at 11:00 PM
+        if (!tasksToDistribute.some((t) => t.title.toLowerCase().includes('sleep'))) {
+            tasksToDistribute.push({
+                title: 'Night Sleep & Recovery 🌙',
+                category: 'sleep',
+                priority: 'high',
+                duration: 60,
+                subtitle: 'Recommended 7-8 hrs rest',
+            });
+        }
+
+        const newItems = distributeSmartSchedule(
+            tasksToDistribute,
+            targetDateStr,
+            [],
+            startHourInput,
+            23
+        );
 
         saveMasterRoutines([...otherRoutines, ...newItems]);
         setIsMakerOpen(false);
@@ -649,11 +676,64 @@ export const Routine = () => {
                     </div>
                 </div>
 
-                {/* Right: Actions (Today + Your Plans) */}
+                {/* Right: Actions (Google Sync + Today + Your Plans) */}
                 <div className="flex items-center gap-2.5">
+                    {/* Google Calendar OAuth / Sync Button */}
+                    {isGoogleLoggedIn ? (
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={async () => {
+                                    setIsDirectSyncing(true);
+                                    try {
+                                        const res = await performGoogleCalendarSync(allRoutines);
+                                        setAllRoutines(res.updatedRoutines);
+                                        setSyncToast(`Synced with Google Calendar! (+${res.pulledCount} events)`);
+                                        setTimeout(() => setSyncToast(null), 4000);
+                                    } catch (err: any) {
+                                        setIsGoogleSyncOpen(true);
+                                    } finally {
+                                        setIsDirectSyncing(false);
+                                    }
+                                }}
+                                className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border shadow-md hover:scale-105 active:scale-95 bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-500/25"
+                                title="Google Calendar Connected. Click to sync now."
+                            >
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                <RefreshCw size={13} className={isDirectSyncing ? 'animate-spin' : ''} />
+                                <span>Ready to Sync</span>
+                            </button>
+
+                            <button
+                                onClick={() => setIsGoogleSyncOpen(true)}
+                                className="p-2 rounded-xl text-xs font-medium border transition-all hover:bg-black/5 dark:hover:bg-white/10"
+                                style={{
+                                    background: 'var(--bg-elevated)',
+                                    borderColor: 'var(--border-card)',
+                                    color: 'var(--text-secondary)',
+                                }}
+                                title="Google Calendar Settings & Disconnect"
+                            >
+                                <CalendarIcon size={13} />
+                            </button>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={() => setIsGoogleSyncOpen(true)}
+                            className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border shadow-sm hover:scale-105 active:scale-95"
+                            style={{
+                                background: isDark ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.08)',
+                                color: isDark ? '#93c5fd' : '#2563eb',
+                                borderColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.25)',
+                            }}
+                            title="Sign in with Google to sync calendar"
+                        >
+                            <ArrowRightLeft size={13} /> Sign in with Google
+                        </button>
+                    )}
+
                     <button
                         onClick={() => setSelectedDate(new Date())}
-                        className="px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all border"
+                        className="px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all border"
                         style={{
                             background: 'var(--bg-elevated)',
                             color: 'var(--text-primary)',
@@ -1292,6 +1372,89 @@ export const Routine = () => {
                                 />
                             </div>
 
+                            {/* Date & Start Time Scheduling */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                        Scheduled Date
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={selectedRoutineDetails.dateStr}
+                                        onChange={(e) => {
+                                            const newDateStr = e.target.value;
+                                            const newDayIndex = new Date(newDateStr).getDay();
+                                            setSelectedRoutineDetails({
+                                                ...selectedRoutineDetails,
+                                                dateStr: newDateStr,
+                                                dayIndex: newDayIndex,
+                                            });
+                                        }}
+                                        className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            borderColor: 'var(--border-input)',
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                            Start Hour
+                                        </label>
+                                        <select
+                                            value={selectedRoutineDetails.startHour}
+                                            onChange={(e) =>
+                                                setSelectedRoutineDetails({
+                                                    ...selectedRoutineDetails,
+                                                    startHour: Number(e.target.value),
+                                                })
+                                            }
+                                            className="w-full px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                color: 'var(--text-primary)',
+                                                borderColor: 'var(--border-input)',
+                                            }}
+                                        >
+                                            {Array.from({ length: 24 }).map((_, h) => (
+                                                <option key={h} value={h}>
+                                                    {formatHourLabel(h)}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                            Minute
+                                        </label>
+                                        <select
+                                            value={selectedRoutineDetails.startMinute}
+                                            onChange={(e) =>
+                                                setSelectedRoutineDetails({
+                                                    ...selectedRoutineDetails,
+                                                    startMinute: Number(e.target.value),
+                                                })
+                                            }
+                                            className="w-full px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                color: 'var(--text-primary)',
+                                                borderColor: 'var(--border-input)',
+                                            }}
+                                        >
+                                            <option value={0}>:00</option>
+                                            <option value={15}>:15</option>
+                                            <option value={30}>:30</option>
+                                            <option value={45}>:45</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
@@ -1413,9 +1576,13 @@ export const Routine = () => {
                                                 r.id === selectedRoutineDetails.id ? selectedRoutineDetails : r
                                             )
                                         );
+                                        try {
+                                            const [y, m, d] = selectedRoutineDetails.dateStr.split('-').map(Number);
+                                            setSelectedDate(new Date(y, m - 1, d));
+                                        } catch (_) {}
                                         setSelectedRoutineDetails(null);
                                     }}
-                                    className="px-5 py-2 rounded-xl text-xs font-bold text-white shadow-md transition-all flex items-center gap-1.5"
+                                    className="px-5 py-2 rounded-xl text-xs font-bold text-white shadow-md transition-all flex items-center gap-1.5 hover:scale-105 active:scale-95"
                                     style={{
                                         background: 'linear-gradient(135deg, #5b5fc7 0%, #4f52b2 100%)',
                                     }}
@@ -1580,294 +1747,266 @@ export const Routine = () => {
                 </div>
             )}
 
-            {/* 6. "Your Plans" Modal Form */}
+            {/* 6. Minimalist "Plan Your Day" Modal */}
             {isMakerOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in">
                     <div
-                        className="w-full max-w-2xl rounded-3xl p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar border"
+                        className="w-full max-w-xl rounded-3xl p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar border space-y-5"
                         style={{
                             background: 'var(--bg-card-solid)',
                             borderColor: 'var(--border-card)',
                             boxShadow: 'var(--shadow-card)',
                         }}
                     >
-                        <div
-                            className="flex items-center justify-between pb-4 border-b mb-6"
-                            style={{ borderColor: 'var(--border-secondary)' }}
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 rounded-2xl bg-[#5b5fc7]/20 text-[#5b5fc7] dark:text-[#7b83eb] border border-[#5b5fc7]/40">
-                                    <Sparkles size={20} />
+                        {/* Header */}
+                        <div className="flex items-center justify-between pb-3 border-b" style={{ borderColor: 'var(--border-secondary)' }}>
+                            <div className="flex items-center gap-2.5">
+                                <div className="p-2 rounded-xl bg-[#5b5fc7]/15 text-[#5b5fc7] dark:text-[#7b83eb]">
+                                    <Sparkles size={18} />
                                 </div>
                                 <div>
-                                    <h3 className="text-lg font-display font-bold" style={{ color: 'var(--text-primary)' }}>
-                                        Your Daily Plans
+                                    <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
+                                        Plan Your Day
                                     </h3>
                                     <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                                        Tell us how much time you have and what you want to do today. We'll smart-schedule meals, deep work, and rest.
+                                        Add tasks to automatically generate your balanced schedule.
                                     </p>
                                 </div>
                             </div>
                             <button
                                 onClick={() => setIsMakerOpen(false)}
-                                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-all"
-                                style={{ color: 'var(--text-secondary)' }}
+                                className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-all"
                             >
                                 <X size={18} />
                             </button>
                         </div>
 
-                        <div className="space-y-6">
-                            <div
-                                className="p-4 rounded-2xl border space-y-4"
-                                style={{
-                                    background: 'var(--bg-elevated)',
-                                    borderColor: 'var(--border-secondary)',
-                                }}
-                            >
-                                <h4 className="text-xs font-bold uppercase tracking-wider text-[#5b5fc7] dark:text-[#7b83eb] flex items-center gap-2">
-                                    <Clock size={14} /> Step 1: Daily Time Budget & Routines
-                                </h4>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="text-xs mb-1.5 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
-                                            Start Hour
-                                        </label>
-                                        <select
-                                            value={startHourInput}
-                                            onChange={(e) => setStartHourInput(Number(e.target.value))}
-                                            className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
-                                            style={{
-                                                background: 'var(--bg-input)',
-                                                color: 'var(--text-primary)',
-                                                borderColor: 'var(--border-input)',
-                                            }}
-                                        >
-                                            {hours.map((h) => (
-                                                <option key={h} value={h}>
-                                                    {formatHourLabel(h)}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-xs mb-1.5 block font-semibold" style={{ color: 'var(--text-secondary)' }}>
-                                            Available Work Hours
-                                        </label>
-                                        <input
-                                            type="number"
-                                            min={1}
-                                            max={16}
-                                            value={availableHours}
-                                            onChange={(e) => setAvailableHours(Number(e.target.value))}
-                                            className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
-                                            style={{
-                                                background: 'var(--bg-input)',
-                                                color: 'var(--text-primary)',
-                                                borderColor: 'var(--border-input)',
-                                            }}
-                                        />
-                                    </div>
-                                </div>
-
-                                <div
-                                    className="flex flex-wrap gap-4 pt-2 border-t text-xs"
-                                    style={{
-                                        borderColor: 'var(--border-secondary)',
-                                        color: 'var(--text-primary)',
-                                    }}
+                        {/* Routine Toggles & Start Time Row */}
+                        <div className="flex items-center justify-between gap-3 p-3 rounded-2xl border flex-wrap" style={{ background: 'var(--bg-input)', borderColor: 'var(--border-secondary)' }}>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <button
+                                    type="button"
+                                    onClick={() => setIncludeBreakfast(!includeBreakfast)}
+                                    className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                                        includeBreakfast
+                                            ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
+                                            : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
+                                    }`}
                                 >
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={includeLunch}
-                                            onChange={(e) => setIncludeLunch(e.target.checked)}
-                                            className="rounded text-[#5b5fc7]"
-                                        />
-                                        <span>Auto-slot Lunch Break (12:30 PM)</span>
-                                    </label>
-                                    <label className="flex items-center gap-2 cursor-pointer">
-                                        <input
-                                            type="checkbox"
-                                            checked={includeDinner}
-                                            onChange={(e) => setIncludeDinner(e.target.checked)}
-                                            className="rounded text-[#5b5fc7]"
-                                        />
-                                        <span>Auto-slot Dinner Break (7:30 PM)</span>
-                                    </label>
-                                </div>
+                                    ☕ Breakfast
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setIncludeLunch(!includeLunch)}
+                                    className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                                        includeLunch
+                                            ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
+                                            : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
+                                    }`}
+                                >
+                                    🥗 Lunch
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setIncludeRestBlocks(!includeRestBlocks)}
+                                    className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                                        includeRestBlocks
+                                            ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
+                                            : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
+                                    }`}
+                                >
+                                    🌿 Rest Breaks
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setIncludeDinner(!includeDinner)}
+                                    className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                                        includeDinner
+                                            ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
+                                            : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
+                                    }`}
+                                >
+                                    🍽️ Dinner
+                                </button>
                             </div>
 
-                            <div
-                                className="p-4 rounded-2xl border space-y-4"
-                                style={{
-                                    background: 'var(--bg-elevated)',
-                                    borderColor: 'var(--border-secondary)',
-                                }}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <h4 className="text-xs font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 flex items-center gap-2">
-                                        <ListTodo size={14} /> Step 2: What tasks do you want to accomplish today?
-                                    </h4>
+                            <div className="flex items-center gap-1.5 shrink-0 text-xs text-slate-400">
+                                <span>Start:</span>
+                                <select
+                                    value={startHourInput}
+                                    onChange={(e) => setStartHourInput(Number(e.target.value))}
+                                    className="px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent focus:outline-none focus:border-[#5b5fc7]"
+                                    style={{ color: 'var(--text-primary)', borderColor: 'var(--border-card)' }}
+                                >
+                                    {hours.slice(6, 16).map((h) => (
+                                        <option key={h} value={h} className="bg-slate-900 text-white">
+                                            {formatHourLabel(h)}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
 
-                                    {(tasks || []).length > 0 && (
-                                        <button
-                                            type="button"
-                                            onClick={handleImportTasks}
-                                            className="text-xs px-2.5 py-1 rounded-xl bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30 hover:bg-purple-500/25 transition-all flex items-center gap-1"
-                                        >
-                                            <Download size={12} /> Import from Tasks ({tasks.filter(t => !t.completed).length})
-                                        </button>
-                                    )}
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                                    <input
-                                        type="text"
-                                        placeholder="Task title (e.g. Implement GraphQL endpoint)"
-                                        value={newTaskTitle}
-                                        onChange={(e) => setNewTaskTitle(e.target.value)}
-                                        className="sm:col-span-5 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
-                                        style={{
-                                            background: 'var(--bg-input)',
-                                            color: 'var(--text-primary)',
-                                            borderColor: 'var(--border-input)',
-                                        }}
-                                    />
-
-                                    <select
-                                        value={newTaskCategory}
-                                        onChange={(e) => setNewTaskCategory(e.target.value as any)}
-                                        className="sm:col-span-3 px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
-                                        style={{
-                                            background: 'var(--bg-input)',
-                                            color: 'var(--text-primary)',
-                                            borderColor: 'var(--border-input)',
-                                        }}
-                                    >
-                                        <option value="development">💻 Coding / Dev</option>
-                                        <option value="research">📚 Research</option>
-                                        <option value="meeting">👥 Meeting</option>
-                                        <option value="design">🎨 Design</option>
-                                        <option value="writing">✍️ Writing</option>
-                                        <option value="break">☕ Break</option>
-                                        <option value="other">📦 Other</option>
-                                    </select>
-
-                                    <select
-                                        value={newTaskDuration}
-                                        onChange={(e) => setNewTaskDuration(Number(e.target.value))}
-                                        className="sm:col-span-2 px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
-                                        style={{
-                                            background: 'var(--bg-input)',
-                                            color: 'var(--text-primary)',
-                                            borderColor: 'var(--border-input)',
-                                        }}
-                                    >
-                                        <option value={30}>30m</option>
-                                        <option value={45}>45m</option>
-                                        <option value={60}>1 hr</option>
-                                        <option value={90}>1.5 hrs</option>
-                                        <option value={120}>2 hrs</option>
-                                    </select>
-
+                        {/* Task Input & List */}
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                                    Tasks ({makerTasks.length})
+                                </label>
+                                {(tasks || []).filter(t => !t.completed).length > 0 && (
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            if (!newTaskTitle.trim()) return;
-                                            setMakerTasks((prev) => [
-                                                ...prev,
-                                                {
-                                                    title: newTaskTitle.trim(),
-                                                    duration: newTaskDuration,
-                                                    category: newTaskCategory,
-                                                    priority: newTaskPriority,
-                                                },
-                                            ]);
-                                            setNewTaskTitle('');
-                                        }}
-                                        className="sm:col-span-2 py-2 px-3 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] text-white font-semibold text-xs flex items-center justify-center gap-1 transition-all shadow-md"
+                                        onClick={handleImportTasks}
+                                        className="text-xs px-2.5 py-0.5 rounded-lg bg-[#5b5fc7]/10 hover:bg-[#5b5fc7]/20 text-[#5b5fc7] dark:text-[#7b83eb] font-semibold transition-all flex items-center gap-1.5"
                                     >
-                                        <Plus size={14} /> Add
+                                        <Download size={11} /> Import from Tasks ({tasks.filter(t => !t.completed).length})
                                     </button>
-                                </div>
+                                )}
+                            </div>
 
-                                <div className="space-y-2 max-h-52 overflow-y-auto custom-scrollbar pt-1">
-                                    {makerTasks.map((t, idx) => (
+                            <form
+                                onSubmit={(e) => {
+                                    e.preventDefault();
+                                    if (!newTaskTitle.trim()) return;
+                                    setMakerTasks((prev) => [
+                                        ...prev,
+                                        {
+                                            title: newTaskTitle.trim(),
+                                            duration: newTaskDuration,
+                                            category: newTaskCategory,
+                                            priority: newTaskPriority,
+                                        },
+                                    ]);
+                                    setNewTaskTitle('');
+                                }}
+                                className="flex items-center gap-2"
+                            >
+                                <input
+                                    type="text"
+                                    placeholder="Add task (e.g. Video editing, Leetcode, Build feature)..."
+                                    value={newTaskTitle}
+                                    onChange={(e) => setNewTaskTitle(e.target.value)}
+                                    className="flex-1 px-3.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] transition-all"
+                                    style={{
+                                        background: 'var(--bg-input)',
+                                        color: 'var(--text-primary)',
+                                        borderColor: 'var(--border-input)',
+                                    }}
+                                />
+
+                                <select
+                                    value={newTaskDuration}
+                                    onChange={(e) => setNewTaskDuration(Number(e.target.value))}
+                                    className="px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] shrink-0 font-medium"
+                                    style={{
+                                        background: 'var(--bg-input)',
+                                        color: 'var(--text-primary)',
+                                        borderColor: 'var(--border-input)',
+                                    }}
+                                >
+                                    <option value={30}>30m</option>
+                                    <option value={45}>45m</option>
+                                    <option value={60}>1h</option>
+                                    <option value={90}>1.5h</option>
+                                    <option value={120}>2h</option>
+                                </select>
+
+                                <button
+                                    type="submit"
+                                    disabled={!newTaskTitle.trim()}
+                                    className="py-2 px-3.5 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1 transition-all shadow-sm shrink-0 cursor-pointer"
+                                >
+                                    <Plus size={14} /> Add
+                                </button>
+                            </form>
+
+                            {/* Task List */}
+                            <div className="space-y-1.5 max-h-52 overflow-y-auto custom-scrollbar pt-1">
+                                {makerTasks.length === 0 ? (
+                                    <div className="py-7 text-center border border-dashed rounded-2xl" style={{ borderColor: 'var(--border-secondary)' }}>
+                                        <p className="text-xs text-slate-400">No tasks added yet. Type a task above or import existing tasks.</p>
+                                    </div>
+                                ) : (
+                                    makerTasks.map((t, idx) => (
                                         <div
                                             key={idx}
-                                            className="flex items-center justify-between p-2.5 rounded-xl border"
+                                            className="flex items-center justify-between px-3 py-2 rounded-xl border group hover:border-[#5b5fc7]/40 transition-all"
                                             style={{
                                                 background: 'var(--bg-input)',
                                                 borderColor: 'var(--border-secondary)',
                                             }}
                                         >
-                                            <div className="flex items-center gap-2 min-w-0">
-                                                <span
-                                                    className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border"
-                                                    style={{
-                                                        background: 'var(--bg-elevated)',
-                                                        borderColor: 'var(--border-card)',
-                                                        color: 'var(--text-secondary)',
-                                                    }}
-                                                >
-                                                    {t.category}
-                                                </span>
-                                                <span
-                                                    className="text-xs font-semibold truncate"
-                                                    style={{ color: 'var(--text-primary)' }}
-                                                >
+                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-[#5b5fc7] shrink-0"></span>
+                                                <span className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
                                                     {t.title}
                                                 </span>
                                             </div>
 
-                                            <div className="flex items-center gap-3">
-                                                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                            <div className="flex items-center gap-3 shrink-0">
+                                                <span className="text-[11px] text-slate-400 font-mono">
                                                     {t.duration}m
                                                 </span>
                                                 <button
                                                     type="button"
                                                     onClick={() => setMakerTasks((prev) => prev.filter((_, i) => i !== idx))}
-                                                    className="p-1 rounded text-slate-400 hover:text-red-500 transition-colors"
+                                                    className="p-1 rounded text-slate-400 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-all"
                                                 >
                                                     <Trash2 size={13} />
                                                 </button>
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
+                                    ))
+                                )}
                             </div>
                         </div>
 
-                        <div
-                            className="flex items-center justify-end gap-3 mt-6 pt-4 border-t"
-                            style={{ borderColor: 'var(--border-secondary)' }}
-                        >
-                            <button
-                                type="button"
-                                onClick={() => setIsMakerOpen(false)}
-                                className="px-4 py-2 rounded-xl text-xs font-semibold hover:bg-black/5 dark:hover:bg-white/10 transition-all"
-                                style={{ color: 'var(--text-secondary)' }}
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                onClick={handleGenerateSchedule}
-                                className="px-6 py-2.5 rounded-xl text-xs font-bold text-white transition-all duration-300 flex items-center gap-2 shadow-lg hover:scale-105"
-                                style={{
-                                    background: 'linear-gradient(135deg, #5b5fc7 0%, #4f52b2 100%)',
-                                    boxShadow: '0 4px 15px rgba(91, 95, 199, 0.4)',
-                                }}
-                            >
-                                <Sparkles size={14} /> Smart Schedule & Generate
-                            </button>
+                        {/* Footer */}
+                        <div className="flex items-center justify-between pt-4 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
+                            <div className="text-xs text-slate-400">
+                                {makerTasks.reduce((acc, t) => acc + t.duration, 0) > 0 && (
+                                    <span>Total: {(makerTasks.reduce((acc, t) => acc + t.duration, 0) / 60).toFixed(1)} hrs</span>
+                                )}
+                            </div>
+
+                            <div className="flex items-center gap-2.5">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsMakerOpen(false)}
+                                    className="px-4 py-2 rounded-xl text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleGenerateSchedule}
+                                    disabled={makerTasks.length === 0 && !includeLunch && !includeDinner}
+                                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs flex items-center gap-2 shadow-md shadow-[#5b5fc7]/20 transition-all disabled:opacity-40 cursor-pointer"
+                                >
+                                    <Sparkles size={14} /> Smart Schedule
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
+
+            {/* Sync Success Toast */}
+            {syncToast && (
+                <div className="fixed bottom-6 left-6 z-50 p-3 px-4 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-600 dark:text-emerald-300 text-xs font-bold shadow-xl flex items-center gap-2 animate-fade-in-up backdrop-blur-md">
+                    <CheckCircle2 size={16} className="text-emerald-500" />
+                    <span>{syncToast}</span>
+                </div>
+            )}
+
+            {/* 7. Google OAuth Sync Modal */}
+            <GoogleOAuthModal
+                isOpen={isGoogleSyncOpen}
+                onClose={() => setIsGoogleSyncOpen(false)}
+                currentRoutines={allRoutines}
+                onRoutinesUpdated={(newRoutines) => saveMasterRoutines(newRoutines)}
+                onAuthChanged={checkGoogleAuth}
+            />
         </div>
     );
 };

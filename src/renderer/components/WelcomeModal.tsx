@@ -17,6 +17,7 @@ import {
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { GOAL_ROLES, GOAL_SUGGESTIONS_BY_ROLE, GoalRole } from '../lib/GoalSuggestions';
+import { syncMultipleGoalsToRoutineCalendar } from '../lib/routineSync';
 
 interface WelcomeModalProps {
     onClose: () => void;
@@ -48,6 +49,9 @@ export const WelcomeModal: React.FC<WelcomeModalProps> = ({ onClose }) => {
 
     const handleFinish = async () => {
         setIsExiting(true);
+        // Sync all chosen onboarding goals to calendar
+        syncMultipleGoalsToRoutineCalendar(goals);
+
         if (dontShowAgain) {
             try {
                 await window.electronAPI.setSetting('welcomeDismissed', true);

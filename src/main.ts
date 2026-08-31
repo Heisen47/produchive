@@ -945,6 +945,109 @@ function registerIpcHandlers() {
     await shell.openExternal(url);
   });
 
+  // Cross-origin safe fetch for Google Calendar / WebCal sync
+  ipcMain.handle("fetch-url", async (_event, { url, options }: { url: string; options?: any }) => {
+    try {
+      const response = await fetch(url, options);
+      const text = await response.text();
+      return {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        data: text,
+      };
+    } catch (err: any) {
+      return {
+        ok: false,
+        status: 500,
+        statusText: err?.message || 'Fetch failed',
+        data: null,
+        error: err?.message || 'Fetch failed',
+      };
+    }
+  });
+
+  // Google OAuth Interactive Login Popup
+  ipcMain.handle("google-oauth-login", async (_event, customClientId?: string) => {
+    const CLIENT_ID = customClientId || process.env.GOOGLE_CLIENT_ID || "1032822765342-produchive.apps.googleusercontent.com";
+    return new Promise((resolve) => {
+      let isResolved = false;
+      const authWindow = new BrowserWindow({
+        width: 520,
+        height: 650,
+        show: true,
+        modal: true,
+        parent: mainWindow || undefined,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+        },
+      });
+
+      const redirectUri = "https://localhost";
+      const scopes = [
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/userinfo.email",
+      ].join(" ");
+
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+        CLIENT_ID
+      )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(
+        scopes
+      )}&prompt=consent`;
+
+      authWindow.loadURL(authUrl);
+
+      const handleCallback = async (navUrl: string) => {
+        if (isResolved) return;
+        if (navUrl.startsWith("https://localhost") || navUrl.startsWith("http://localhost")) {
+          // Token in hash fragment: #access_token=...&expires_in=3599...
+          if (navUrl.includes("access_token=")) {
+            isResolved = true;
+            const hash = navUrl.substring(navUrl.indexOf("#") + 1);
+            const params = new URLSearchParams(hash);
+            const token = params.get("access_token");
+
+            let email = "";
+            if (token) {
+              try {
+                const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                if (userRes.ok) {
+                  const userData = await userRes.json();
+                  email = userData.email || "";
+                }
+              } catch (_) {}
+            }
+
+            authWindow.destroy();
+            resolve({ success: true, token, email });
+            return;
+          }
+
+          if (navUrl.includes("error=")) {
+            isResolved = true;
+            authWindow.destroy();
+            resolve({ success: false, error: "Access was denied or cancelled." });
+            return;
+          }
+        }
+      };
+
+      authWindow.webContents.on("will-navigate", (_e, url) => handleCallback(url));
+      authWindow.webContents.on("will-redirect", (_e, url) => handleCallback(url));
+      authWindow.webContents.on("did-navigate", (_e, url) => handleCallback(url));
+
+      authWindow.on("closed", () => {
+        if (!isResolved) {
+          isResolved = true;
+          resolve({ success: false, error: "Sign-in window closed." });
+        }
+      });
+    });
+  });
+
   // Get pending deep-link auth token (used on startup)
   ipcMain.handle("get-pending-token", () => {
     const token = pendingToken;

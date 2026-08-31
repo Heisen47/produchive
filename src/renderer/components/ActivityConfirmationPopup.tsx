@@ -93,19 +93,17 @@ export const ActivityConfirmationPopup: React.FC = () => {
             let routinesModified = false;
             let nextPromptCandidate: PlannedRoutineItem | null = null;
 
+            // 1. First pass: Run smart auto-confirmation for all past events via machine activity
             const updatedRoutines = routines.map((item) => {
                 if (item.dateStr !== todayStr) return item;
 
                 const startMinutes = item.startHour * 60 + item.startMinute;
                 const endMinutes = startMinutes + item.durationMinutes;
 
-                // Has the scheduled time passed?
                 if (currentTotalMinutes >= endMinutes) {
-                    if (item.completed || promptedIds.has(item.id)) {
-                        return item;
-                    }
+                    if (item.completed) return item;
 
-                    // 1. If activity monitoring is ON, verify machine activity during scheduled slot
+                    // If activity monitoring is ON, verify machine activity during scheduled slot
                     if (isMonitoring && activities && activities.length > 0) {
                         let matchedSeconds = 0;
                         const taskKeywords = [
@@ -142,11 +140,6 @@ export const ActivityConfirmationPopup: React.FC = () => {
                             return { ...item, completed: true };
                         }
                     }
-
-                    // 2. If app cannot confirm, queue for bottom-right prompt
-                    if (!nextPromptCandidate && !activePrompt) {
-                        nextPromptCandidate = item;
-                    }
                 }
 
                 return item;
@@ -156,9 +149,45 @@ export const ActivityConfirmationPopup: React.FC = () => {
                 saveStoredRoutines(updatedRoutines);
             }
 
-            if (nextPromptCandidate && !activePrompt) {
-                setActivePrompt(nextPromptCandidate);
-                markPrompted(nextPromptCandidate.id);
+            // 2. Second pass: Find today's finished events sorted chronologically by end time
+            const finishedEvents = updatedRoutines
+                .filter((item) => {
+                    if (item.dateStr !== todayStr) return false;
+                    const endMinutes = item.startHour * 60 + item.startMinute + item.durationMinutes;
+                    return currentTotalMinutes >= endMinutes;
+                })
+                .sort((a, b) => {
+                    const endA = a.startHour * 60 + a.startMinute + a.durationMinutes;
+                    const endB = b.startHour * 60 + b.startMinute + b.durationMinutes;
+                    return endA - endB;
+                });
+
+            if (finishedEvents.length === 0) return;
+
+            // 3. Only the single most recent finished event is eligible for prompt
+            const latestFinishedEvent = finishedEvents[finishedEvents.length - 1];
+
+            // Silence all older finished events so they never trigger sequential popups
+            finishedEvents.forEach((item) => {
+                if (item.id !== latestFinishedEvent.id && !promptedIds.has(item.id)) {
+                    markPrompted(item.id);
+                }
+            });
+
+            // 4. Prompt only for the latest finished event if not completed, not yet prompted, and ended recently
+            if (
+                !latestFinishedEvent.completed &&
+                !promptedIds.has(latestFinishedEvent.id) &&
+                !activePrompt
+            ) {
+                const latestEndMins = latestFinishedEvent.startHour * 60 + latestFinishedEvent.startMinute + latestFinishedEvent.durationMinutes;
+                // Only prompt if finished within the last 60 minutes (otherwise silence into debug panel)
+                if (currentTotalMinutes - latestEndMins <= 60) {
+                    setActivePrompt(latestFinishedEvent);
+                    markPrompted(latestFinishedEvent.id);
+                } else {
+                    markPrompted(latestFinishedEvent.id);
+                }
             }
         };
 

@@ -18,8 +18,8 @@ export const TotoroBusStopBg: React.FC<TotoroBusStopBgProps> = ({ className = ''
             }}
         >
             <svg 
-                viewBox="0 0 800 450" 
-                preserveAspectRatio="xMidYMax slice"
+                viewBox="0 0 900 450" 
+                preserveAspectRatio="xMaxYMax meet"
                 className="w-full h-full opacity-60"
             >
                 <defs>
@@ -47,7 +47,7 @@ export const TotoroBusStopBg: React.FC<TotoroBusStopBgProps> = ({ className = ''
                 </style>
 
                 {/* Bus Stop Sign (Left) - Positioned at bottom left */}
-                <g transform="translate(80, 200) scale(1.2)">
+                <g transform="translate(60, 220) scale(1.05)">
                     <rect x="-2" y="0" width="4" height="160" fill="#475569" />
                     <circle cx="0" cy="0" r="15" fill="#e2e8f0" stroke="#475569" strokeWidth="2" />
                     <text x="0" y="4" textAnchor="middle" fontSize="10" fill="#475569" fontWeight="bold">BUS</text>
@@ -56,8 +56,8 @@ export const TotoroBusStopBg: React.FC<TotoroBusStopBgProps> = ({ className = ''
                     <line x1="-6" y1="36" x2="6" y2="36" stroke="#475569" strokeWidth="1" />
                 </g>
 
-                {/* Totoro with Umbrella (Right) - Positioned at bottom right */}
-                <g transform="translate(600, 250) scale(1.4)">
+                {/* Totoro with Umbrella (Right) - Scaled cleanly to fit 100% in frame */}
+                <g transform="translate(680, 200) scale(1.1)">
                     {/* Umbrella Stick */}
                     <line x1="60" y1="20" x2="60" y2="100" stroke="#7a4521ff" strokeWidth="3" />
                     

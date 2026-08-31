@@ -31,6 +31,7 @@ import { useTheme } from './ThemeProvider';
 import { Activity } from '../global';
 import { GoogleOAuthModal } from './GoogleOAuthModal';
 import { LoginModal } from './LoginModal';
+import { TotoroBusStopBg } from './TotoroBusStopBg';
 import { getGoogleAuthToken, getGoogleCalendarConfig, performGoogleCalendarSync, isGoogleCalendarConnected, isCalendarSyncUpToDate } from '../lib/googleCalendar';
 import {
     distributeSmartSchedule,
@@ -314,7 +315,10 @@ export const Routine = () => {
         setIsGoogleLoggedIn(connected);
     };
 
+    // Google Calendar Sync (Temporarily disabled - Under Google OAuth review)
     const handleDirectSync = async () => {
+        // Disabled pending Google review
+        /*
         setIsDirectSyncing(true);
         try {
             const res = await performGoogleCalendarSync(allRoutines);
@@ -330,19 +334,22 @@ export const Routine = () => {
         } finally {
             setIsDirectSyncing(false);
         }
+        */
     };
 
-    // Google Calendar Auto-Sync and Login State Listener
+    // Google Calendar Auto-Sync and Login State Listener (Disabled pending Google review)
     useEffect(() => {
         checkGoogleAuth();
         const handleAuthChange = () => checkGoogleAuth();
+
+        window.addEventListener('storage', handleAuthChange);
+        window.addEventListener('produchive_routine_updated', handleAuthChange);
+
+        /*
         const handleGcalAuth = () => {
             checkGoogleAuth();
             handleDirectSync();
         };
-
-        window.addEventListener('storage', handleAuthChange);
-        window.addEventListener('produchive_routine_updated', handleAuthChange);
         window.addEventListener('produchive_gcal_authenticated', handleGcalAuth);
 
         const config = getGoogleCalendarConfig();
@@ -356,11 +363,12 @@ export const Routine = () => {
                 })
                 .catch((e) => console.log('Auto GCal sync:', e.message));
         }
+        */
 
         return () => {
             window.removeEventListener('storage', handleAuthChange);
             window.removeEventListener('produchive_routine_updated', handleAuthChange);
-            window.removeEventListener('produchive_gcal_authenticated', handleGcalAuth);
+            // window.removeEventListener('produchive_gcal_authenticated', handleGcalAuth);
         };
     }, [user]);
 
@@ -890,64 +898,19 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
 
                 {/* Right: Actions (Google Sync + Today + Your Plans) */}
                 <div className="flex items-center gap-2.5">
-                    {/* Google Calendar OAuth / Sync Button */}
-                    {isGoogleLoggedIn ? (
-                        <div className="flex items-center gap-1">
-                            <button
-                                onClick={handleDirectSync}
-                                disabled={isDirectSyncing || isSynced}
-                                className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border shadow-sm ${
-                                    isSynced
-                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 opacity-80 cursor-default shadow-none'
-                                        : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-500/25 hover:scale-105 active:scale-95 shadow-md cursor-pointer'
-                                }`}
-                                title={
-                                    isSynced
-                                        ? 'Google Calendar is up to date (no changes to sync)'
-                                        : 'Syncs your routine plans with your Google Calendar'
-                                }
-                            >
-                                {isSynced ? (
-                                    <>
-                                        <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
-                                        <span>Synced</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                                        <RefreshCw size={13} className={isDirectSyncing ? 'animate-spin' : ''} />
-                                        <span>{isDirectSyncing ? 'Syncing...' : 'Sync'}</span>
-                                    </>
-                                )}
-                            </button>
-
-                            <button
-                                onClick={() => setIsGoogleSyncOpen(true)}
-                                className="p-2 rounded-xl text-xs font-medium border transition-all hover:bg-black/5 dark:hover:bg-white/10"
-                                style={{
-                                    background: 'var(--bg-elevated)',
-                                    borderColor: 'var(--border-card)',
-                                    color: 'var(--text-secondary)',
-                                }}
-                                title="Google Calendar Settings & Disconnect"
-                            >
-                                <CalendarIcon size={13} />
-                            </button>
-                        </div>
-                    ) : (
-                        <button
-                            onClick={() => setIsLoginModalOpen(true)}
-                            className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border shadow-sm hover:scale-105 active:scale-95 cursor-pointer"
-                            style={{
-                                background: isDark ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.08)',
-                                color: isDark ? '#93c5fd' : '#2563eb',
-                                borderColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.25)',
-                            }}
-                            title="Syncs your routine plans with your Google Calendar"
-                        >
-                            <RefreshCw size={13} /> Sync
-                        </button>
-                    )}
+                    {/* Google Calendar Sync Button (Disabled - Under Google Review) */}
+                    <button
+                        disabled
+                        className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border opacity-60 cursor-not-allowed select-none"
+                        style={{
+                            background: isDark ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.05)',
+                            color: isDark ? '#93c5fd' : '#2563eb',
+                            borderColor: isDark ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.15)',
+                        }}
+                        title="Coming soon — Syncs this routine with your Google Calendar"
+                    >
+                        <RefreshCw size={13} /> Sync
+                    </button>
 
                     <button
                         onClick={() => setSelectedDate(new Date())}
@@ -1243,15 +1206,18 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
 
             {/* 3. Teams Calendar Grid Table */}
             <div
-                className="rounded-3xl overflow-hidden border transition-colors"
+                className="rounded-3xl overflow-hidden border transition-colors relative"
                 style={{
                     background: 'var(--bg-card-solid)',
                     borderColor: 'var(--border-secondary)',
                 }}
             >
+                {/* Totoro Bus Stop Background Illustration */}
+                <TotoroBusStopBg className="opacity-20 dark:opacity-20 translate-y-4 pointer-events-none" />
+
                 {/* Column Headers (Days of the week) */}
                 <div
-                    className="grid grid-cols-[80px_repeat(auto-fit,minmax(0,1fr))] border-b"
+                    className="grid grid-cols-[80px_repeat(auto-fit,minmax(0,1fr))] border-b relative z-10"
                     style={{
                         background: 'var(--bg-secondary)',
                         borderColor: 'var(--border-secondary)',
@@ -1305,7 +1271,7 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                 </div>
 
                 {/* Hours Timeline */}
-                <div className="overflow-y-auto custom-scrollbar max-h-[680px] relative">
+                <div className="overflow-y-auto custom-scrollbar max-h-[680px] relative z-10">
                     {hours.map((hour) => {
                         const isCurrentHourRow = now.getHours() === hour;
 

@@ -8,9 +8,8 @@ import { ProductivityJudge } from './components/ProductivityJudge';
 import { DebugPanel } from './components/DebugPanel';
 import { Dashboard } from './components/Dashboard';
 import { UsageCharts } from './components/UsageCharts';
-import { SystemLog } from './components/SystemLog';
-import { GoalOnboarding } from './components/GoalOnboarding';
-import { WelcomeGuide } from './components/WelcomeGuide';
+import { WelcomeModal } from './components/WelcomeModal';
+import { ActivityConfirmationPopup } from './components/ActivityConfirmationPopup';
 import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
@@ -19,6 +18,7 @@ import { initEngine } from './lib/ai';
 import { useStore } from './lib/store';
 import { apiClient } from './lib/api';
 import { syncEngine } from './lib/services';
+import { setGoogleAuthToken } from './lib/googleCalendar';
 import {
     Loader2,
     Sparkles,
@@ -26,6 +26,7 @@ import {
     LayoutDashboard,
     BarChart3,
     Activity,
+    Calendar,
     Brain,
     Users2,
     Coffee,
@@ -39,11 +40,13 @@ import { UpdateBanner } from './components/UpdateBanner';
 import { PeekabooCat } from './components/PeekabooCat';
 import { ModelManager } from './components/ModelManager';
 import { PromptEditorModal } from './components/PromptEditorModal';
+import { Routine } from './components/Routine';
 
 const viewIcons: Record<string, React.ComponentType<any>> = {
     dashboard: LayoutDashboard,
     analytics: BarChart3,
-    monitor: Activity,
+    routine: Calendar,
+    monitor: Calendar,
     ai: Brain,
     focusroom: Coffee,
 };
@@ -52,7 +55,8 @@ const viewIcons: Record<string, React.ComponentType<any>> = {
 const viewLabels: Record<string, string> = {
     dashboard: 'Dashboard',
     analytics: 'Analytics',
-    monitor: 'Live Monitor',
+    routine: 'Routine',
+    monitor: 'Routine',
     ai: 'Goals & AI',
     focusroom: 'Focus Rooms ✦',
 };
@@ -62,7 +66,6 @@ const AppContent = () => {
     const { isDark } = useTheme();
     const [currentView, setCurrentView] = useState('dashboard');
     const [isSidebarOpen, setSidebarOpen] = useState(false);
-    const [showOnboarding, setShowOnboarding] = useState(true);
     const [showWelcome, setShowWelcome] = useState(false); // Loaded from DB
     const [showLoginModal, setShowLoginModal] = useState(false);
     const [isDataLoaded, setDataLoaded] = useState(false);
@@ -94,14 +97,24 @@ const AppContent = () => {
         // Set up real-time listener for deep link auth tokens
         window.electronAPI.onAuthToken(async (token) => {
             sessionStorage.setItem('token', token);
+            localStorage.setItem('token', token);
             try {
                 const me = await apiClient.getMe();
                 useStore.getState().setUser(me);
+                window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
                 setShowLoginModal(false);
             } catch (err) {
                 console.error('Failed to retrieve user info with deep-linked token:', err);
                 sessionStorage.removeItem('token');
             }
+        });
+
+        // Listen for Google Calendar access token (sent separately from JWT)
+        window.electronAPI.onGcalToken(({ gcalToken, gcalEmail }) => {
+            console.log('Received Google Calendar token for:', gcalEmail);
+            setGoogleAuthToken(gcalToken, gcalEmail);
+            window.dispatchEvent(new CustomEvent('produchive_gcal_authenticated'));
+            window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
         });
 
         const init = async () => {
@@ -128,15 +141,20 @@ const AppContent = () => {
                 let token = await window.electronAPI.getPendingToken();
                 if (token) {
                     sessionStorage.setItem('token', token);
+                    localStorage.setItem('token', token);
                 } else {
                     // Restore user session if token exists in session storage
-                    token = sessionStorage.getItem('token');
+                    token = sessionStorage.getItem('token') || localStorage.getItem('token');
                 }
 
                 if (token) {
                     try {
                         const me = await apiClient.getMe();
                         useStore.getState().setUser(me);
+                        if (me.email && (me.email.toLowerCase().endsWith('@gmail.com') || me.email.toLowerCase().endsWith('@googlemail.com'))) {
+                            setGoogleAuthToken(token, me.email);
+                        }
+                        window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
                     } catch (err) {
                         console.error('Failed to restore user session:', err);
                         sessionStorage.removeItem('token');
@@ -220,9 +238,10 @@ const AppContent = () => {
     return (
         <div className="h-screen w-screen flex overflow-hidden font-sans selection:bg-blue-500/30" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
             <ErrorModal />
+            <ActivityConfirmationPopup />
+            <DebugPanel />
             {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
-            {showWelcome && <WelcomeGuide onClose={() => setShowWelcome(false)} />}
-            {!showWelcome && showOnboarding && <GoalOnboarding onClose={() => setShowOnboarding(false)} />}
+            {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
             {showPromptEditor && <PromptEditorModal onClose={() => setShowPromptEditor(false)} />}
             
             {isCatEnabled && <PeekabooCat isSidebarOpen={isSidebarOpen} />}
@@ -407,11 +426,8 @@ const AppContent = () => {
 
                             {currentView === 'analytics' && <UsageCharts />}
 
-                            {currentView === 'monitor' && (
-                                <div className="space-y-6">
-                                    <ActivityMonitor />
-                                    <SystemLog />
-                                </div>
+                            {(currentView === 'routine' || currentView === 'monitor') && (
+                                <Routine />
                             )}
 
                             {currentView === 'ai' && (
@@ -422,10 +438,6 @@ const AppContent = () => {
                             )}
 
                             {currentView === 'focusroom' && <StudyRooms onNavigate={handleViewChange} />}
-                        </div>
-
-                        <div className="space-y-6 pt-8" style={{ borderTop: '1px solid var(--border-secondary)' }}>
-                            <DebugPanel />
                         </div>
                     </div>
                 </div>

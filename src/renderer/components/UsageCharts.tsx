@@ -13,6 +13,8 @@ import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { Activity } from '../global';
 import { TotoroSceneBg } from './TotoroSceneBg';
+import { ActivityMonitor } from './ActivityMonitor';
+import { SystemLog } from './SystemLog';
 
 // ─── Color palette ───
 const CHART_COLORS = [
@@ -21,13 +23,14 @@ const CHART_COLORS = [
     '#e11d48', '#0ea5e9',
 ];
 
-type TimePeriod = 'today' | 'yesterday' | '7days' | '30days';
+type TimePeriod = 'today' | 'yesterday' | '7days' | '30days' | 'live';
 
 const PERIOD_LABELS: Record<TimePeriod, string> = {
     today: 'Today',
     yesterday: 'Yesterday',
     '7days': 'Last 7 Days',
     '30days': 'Last 30 Days',
+    live: 'Live Monitor',
 };
 
 // ─── Helpers ───
@@ -199,7 +202,7 @@ export const UsageCharts = () => {
 
     // ─── Fetch data for the selected period ───
     const fetchData = useCallback(async (p: TimePeriod) => {
-        if (p === 'today') return;
+        if (p === 'today' || p === 'live') return;
         setLoading(true);
         try {
             const endDate = p === 'yesterday' ? getDateStr(1) : getDateStr(0);
@@ -354,7 +357,15 @@ export const UsageCharts = () => {
                 ))}
             </div>
 
-            {/* Loading */}
+            {/* Live Monitor Tab Content */}
+            {period === 'live' ? (
+                <div className="space-y-6 animate-fade-in-up">
+                    <ActivityMonitor />
+                    <SystemLog />
+                </div>
+            ) : (
+                <>
+                    {/* Loading */}
             {loading && (
                 <div className="flex items-center justify-center py-16 animate-fade-in-up">
                     <div className="flex flex-col items-center gap-3">
@@ -806,6 +817,8 @@ export const UsageCharts = () => {
                             </div>
                         </div>
                     )}
+                </>
+            )}
                 </>
             )}
         </div>

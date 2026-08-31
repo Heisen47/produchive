@@ -64,14 +64,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
   setSetting: (key: string, value: any) =>
     ipcRenderer.invoke("set-setting", key, value),
 
-  // External URLs
+  // External URLs & Safe Fetch
   openExternalUrl: (url: string) => ipcRenderer.invoke("open-external-url", url),
+  fetchUrl: (url: string, options?: any) => ipcRenderer.invoke("fetch-url", { url, options }),
+  googleOAuthLogin: (clientId?: string) => ipcRenderer.invoke("google-oauth-login", clientId),
 
   // Deep linking authentication events
   getPendingToken: () => ipcRenderer.invoke("get-pending-token"),
   onAuthToken: (callback: (token: string) => void) => {
     ipcRenderer.removeAllListeners("on-auth-token");
     ipcRenderer.on("on-auth-token", (_event, value) => callback(value));
+  },
+  onGcalToken: (callback: (data: { gcalToken: string; gcalEmail: string }) => void) => {
+    ipcRenderer.removeAllListeners("on-gcal-token");
+    ipcRenderer.on("on-gcal-token", (_event, value) => callback(value));
   },
 });
 

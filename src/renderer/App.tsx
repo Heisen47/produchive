@@ -239,6 +239,7 @@ const AppContent = () => {
         <div className="h-screen w-screen flex overflow-hidden font-sans selection:bg-blue-500/30" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
             <ErrorModal />
             <ActivityConfirmationPopup />
+            <DebugPanel />
             {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
             {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
             {showPromptEditor && <PromptEditorModal onClose={() => setShowPromptEditor(false)} />}
@@ -437,10 +438,6 @@ const AppContent = () => {
                             )}
 
                             {currentView === 'focusroom' && <StudyRooms onNavigate={handleViewChange} />}
-                        </div>
-
-                        <div className="space-y-6 pt-8" style={{ borderTop: '1px solid var(--border-secondary)' }}>
-                            <DebugPanel />
                         </div>
                     </div>
                 </div>

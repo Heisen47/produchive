@@ -87,23 +87,23 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                             {!isCatEnabled ? (
                                 <div className="flex items-center gap-2 animate-fade-in w-full justify-center">
                                      <div className="w-6 h-6 opacity-50 grayscale group-hover:grayscale-0 transition-all duration-300">
-                                        <Lottie animationData={catAnimation} loop={false} />
+                                         <Lottie animationData={catAnimation} loop={false} />
                                      </div>
                                      <span className="text-xs italic group-hover:text-accent transition-colors whitespace-nowrap">Missing the cat?</span>
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-2 w-full justify-center">
-                                    <Ghost size={14} className="opacity-50 group-hover:opacity-100 transition-opacity" />
-                                    <span className="text-xs opacity-50 group-hover:opacity-100 transition-opacity whitespace-nowrap">Hide Cat</span>
+                                     <Ghost size={14} className="opacity-50 group-hover:opacity-100 transition-opacity" />
+                                     <span className="text-xs opacity-50 group-hover:opacity-100 transition-opacity whitespace-nowrap">Hide Cat</span>
                                 </div>
                             )}
                         </button>
                     )}
                 </div>
 
-                    <div className="sm:absolute sm:left-1/2 sm:-translate-x-1/2 opacity-50 order-3 sm:order-none mt-2 sm:mt-0 font-mono text-[11px] pointer-events-none">
-                         version : {version}
-                    </div>
+                <div className="sm:absolute sm:left-1/2 sm:-translate-x-1/2 opacity-50 order-3 sm:order-none mt-2 sm:mt-0 font-mono text-[11px] pointer-events-none">
+                     version : {version}
+                </div>
 
                 <div className="flex items-center gap-3 sm:gap-4 order-1 sm:order-2 z-10">
                     {[

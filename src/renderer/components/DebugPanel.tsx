@@ -60,24 +60,26 @@ export const DebugPanel: React.FC = () => {
         }
     };
 
-    // Real-time synchronization when routines change
+    // Real-time synchronization when routines change or debug toggle is triggered
     useEffect(() => {
         const handleSync = () => loadRoutines();
+        const handleToggleEvent = () => {
+            setIsOpen((prev) => {
+                const next = !prev;
+                if (next) loadRoutines();
+                return next;
+            });
+        };
+
         window.addEventListener('produchive_routine_updated', handleSync);
         window.addEventListener('storage', handleSync);
+        window.addEventListener('produchive_toggle_debug', handleToggleEvent);
         return () => {
             window.removeEventListener('produchive_routine_updated', handleSync);
             window.removeEventListener('storage', handleSync);
+            window.removeEventListener('produchive_toggle_debug', handleToggleEvent);
         };
     }, []);
-
-    const handleToggle = () => {
-        const newOpen = !isOpen;
-        setIsOpen(newOpen);
-        if (newOpen) {
-            loadRoutines();
-        }
-    };
 
     const now = new Date();
     const todayStr = formatDateStr(now);
@@ -114,16 +116,26 @@ export const DebugPanel: React.FC = () => {
     if (!isOpen) {
         return (
             <button
-                onClick={handleToggle}
-                className="fixed bottom-20 right-4 p-3 rounded-full transition-all duration-300 z-30 hover:scale-110"
+                type="button"
+                onClick={() => {
+                    setIsOpen(true);
+                    loadRoutines();
+                }}
+                className="fixed bottom-16 right-6 z-50 w-10 h-10 min-w-[40px] min-h-[40px] max-w-[40px] max-h-[40px] p-0 rounded-full flex items-center justify-center transition-all duration-300 hover:scale-110 shadow-lg cursor-pointer"
                 style={{
+                    width: '40px',
+                    height: '40px',
+                    minWidth: '40px',
+                    minHeight: '40px',
+                    maxWidth: '40px',
+                    maxHeight: '40px',
                     background: 'var(--bg-card)',
                     border: '1px solid var(--border-card)',
                     color: 'var(--text-muted)',
                     boxShadow: 'var(--shadow-card)',
                     backdropFilter: 'blur(20px)',
                 }}
-                title="Debug & Activity Checks"
+                title={unconfirmedPastRoutines.length > 0 ? `${unconfirmedPastRoutines.length} pending activity check(s)` : 'Debug Panel & Activity Checks'}
                 onMouseEnter={(e) => {
                     (e.currentTarget as HTMLElement).style.color = 'var(--accent)';
                     (e.currentTarget as HTMLElement).style.borderColor = 'var(--border-hover)';
@@ -134,13 +146,18 @@ export const DebugPanel: React.FC = () => {
                 }}
             >
                 <Bug size={18} />
+                {unconfirmedPastRoutines.length > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#5b5fc7] text-[9px] font-bold text-white px-1 shadow-md border-2 border-[var(--bg-card)]">
+                        {unconfirmedPastRoutines.length}
+                    </span>
+                )}
             </button>
         );
     }
 
     return (
         <div
-            className="fixed bottom-20 right-4 w-96 max-h-[75vh] rounded-2xl overflow-hidden flex flex-col z-40 animate-scale-in glass-card-static"
+            className="fixed bottom-16 right-6 w-96 max-h-[75vh] rounded-2xl overflow-hidden flex flex-col z-50 animate-scale-in glass-card-static"
             style={{
                 boxShadow: isDark ? '0 25px 60px rgba(0,0,0,0.5)' : '0 15px 40px rgba(0,0,0,0.1)',
             }}
@@ -150,6 +167,11 @@ export const DebugPanel: React.FC = () => {
                 <div className="flex items-center gap-2">
                     <Settings size={16} style={{ color: 'var(--accent)' }} className="animate-spin" />
                     <h3 className="font-display font-bold text-sm" style={{ color: 'var(--text-primary)' }}>Debug & Activity Checks</h3>
+                    {unconfirmedPastRoutines.length > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#5b5fc7]/20 text-[#5b5fc7] dark:text-indigo-300 border border-[#5b5fc7]/30">
+                            {unconfirmedPastRoutines.length} pending
+                        </span>
+                    )}
                 </div>
                 <button
                     onClick={() => setIsOpen(false)}

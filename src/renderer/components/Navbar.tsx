@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
     LayoutDashboard,
-    Activity as ActivityIcon,
+    Calendar,
     Target,
     Coffee,
     Sun,
@@ -252,10 +252,10 @@ export const Navbar = ({
                         collapsed={!isPinned}
                     />
                     <SidebarLink
-                        icon={ActivityIcon}
-                        label="Live Monitor"
-                        active={currentView === 'monitor'}
-                        onClick={() => handleLinkClick('monitor')}
+                        icon={Calendar}
+                        label="Routine"
+                        active={currentView === 'routine' || currentView === 'monitor'}
+                        onClick={() => handleLinkClick('routine')}
                         collapsed={!isPinned}
                     />
                     <SidebarLink

@@ -8,9 +8,7 @@ import { ProductivityJudge } from './components/ProductivityJudge';
 import { DebugPanel } from './components/DebugPanel';
 import { Dashboard } from './components/Dashboard';
 import { UsageCharts } from './components/UsageCharts';
-import { SystemLog } from './components/SystemLog';
-import { GoalOnboarding } from './components/GoalOnboarding';
-import { WelcomeGuide } from './components/WelcomeGuide';
+import { WelcomeModal } from './components/WelcomeModal';
 import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
@@ -26,6 +24,7 @@ import {
     LayoutDashboard,
     BarChart3,
     Activity,
+    Calendar,
     Brain,
     Users2,
     Coffee,
@@ -39,11 +38,13 @@ import { UpdateBanner } from './components/UpdateBanner';
 import { PeekabooCat } from './components/PeekabooCat';
 import { ModelManager } from './components/ModelManager';
 import { PromptEditorModal } from './components/PromptEditorModal';
+import { Routine } from './components/Routine';
 
 const viewIcons: Record<string, React.ComponentType<any>> = {
     dashboard: LayoutDashboard,
     analytics: BarChart3,
-    monitor: Activity,
+    routine: Calendar,
+    monitor: Calendar,
     ai: Brain,
     focusroom: Coffee,
 };
@@ -52,7 +53,8 @@ const viewIcons: Record<string, React.ComponentType<any>> = {
 const viewLabels: Record<string, string> = {
     dashboard: 'Dashboard',
     analytics: 'Analytics',
-    monitor: 'Live Monitor',
+    routine: 'Routine',
+    monitor: 'Routine',
     ai: 'Goals & AI',
     focusroom: 'Focus Rooms ✦',
 };
@@ -62,7 +64,6 @@ const AppContent = () => {
     const { isDark } = useTheme();
     const [currentView, setCurrentView] = useState('dashboard');
     const [isSidebarOpen, setSidebarOpen] = useState(false);
-    const [showOnboarding, setShowOnboarding] = useState(true);
     const [showWelcome, setShowWelcome] = useState(false); // Loaded from DB
     const [showLoginModal, setShowLoginModal] = useState(false);
     const [isDataLoaded, setDataLoaded] = useState(false);
@@ -221,8 +222,7 @@ const AppContent = () => {
         <div className="h-screen w-screen flex overflow-hidden font-sans selection:bg-blue-500/30" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
             <ErrorModal />
             {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
-            {showWelcome && <WelcomeGuide onClose={() => setShowWelcome(false)} />}
-            {!showWelcome && showOnboarding && <GoalOnboarding onClose={() => setShowOnboarding(false)} />}
+            {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
             {showPromptEditor && <PromptEditorModal onClose={() => setShowPromptEditor(false)} />}
             
             {isCatEnabled && <PeekabooCat isSidebarOpen={isSidebarOpen} />}
@@ -407,11 +407,8 @@ const AppContent = () => {
 
                             {currentView === 'analytics' && <UsageCharts />}
 
-                            {currentView === 'monitor' && (
-                                <div className="space-y-6">
-                                    <ActivityMonitor />
-                                    <SystemLog />
-                                </div>
+                            {(currentView === 'routine' || currentView === 'monitor') && (
+                                <Routine />
                             )}
 
                             {currentView === 'ai' && (

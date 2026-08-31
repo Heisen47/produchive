@@ -18,6 +18,7 @@ import { initEngine } from './lib/ai';
 import { useStore } from './lib/store';
 import { apiClient } from './lib/api';
 import { syncEngine } from './lib/services';
+import { setGoogleAuthToken } from './lib/googleCalendar';
 import {
     Loader2,
     Sparkles,
@@ -96,14 +97,24 @@ const AppContent = () => {
         // Set up real-time listener for deep link auth tokens
         window.electronAPI.onAuthToken(async (token) => {
             sessionStorage.setItem('token', token);
+            localStorage.setItem('token', token);
             try {
                 const me = await apiClient.getMe();
                 useStore.getState().setUser(me);
+                window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
                 setShowLoginModal(false);
             } catch (err) {
                 console.error('Failed to retrieve user info with deep-linked token:', err);
                 sessionStorage.removeItem('token');
             }
+        });
+
+        // Listen for Google Calendar access token (sent separately from JWT)
+        window.electronAPI.onGcalToken(({ gcalToken, gcalEmail }) => {
+            console.log('Received Google Calendar token for:', gcalEmail);
+            setGoogleAuthToken(gcalToken, gcalEmail);
+            window.dispatchEvent(new CustomEvent('produchive_gcal_authenticated'));
+            window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
         });
 
         const init = async () => {
@@ -130,15 +141,20 @@ const AppContent = () => {
                 let token = await window.electronAPI.getPendingToken();
                 if (token) {
                     sessionStorage.setItem('token', token);
+                    localStorage.setItem('token', token);
                 } else {
                     // Restore user session if token exists in session storage
-                    token = sessionStorage.getItem('token');
+                    token = sessionStorage.getItem('token') || localStorage.getItem('token');
                 }
 
                 if (token) {
                     try {
                         const me = await apiClient.getMe();
                         useStore.getState().setUser(me);
+                        if (me.email && (me.email.toLowerCase().endsWith('@gmail.com') || me.email.toLowerCase().endsWith('@googlemail.com'))) {
+                            setGoogleAuthToken(token, me.email);
+                        }
+                        window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
                     } catch (err) {
                         console.error('Failed to restore user session:', err);
                         sessionStorage.removeItem('token');

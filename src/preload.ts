@@ -75,5 +75,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.removeAllListeners("on-auth-token");
     ipcRenderer.on("on-auth-token", (_event, value) => callback(value));
   },
+  onGcalToken: (callback: (data: { gcalToken: string; gcalEmail: string }) => void) => {
+    ipcRenderer.removeAllListeners("on-gcal-token");
+    ipcRenderer.on("on-gcal-token", (_event, value) => callback(value));
+  },
 });
 

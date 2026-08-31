@@ -1,4 +1,5 @@
 import { PlannedRoutineItem } from '../components/Routine';
+import { useStore } from './store';
 
 // ─── Cookie Helpers ───
 export const setCookie = (name: string, value: string, days = 60) => {
@@ -32,7 +33,21 @@ export const getGoogleAuthToken = (): string | null => {
 };
 
 export const getGoogleUserEmail = (): string | null => {
-    return getCookie('gcal_user_email') || localStorage.getItem('gcal_user_email') || null;
+    const directEmail = getCookie('gcal_user_email') || localStorage.getItem('gcal_user_email');
+    if (directEmail) return directEmail;
+
+    const user = useStore.getState().user;
+    if (user?.email) {
+        return user.email;
+    }
+    return null;
+};
+
+export const isGoogleCalendarConnected = (): boolean => {
+    const user = useStore.getState().user;
+    const token = getGoogleAuthToken();
+    const config = getGoogleCalendarConfig();
+    return Boolean(token || config.icalUrl || user);
 };
 
 export const setGoogleAuthToken = (token: string, userEmail?: string) => {
@@ -49,6 +64,39 @@ export const clearGoogleAuth = () => {
     deleteCookie('gcal_user_email');
     localStorage.removeItem('gcal_oauth_token');
     localStorage.removeItem('gcal_user_email');
+};
+
+// ─── Sync Fingerprint / Dirty-Tracking Helpers ───
+export const getRoutineSyncFingerprint = (routines: PlannedRoutineItem[]): string => {
+    if (!routines || routines.length === 0) return "empty";
+    return routines
+        .map(
+            (r) =>
+                r.id + "|" + (r.title || "").trim().toLowerCase() + "|" + r.dateStr + "|" + r.startHour + ":" + r.startMinute + "|" + r.durationMinutes + "|" + r.completed
+        )
+        .sort()
+        .join(";;");
+};
+
+export const isCalendarSyncUpToDate = (routines: PlannedRoutineItem[]): boolean => {
+    try {
+        const lastFingerprint = localStorage.getItem("produchive_gcal_last_synced_fingerprint");
+        if (!lastFingerprint) return false;
+        return lastFingerprint === getRoutineSyncFingerprint(routines);
+    } catch (e) {
+        return false;
+    } 
+};
+
+export const saveLastSyncedFingerprint = (routines: PlannedRoutineItem[]) => {
+    try {
+        localStorage.setItem(
+            "produchive_gcal_last_synced_fingerprint",
+            getRoutineSyncFingerprint(routines)
+        );
+    } catch (e) {
+        console.error("Failed to save sync fingerprint:", e);
+    }
 };
 
 export interface GoogleCalendarConfig {
@@ -258,10 +306,41 @@ export const downloadICalFile = (routines: PlannedRoutineItem[], filename = 'pro
     URL.revokeObjectURL(link.href);
 };
 
-// ─── 4. Fetch Google Calendar via iCal URL / WebCal ───
+// ─── Safe Fetch Helper (IPC fetch-url with fallback to window.fetch) ───
+async function safeFetchUrl(url: string, options: any = {}): Promise<{ ok: boolean; status: number; text: () => Promise<string>; json: () => Promise<any> }> {
+    if (window.electronAPI && typeof window.electronAPI.fetchUrl === 'function') {
+        try {
+            const res = await window.electronAPI.fetchUrl(url, options);
+            if (res && typeof res.ok === 'boolean') {
+                return {
+                    ok: res.ok,
+                    status: res.status,
+                    text: async () => res.data || '',
+                    json: async () => JSON.parse(res.data || '{}'),
+                };
+            }
+        } catch (ipcErr) {
+            console.warn('IPC fetch-url failed or not registered, falling back to window.fetch:', ipcErr);
+        }
+    }
+
+    try {
+        const res = await fetch(url, options);
+        return {
+            ok: res.ok,
+            status: res.status,
+            text: async () => await res.text(),
+            json: async () => await res.json(),
+        };
+    } catch (fetchErr: any) {
+        throw new Error(`Network fetch failed: ${fetchErr.message}`);
+    }
+}
+
+// ─── 4. Fetch Google Calendar via Secret iCal Feed URL ───
 export const fetchGoogleCalendarViaICal = async (icalUrl: string): Promise<PlannedRoutineItem[]> => {
     if (!icalUrl || !icalUrl.trim()) {
-        throw new Error('Please provide a valid Google Calendar iCal URL.');
+        throw new Error('Google Calendar iCal URL is required.');
     }
 
     let url = icalUrl.trim();
@@ -270,22 +349,11 @@ export const fetchGoogleCalendarViaICal = async (icalUrl: string): Promise<Plann
     }
 
     try {
-        let icsData: string = '';
-
-        if (window.electronAPI && typeof window.electronAPI.fetchUrl === 'function') {
-            const res = await window.electronAPI.fetchUrl(url);
-            if (!res.ok || !res.data) {
-                throw new Error(res.error || `HTTP ${res.status} ${res.statusText}`);
-            }
-            icsData = res.data;
-        } else {
-            const res = await fetch(url);
-            if (!res.ok) {
-                throw new Error(`Failed to fetch calendar: HTTP ${res.status}`);
-            }
-            icsData = await res.text();
+        const res = await safeFetchUrl(url);
+        if (!res.ok) {
+            throw new Error(`Failed to fetch calendar: HTTP ${res.status}`);
         }
-
+        const icsData = await res.text();
         return parseICalendar(icsData);
     } catch (err: any) {
         console.error('Error fetching Google Calendar iCal:', err);
@@ -305,32 +373,32 @@ export const fetchGoogleCalendarViaAPI = async (
     const endpoint = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?maxResults=250&singleEvents=true&orderBy=startTime`;
 
     try {
-        let json: any = null;
+        const res = await safeFetchUrl(endpoint, {
+            headers: {
+                Authorization: `Bearer ${accessToken.trim()}`,
+                Accept: 'application/json',
+            },
+        });
 
-        if (window.electronAPI && typeof window.electronAPI.fetchUrl === 'function') {
-            const res = await window.electronAPI.fetchUrl(endpoint, {
-                headers: {
-                    Authorization: `Bearer ${accessToken.trim()}`,
-                    Accept: 'application/json',
-                },
-            });
-            if (!res.ok || !res.data) {
-                throw new Error(res.error || `Google API error: HTTP ${res.status}`);
-            }
-            json = JSON.parse(res.data);
-        } else {
-            const res = await fetch(endpoint, {
-                headers: {
-                    Authorization: `Bearer ${accessToken.trim()}`,
-                    Accept: 'application/json',
-                },
-            });
-            if (!res.ok) {
-                throw new Error(`Google API error: HTTP ${res.status}`);
-            }
-            json = await res.json();
+        // If 401, the Google access token is expired/invalid — clear it so UI shows "Sync with Google" again
+        if (!res.ok && res.status === 401) {
+            clearGoogleAuth();
+            window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
+            throw new Error('Google Calendar access token expired. Please sign in with Google again.');
         }
 
+        if (!res.ok) {
+            let msg = `HTTP ${res.status}`;
+            try {
+                const errJson = await res.json();
+                if (errJson?.error?.message) {
+                    msg += ` - ${errJson.error.message}`;
+                }
+            } catch (_) {}
+            throw new Error(`Google API error: ${msg}`);
+        }
+
+        const json = await res.json();
         const items: PlannedRoutineItem[] = [];
         const events = json.items || [];
 
@@ -394,29 +462,33 @@ export const pushRoutineToGoogleAPI = async (
         },
     };
 
-    if (window.electronAPI && typeof window.electronAPI.fetchUrl === 'function') {
-        const res = await window.electronAPI.fetchUrl(endpoint, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${accessToken.trim()}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-        });
-        if (!res.ok) throw new Error(res.error || `Failed to push event: HTTP ${res.status}`);
-        return JSON.parse(res.data || '{}');
-    } else {
-        const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${accessToken.trim()}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-        });
-        if (!res.ok) throw new Error(`Failed to push event: HTTP ${res.status}`);
-        return await res.json();
+    const res = await safeFetchUrl(endpoint, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${accessToken.trim()}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+    });
+
+    // If 401, clear stale token and throw
+    if (!res.ok && res.status === 401) {
+        clearGoogleAuth();
+        window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
+        throw new Error('Google Calendar access token expired. Please sign in with Google again.');
     }
+
+    if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try {
+            const errJson = await res.json();
+            if (errJson?.error?.message) {
+                msg += ` - ${errJson.error.message}`;
+            }
+        } catch (_) {}
+        throw new Error(`Failed to push event: ${msg}`);
+    }
+    return await res.json();
 };
 
 // ─── 7. Full 2-Way Sync Engine (Reads from Cookie / Storage) ───
@@ -436,19 +508,43 @@ export const performGoogleCalendarSync = async (
 
     if (token) {
         // Authenticated with Google OAuth
-        remoteItems = await fetchGoogleCalendarViaAPI(token, config.calendarId || 'primary');
+        remoteItems = await fetchGoogleCalendarViaAPI(token, config.calendarId || "primary");
 
-        if (config.syncDirection === 'two-way' || config.syncDirection === 'push-only') {
-            const remoteTitles = new Set(remoteItems.map((r) => `${r.dateStr}-${r.startHour}-${r.title.toLowerCase()}`));
+        if (config.syncDirection === "two-way" || config.syncDirection === "push-only") {
+            // Index remote items for strict duplicate prevention
+            const remoteKeySet = new Set(
+                remoteItems.map(
+                    (r) => r.dateStr + "__" + r.startHour + ":" + r.startMinute + "__" + (r.title || "").trim().toLowerCase()
+                )
+            );
+            const remoteTitleDateSet = new Set(
+                remoteItems.map(
+                    (r) => r.dateStr + "__" + (r.title || "").trim().toLowerCase()
+                )
+            );
+            const remoteIdSet = new Set(remoteItems.map((r) => r.id));
+
             for (const localItem of currentRoutines) {
-                const key = `${localItem.dateStr}-${localItem.startHour}-${localItem.title.toLowerCase()}`;
-                if (!remoteTitles.has(key)) {
-                    try {
-                        await pushRoutineToGoogleAPI(token, localItem, config.calendarId || 'primary');
-                        pushedCount++;
-                    } catch (e) {
-                        console.warn('Could not push routine:', localItem.title, e);
-                    }
+                // Skip if item was pulled from Google Calendar originally or already exists by ID
+                if (localItem.id.startsWith("gcal-") || remoteIdSet.has(localItem.id)) {
+                    continue;
+                }
+
+                const keyExact = localItem.dateStr + "__" + localItem.startHour + ":" + localItem.startMinute + "__" + (localItem.title || "").trim().toLowerCase();
+                const keyTitleDate = localItem.dateStr + "__" + (localItem.title || "").trim().toLowerCase();
+
+                // Do not create duplicate event on Google Calendar if already exists on that date
+                if (remoteKeySet.has(keyExact) || remoteTitleDateSet.has(keyTitleDate)) {
+                    continue;
+                }
+
+                try {
+                    await pushRoutineToGoogleAPI(token, localItem, config.calendarId || "primary");
+                    pushedCount++;
+                    remoteKeySet.add(keyExact);
+                    remoteTitleDateSet.add(keyTitleDate);
+                } catch (e) {
+                    console.warn("Could not push routine:", localItem.title, e);
                 }
             }
         }
@@ -456,17 +552,33 @@ export const performGoogleCalendarSync = async (
         // iCal Feed Mode
         remoteItems = await fetchGoogleCalendarViaICal(config.icalUrl);
     } else {
-        throw new Error('Please sign in with Google or provide a calendar link to sync.');
+        const user = useStore.getState().user;
+        if (window.electronAPI && typeof window.electronAPI.googleOAuthLogin === "function") {
+            await window.electronAPI.googleOAuthLogin(user?.email);
+            return {
+                updatedRoutines: currentRoutines,
+                pulledCount: 0,
+                pushedCount: 0,
+            };
+        }
+        throw new Error("Please connect your Google account to sync calendar.");
     }
 
-    // Merge remote items with local routines
+    // Merge remote items with local routines without creating duplicate local items
     const routineMap = new Map<string, PlannedRoutineItem>();
     currentRoutines.forEach((r) => routineMap.set(r.id, r));
 
     let pulledCount = 0;
     remoteItems.forEach((remote) => {
         const existingKey = Array.from(routineMap.values()).find(
-            (r) => r.id === remote.id || (r.dateStr === remote.dateStr && r.startHour === remote.startHour && r.title.toLowerCase() === remote.title.toLowerCase())
+            (r) =>
+                r.id === remote.id ||
+                (r.dateStr === remote.dateStr &&
+                    (r.title || "").trim().toLowerCase() === (remote.title || "").trim().toLowerCase()) ||
+                (r.dateStr === remote.dateStr &&
+                    r.startHour === remote.startHour &&
+                    r.startMinute === remote.startMinute &&
+                    (r.title || "").trim().toLowerCase() === (remote.title || "").trim().toLowerCase())
         );
 
         if (!existingKey) {
@@ -479,10 +591,11 @@ export const performGoogleCalendarSync = async (
 
     config.lastSynced = new Date().toISOString();
     saveGoogleCalendarConfig(config);
+    saveLastSyncedFingerprint(updatedRoutines);
 
     try {
-        localStorage.setItem('produchive_master_routines', JSON.stringify(updatedRoutines));
-        window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
+        localStorage.setItem("produchive_master_routines", JSON.stringify(updatedRoutines));
+        window.dispatchEvent(new CustomEvent("produchive_routine_updated"));
     } catch (e) {
         console.error(e);
     }

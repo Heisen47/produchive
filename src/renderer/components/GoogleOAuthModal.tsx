@@ -17,8 +17,12 @@ import {
     clearGoogleAuth,
     getGoogleCalendarConfig,
     saveGoogleCalendarConfig,
-    performGoogleCalendarSync
+    performGoogleCalendarSync,
+    isCalendarSyncUpToDate,
+    isGoogleCalendarConnected
 } from '../lib/googleCalendar';
+import { API_BASE_URL } from '../lib/config';
+import { openUrl } from '../lib/urls';
 
 interface GoogleOAuthModalProps {
     isOpen: boolean;
@@ -38,6 +42,7 @@ export const GoogleOAuthModal: React.FC<GoogleOAuthModalProps> = ({
     const { isDark } = useTheme();
     const [isLoggingIn, setIsLoggingIn] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
+    const isSynced = isCalendarSyncUpToDate(currentRoutines);
     const [syncMessage, setSyncMessage] = useState<{
         success: boolean;
         text: string;
@@ -46,66 +51,41 @@ export const GoogleOAuthModal: React.FC<GoogleOAuthModalProps> = ({
     const authToken = getGoogleAuthToken();
     const userEmail = getGoogleUserEmail();
     const config = getGoogleCalendarConfig();
-    const isLoggedIn = Boolean(authToken || config.icalUrl);
+    const isLoggedIn = isGoogleCalendarConnected();
 
     useEffect(() => {
         if (isOpen) {
             setSyncMessage(null);
         }
-    }, [isOpen]);
+
+        const handleAuthDone = () => {
+            handleQuickSync();
+        };
+
+        window.addEventListener('produchive_gcal_authenticated', handleAuthDone);
+        return () => {
+            window.removeEventListener('produchive_gcal_authenticated', handleAuthDone);
+        };
+    }, [isOpen, currentRoutines]);
 
     if (!isOpen) return null;
 
     // ─── 1. One-Click Google Sign-In ───
     const handleGoogleSignIn = async () => {
         setIsLoggingIn(true);
-        setSyncMessage(null);
+        setSyncMessage({
+            success: true,
+            text: 'Opening Google Sign-In in your browser... Authorize to connect your calendar.',
+        });
 
         try {
-            if (window.electronAPI && typeof window.electronAPI.googleOAuthLogin === 'function') {
-                const res = await window.electronAPI.googleOAuthLogin();
-
-                if (res.success && res.token) {
-                    setGoogleAuthToken(res.token, res.email || 'Google User');
-                    saveGoogleCalendarConfig({
-                        ...config,
-                        mode: 'oauth',
-                    });
-                    onAuthChanged();
-
-                    // Trigger initial sync
-                    setIsSyncing(true);
-                    try {
-                        const syncRes = await performGoogleCalendarSync(currentRoutines);
-                        onRoutinesUpdated(syncRes.updatedRoutines);
-                        setSyncMessage({
-                            success: true,
-                            text: `Connected as ${res.email || 'Google Account'}! Synced ${syncRes.pulledCount} events.`,
-                        });
-                    } catch (syncErr: any) {
-                        setSyncMessage({
-                            success: true,
-                            text: `Connected as ${res.email || 'Google Account'}! Click 'Sync Now' to pull calendar.`,
-                        });
-                    } finally {
-                        setIsSyncing(false);
-                    }
-                } else {
-                    setSyncMessage({
-                        success: false,
-                        text: res.error || 'Google sign-in was cancelled or encountered an error.',
-                    });
-                }
-            } else {
-                setSyncMessage({
-                    success: false,
-                    text: 'OAuth login is not available in browser mode.',
-                });
-            }
+            const userEmail = getGoogleUserEmail();
+            const hint = userEmail ? `&login_hint=${encodeURIComponent(userEmail)}` : '';
+            openUrl(`${API_BASE_URL}/auth/google?from=app${hint}`);
         } catch (err: any) {
             setSyncMessage({
                 success: false,
-                text: err.message || 'Failed to complete Google Sign-In.',
+                text: err.message || 'Failed to open Google Sign-In.',
             });
         } finally {
             setIsLoggingIn(false);
@@ -220,16 +200,31 @@ export const GoogleOAuthModal: React.FC<GoogleOAuthModalProps> = ({
                             <div className="grid grid-cols-2 gap-2.5">
                                 <button
                                     type="button"
-                                    disabled={isSyncing}
+                                    disabled={isSyncing || isSynced}
                                     onClick={handleQuickSync}
-                                    className="py-2.5 px-4 rounded-xl text-xs font-bold text-white shadow-lg transition-all flex items-center justify-center gap-2 hover:scale-105 active:scale-95 disabled:opacity-50"
+                                    className={`py-2.5 px-4 rounded-xl text-xs font-bold text-white shadow-lg transition-all flex items-center justify-center gap-2 ${
+                                        isSynced
+                                            ? 'opacity-70 cursor-default shadow-none'
+                                            : 'hover:scale-105 active:scale-95 cursor-pointer'
+                                    }`}
                                     style={{
-                                        background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                                        boxShadow: '0 4px 15px rgba(16, 185, 129, 0.35)',
+                                        background: isSynced
+                                            ? 'rgba(16, 185, 129, 0.4)'
+                                            : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                        boxShadow: isSynced ? 'none' : '0 4px 15px rgba(16, 185, 129, 0.35)',
                                     }}
                                 >
-                                    <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />
-                                    {isSyncing ? 'Syncing...' : 'Sync Now'}
+                                    {isSynced ? (
+                                        <>
+                                            <CheckCircle2 size={13} />
+                                            <span>Synced</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <RefreshCw size={13} className={isSyncing ? 'animate-spin' : ''} />
+                                            <span>{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
+                                        </>
+                                    )}
                                 </button>
 
                                 <button

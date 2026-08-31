@@ -25,7 +25,8 @@ import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { Activity } from '../global';
 import { GoogleOAuthModal } from './GoogleOAuthModal';
-import { getGoogleAuthToken, getGoogleCalendarConfig, performGoogleCalendarSync } from '../lib/googleCalendar';
+import { LoginModal } from './LoginModal';
+import { getGoogleAuthToken, getGoogleCalendarConfig, performGoogleCalendarSync, isGoogleCalendarConnected, isCalendarSyncUpToDate } from '../lib/googleCalendar';
 import { distributeSmartSchedule, TaskToSchedule } from '../lib/smartScheduler';
 
 // ─── Types ───
@@ -274,7 +275,7 @@ const guessActivityForHour = (hourActivities: Activity[]): ActivityGuess | null 
 };
 
 export const Routine = () => {
-    const { activities, tasks } = useStore();
+    const { activities, tasks, user } = useStore();
     const { isDark } = useTheme();
 
     // ─── View Modes: 'work_week' (5 days) | 'week' (7 days) | 'day' (1 day) ───
@@ -284,21 +285,49 @@ export const Routine = () => {
     const [pickerMonth, setPickerMonth] = useState<Date>(new Date());
     const [isMakerOpen, setIsMakerOpen] = useState(false);
     const [isGoogleSyncOpen, setIsGoogleSyncOpen] = useState(false);
-    const [isGoogleLoggedIn, setIsGoogleLoggedIn] = useState(false);
+    const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+    const [isGoogleLoggedIn, setIsGoogleLoggedIn] = useState(() => isGoogleCalendarConnected());
     const [isDirectSyncing, setIsDirectSyncing] = useState(false);
     const [syncToast, setSyncToast] = useState<string | null>(null);
     const [draggedItem, setDraggedItem] = useState<PlannedRoutineItem | null>(null);
     const [dragError, setDragError] = useState<string | null>(null);
 
     const checkGoogleAuth = () => {
-        const token = getGoogleAuthToken();
-        const config = getGoogleCalendarConfig();
-        setIsGoogleLoggedIn(Boolean(token || config.icalUrl));
+        const connected = isGoogleCalendarConnected();
+        setIsGoogleLoggedIn(connected);
     };
 
-    // Background Google Calendar Auto-Sync on startup
+    const handleDirectSync = async () => {
+        setIsDirectSyncing(true);
+        try {
+            const res = await performGoogleCalendarSync(allRoutines);
+            setAllRoutines(res.updatedRoutines);
+            const msg = res.pulledCount > 0 || res.pushedCount > 0
+                ? `Synced with Google Calendar! (+${res.pulledCount} events, ${res.pushedCount} uploaded)`
+                : `Google Calendar up to date!`;
+            setSyncToast(msg);
+            setTimeout(() => setSyncToast(null), 4000);
+        } catch (err: any) {
+            console.error('Direct sync failed:', err);
+            setIsLoginModalOpen(true);
+        } finally {
+            setIsDirectSyncing(false);
+        }
+    };
+
+    // Google Calendar Auto-Sync and Login State Listener
     useEffect(() => {
         checkGoogleAuth();
+        const handleAuthChange = () => checkGoogleAuth();
+        const handleGcalAuth = () => {
+            checkGoogleAuth();
+            handleDirectSync();
+        };
+
+        window.addEventListener('storage', handleAuthChange);
+        window.addEventListener('produchive_routine_updated', handleAuthChange);
+        window.addEventListener('produchive_gcal_authenticated', handleGcalAuth);
+
         const config = getGoogleCalendarConfig();
         const token = getGoogleAuthToken();
         if (config.autoSync && (config.icalUrl || token)) {
@@ -310,7 +339,13 @@ export const Routine = () => {
                 })
                 .catch((e) => console.log('Auto GCal sync:', e.message));
         }
-    }, []);
+
+        return () => {
+            window.removeEventListener('storage', handleAuthChange);
+            window.removeEventListener('produchive_routine_updated', handleAuthChange);
+            window.removeEventListener('produchive_gcal_authenticated', handleGcalAuth);
+        };
+    }, [user]);
 
     // Sync picker month when selectedDate changes
     useEffect(() => {
@@ -362,7 +397,9 @@ export const Routine = () => {
     }, [selectedDate, startOfWeek, viewMode]);
 
     // ─── Routine Storage ───
-    const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
+    // Track if all local routine items are in sync with Google Calendar
+    // (Disables the sync button when up to date, re-enables on any change)
+const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
         try {
             const saved = localStorage.getItem('produchive_master_routines');
             if (saved) return JSON.parse(saved);
@@ -412,6 +449,8 @@ export const Routine = () => {
             },
         ];
     });
+
+    const isSynced = isGoogleLoggedIn && isCalendarSyncUpToDate(allRoutines);
 
     const saveMasterRoutines = (items: PlannedRoutineItem[]) => {
         setAllRoutines(items);
@@ -682,25 +721,31 @@ export const Routine = () => {
                     {isGoogleLoggedIn ? (
                         <div className="flex items-center gap-1">
                             <button
-                                onClick={async () => {
-                                    setIsDirectSyncing(true);
-                                    try {
-                                        const res = await performGoogleCalendarSync(allRoutines);
-                                        setAllRoutines(res.updatedRoutines);
-                                        setSyncToast(`Synced with Google Calendar! (+${res.pulledCount} events)`);
-                                        setTimeout(() => setSyncToast(null), 4000);
-                                    } catch (err: any) {
-                                        setIsGoogleSyncOpen(true);
-                                    } finally {
-                                        setIsDirectSyncing(false);
-                                    }
-                                }}
-                                className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border shadow-md hover:scale-105 active:scale-95 bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-500/25"
-                                title="Google Calendar Connected. Click to sync now."
+                                onClick={handleDirectSync}
+                                disabled={isDirectSyncing || isSynced}
+                                className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border shadow-sm ${
+                                    isSynced
+                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 opacity-80 cursor-default shadow-none'
+                                        : 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-500/25 hover:scale-105 active:scale-95 shadow-md cursor-pointer'
+                                }`}
+                                title={
+                                    isSynced
+                                        ? 'Google Calendar is up to date (no changes to sync)'
+                                        : 'Syncs your routine plans with your Google Calendar'
+                                }
                             >
-                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                                <RefreshCw size={13} className={isDirectSyncing ? 'animate-spin' : ''} />
-                                <span>Ready to Sync</span>
+                                {isSynced ? (
+                                    <>
+                                        <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                                        <span>Synced</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+                                        <RefreshCw size={13} className={isDirectSyncing ? 'animate-spin' : ''} />
+                                        <span>{isDirectSyncing ? 'Syncing...' : 'Sync'}</span>
+                                    </>
+                                )}
                             </button>
 
                             <button
@@ -718,16 +763,16 @@ export const Routine = () => {
                         </div>
                     ) : (
                         <button
-                            onClick={() => setIsGoogleSyncOpen(true)}
-                            className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border shadow-sm hover:scale-105 active:scale-95"
+                            onClick={() => setIsLoginModalOpen(true)}
+                            className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border shadow-sm hover:scale-105 active:scale-95 cursor-pointer"
                             style={{
                                 background: isDark ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.08)',
                                 color: isDark ? '#93c5fd' : '#2563eb',
                                 borderColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.25)',
                             }}
-                            title="Sign in with Google to sync calendar"
+                            title="Syncs your routine plans with your Google Calendar"
                         >
-                            <ArrowRightLeft size={13} /> Sign in with Google
+                            <RefreshCw size={13} /> Sync
                         </button>
                     )}
 
@@ -2007,6 +2052,11 @@ export const Routine = () => {
                 onRoutinesUpdated={(newRoutines) => saveMasterRoutines(newRoutines)}
                 onAuthChanged={checkGoogleAuth}
             />
+
+            {/* 8. Main App Login Modal */}
+            {isLoginModalOpen && (
+                <LoginModal onClose={() => setIsLoginModalOpen(false)} />
+            )}
         </div>
     );
 };

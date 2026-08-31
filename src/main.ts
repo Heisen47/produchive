@@ -18,6 +18,9 @@ import fs from "node:fs/promises";
 import { execSync, exec } from "node:child_process";
 import { getAutoUpdater } from "./lib/autoUpdater";
 
+app.setName("Produchive");
+app.name = "Produchive";
+
 const logger = createLogger("Main");
 
 if (started) {
@@ -218,10 +221,15 @@ function startLocalAuthServer() {
       const parsedUrl = new URL(req.url || '', `http://localhost:${AUTH_PORT}`);
       if (parsedUrl.pathname === '/auth') {
         const token = parsedUrl.searchParams.get('token');
+        const gcalToken = parsedUrl.searchParams.get('gcal_token');
+        const gcalEmail = parsedUrl.searchParams.get('gcal_email');
         if (token) {
-          logger.info('Received token via local auth server');
+          logger.info('Received token via local auth server' + (gcalToken ? ' (with Google Calendar token)' : ''));
           if (mainWindow && mainWindow.webContents) {
             mainWindow.webContents.send('on-auth-token', token);
+            if (gcalToken) {
+              mainWindow.webContents.send('on-gcal-token', { gcalToken, gcalEmail: gcalEmail || '' });
+            }
             // Bring window to front
             if (mainWindow.isMinimized()) mainWindow.restore();
             if (!mainWindow.isVisible()) mainWindow.show();
@@ -229,8 +237,9 @@ function startLocalAuthServer() {
           } else {
             pendingToken = token;
           }
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ success: true }));
+          // Return a nice HTML page so the browser tab shows a confirmation
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(`<!DOCTYPE html><html><head><title>Produchive</title><style>body{font-family:-apple-system,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0f172a;color:#e2e8f0}div{text-align:center;max-width:360px}h2{margin:0 0 8px;font-size:22px;color:#34d399}p{margin:0;font-size:14px;opacity:.7}</style></head><body><div><h2>✅ Signed in successfully!</h2><p>You can close this tab and return to Produchive.</p></div></body></html>`);
           return;
         }
       }
@@ -293,6 +302,7 @@ const createWindow = () => {
     width: 1200,
     height: 900,
     show: false, // Don't show until content is painted
+    title: "Produchive",
     backgroundColor: "#0a0e1a", // Match dark theme bg to prevent white flash
     autoHideMenuBar: true, // Hide default menu bar (File, Edit, etc)
     webPreferences: {
@@ -967,85 +977,13 @@ function registerIpcHandlers() {
     }
   });
 
-  // Google OAuth Interactive Login Popup
-  ipcMain.handle("google-oauth-login", async (_event, customClientId?: string) => {
-    const CLIENT_ID = customClientId || process.env.GOOGLE_CLIENT_ID || "1032822765342-produchive.apps.googleusercontent.com";
-    return new Promise((resolve) => {
-      let isResolved = false;
-      const authWindow = new BrowserWindow({
-        width: 520,
-        height: 650,
-        show: true,
-        modal: true,
-        parent: mainWindow || undefined,
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true,
-        },
-      });
-
-      const redirectUri = "https://localhost";
-      const scopes = [
-        "https://www.googleapis.com/auth/calendar.events",
-        "https://www.googleapis.com/auth/userinfo.email",
-      ].join(" ");
-
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
-        CLIENT_ID
-      )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(
-        scopes
-      )}&prompt=consent`;
-
-      authWindow.loadURL(authUrl);
-
-      const handleCallback = async (navUrl: string) => {
-        if (isResolved) return;
-        if (navUrl.startsWith("https://localhost") || navUrl.startsWith("http://localhost")) {
-          // Token in hash fragment: #access_token=...&expires_in=3599...
-          if (navUrl.includes("access_token=")) {
-            isResolved = true;
-            const hash = navUrl.substring(navUrl.indexOf("#") + 1);
-            const params = new URLSearchParams(hash);
-            const token = params.get("access_token");
-
-            let email = "";
-            if (token) {
-              try {
-                const userRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
-                  headers: { Authorization: `Bearer ${token}` },
-                });
-                if (userRes.ok) {
-                  const userData = await userRes.json();
-                  email = userData.email || "";
-                }
-              } catch (_) {}
-            }
-
-            authWindow.destroy();
-            resolve({ success: true, token, email });
-            return;
-          }
-
-          if (navUrl.includes("error=")) {
-            isResolved = true;
-            authWindow.destroy();
-            resolve({ success: false, error: "Access was denied or cancelled." });
-            return;
-          }
-        }
-      };
-
-      authWindow.webContents.on("will-navigate", (_e, url) => handleCallback(url));
-      authWindow.webContents.on("will-redirect", (_e, url) => handleCallback(url));
-      authWindow.webContents.on("did-navigate", (_e, url) => handleCallback(url));
-
-      authWindow.on("closed", () => {
-        if (!isResolved) {
-          isResolved = true;
-          resolve({ success: false, error: "Sign-in window closed." });
-        }
-      });
-    });
+  // Google OAuth Interactive Login Launcher
+  ipcMain.handle("google-oauth-login", async (_event, loginHint?: string) => {
+    const apiBase = process.env.API_BASE_URL || 'http://localhost:4000';
+    const hint = loginHint ? `&login_hint=${encodeURIComponent(loginHint)}` : '';
+    const authUrl = `${apiBase}/auth/google?from=app${hint}`;
+    await shell.openExternal(authUrl);
+    return { success: true, pending: true };
   });
 
   // Get pending deep-link auth token (used on startup)

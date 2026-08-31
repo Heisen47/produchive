@@ -113,7 +113,7 @@ declare global {
         data: string | null;
         error?: string;
       }>;
-      googleOAuthLogin: (clientId?: string) => Promise<{
+      googleOAuthLogin: (loginHint?: string) => Promise<{
         success: boolean;
         token?: string;
         email?: string;
@@ -123,6 +123,7 @@ declare global {
       // Deep linking authentication events
       getPendingToken: () => Promise<string | null>;
       onAuthToken: (callback: (token: string) => void) => void;
+      onGcalToken: (callback: (data: { gcalToken: string; gcalEmail: string }) => void) => void;
     };
   }
 }

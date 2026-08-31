@@ -4,6 +4,7 @@ import {
     Clock,
     Plus,
     Sparkles,
+    Lightbulb,
     ChevronLeft,
     ChevronRight,
     ChevronDown,
@@ -22,7 +23,8 @@ import {
     ArrowRightLeft,
     ArrowLeft,
     Check,
-    Moon
+    Moon,
+    Loader2
 } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
@@ -35,9 +37,11 @@ import {
     allocateProductiveTaskDurations,
     recalculateSequentialSchedule,
     generateForwardSmartSchedule,
+    generateWeeklySmartSchedule,
     autoBalanceSchedule,
     getMindsetCardData,
     calculateDayEventCollisions,
+    resolveCollisionsSequentially,
     EventCollisionInfo,
     TaskToSchedule
 } from '../lib/smartScheduler';
@@ -531,10 +535,17 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
         return map;
     }, [allRoutines]);
 
-    // ─── Routine Maker Form State ───
+    // ─── Routine Maker Form State (Day vs Week Planner) ───
+    const [planScope, setPlanScope] = useState<'day' | 'week'>('day');
+    const [selectedPreviewDay, setSelectedPreviewDay] = useState<string>('all');
     const [allottedHours, setAllottedHours] = useState<number>(6);
+    const [weeklyTotalHours, setWeeklyTotalHours] = useState<number>(20);
+    const [includeSaturday, setIncludeSaturday] = useState<boolean>(false);
+    const [includeSunday, setIncludeSunday] = useState<boolean>(false);
+    const [isGenerating, setIsGenerating] = useState<boolean>(false);
     const [makerPhase, setMakerPhase] = useState<'input' | 'preview'>('input');
     const [startHourInput, setStartHourInput] = useState<number>(9);
+    const [weekStartHourInput, setWeekStartHourInput] = useState<number>(9);
     const [includeBreakfast, setIncludeBreakfast] = useState<boolean>(false);
     const [includeLunch, setIncludeLunch] = useState<boolean>(true);
     const [includeRestBlocks, setIncludeRestBlocks] = useState<boolean>(true);
@@ -545,6 +556,78 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
     const [newTaskTitle, setNewTaskTitle] = useState('');
     const [previewSchedule, setPreviewSchedule] = useState<PlannedRoutineItem[]>([]);
 
+    // Active week dates (Monday to Friday default; includes Sat/Sun if user opts in)
+    const activeWeekDates = useMemo(() => {
+        return displayDays
+            .filter((d) => {
+                const dayNum = d.getDay(); // 0 is Sunday, 6 is Saturday
+                if (dayNum === 6) return includeSaturday;
+                if (dayNum === 0) return includeSunday;
+                return true; // Monday to Friday (work week)
+            })
+            .map((d) => formatDateStr(d));
+    }, [displayDays, includeSaturday, includeSunday]);
+
+    // ─── Personalized Task Suggestions (Derived from user's history and task backlog) ───
+    const personalizedTaskSuggestions = useMemo(() => {
+        const routineIgnore = new Set([
+            'breakfast', 'lunch', 'dinner', 'rest blocks', 'rest break', 'coffee', 'walk',
+            'night sleep & recovery', 'night sleep', 'evening walk & unwind', 'afternoon recharge & coffee',
+            'core focus & deep work', 'task execution & review'
+        ]);
+
+        const taskMap = new Map<string, { title: string; category?: PlannedRoutineItem['category']; priority?: PlannedRoutineItem['priority']; count: number }>();
+
+        // 1. From allRoutines (past schedules user has worked on or applied)
+        for (const r of allRoutines) {
+            const low = r.title.trim().toLowerCase();
+            if (!low || routineIgnore.has(low) || r.category === 'meal' || r.category === 'sleep') continue;
+            const key = low;
+            if (!taskMap.has(key)) {
+                taskMap.set(key, { title: r.title.trim(), category: r.category, priority: r.priority, count: 1 });
+            } else {
+                taskMap.get(key)!.count += 1;
+            }
+        }
+
+        // 2. From tasks in useStore (user's task backlog)
+        for (const t of tasks || []) {
+            const titleStr = t.text || '';
+            const low = titleStr.trim().toLowerCase();
+            if (!low) continue;
+            const key = low;
+            if (!taskMap.has(key)) {
+                taskMap.set(key, { title: titleStr.trim(), category: 'development', priority: 'high', count: 3 });
+            } else {
+                taskMap.get(key)!.count += 3;
+            }
+        }
+
+        // 3. Fallback smart defaults if user has little to no history yet
+        const defaults: Array<{ title: string; category: PlannedRoutineItem['category']; priority: PlannedRoutineItem['priority']; count: number }> = [
+            { title: 'Leetcode & DSA', category: 'development', priority: 'high', count: 0 },
+            { title: 'Video Editing', category: 'writing', priority: 'high', count: 0 },
+            { title: 'Feature Development', category: 'development', priority: 'high', count: 0 },
+            { title: 'System Design Study', category: 'development', priority: 'high', count: 0 },
+            { title: 'Code Review & PRs', category: 'writing', priority: 'medium', count: 0 },
+        ];
+
+        for (const d of defaults) {
+            const key = d.title.toLowerCase();
+            if (!taskMap.has(key)) {
+                taskMap.set(key, d);
+            }
+        }
+
+        // Filter out tasks that are ALREADY added to makerTasks
+        const existingTitles = new Set(makerTasks.map((t) => t.title.trim().toLowerCase()));
+
+        return Array.from(taskMap.values())
+            .filter((t) => !existingTitles.has(t.title.toLowerCase()))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 5);
+    }, [allRoutines, tasks, makerTasks]);
+
     // When opening Plan Your Day modal for today, automatically default startHourInput to current future hour
     useEffect(() => {
         if (isMakerOpen) {
@@ -552,51 +635,103 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
             if (isToday) {
                 const nowHour = new Date().getHours();
                 setStartHourInput(Math.min(23, nowHour));
+            } else {
+                setStartHourInput(9);
             }
         }
     }, [isMakerOpen, selectedDate, todayStr]);
 
-    // ─── Smart Forward Schedule Generator (Strictly Future Times, Productivity Prioritization) ───
+    // ─── Smart Forward Schedule Generator (Day vs Week Mode) ───
     const handleGenerateSchedule = () => {
         if (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast) return;
+        setIsGenerating(true);
 
-        const targetDateStr = formatDateStr(selectedDate);
-        const isSelectedToday = targetDateStr === todayStr;
-        const currentH = new Date().getHours();
-        const actualStartHour = isSelectedToday ? Math.max(startHourInput, currentH) : startHourInput;
-        const allottedMinutes = Math.max(30, allottedHours * 60);
+        setTimeout(() => {
+            if (planScope === 'week') {
+                const currentH = new Date().getHours();
+                const newItems = generateWeeklySmartSchedule({
+                    weekDates: activeWeekDates,
+                    tasks: makerTasks,
+                    totalWeeklyHours: weeklyTotalHours,
+                    defaultStartHour: weekStartHourInput,
+                    todayDateStr: todayStr,
+                    todayCurrentHour: currentH,
+                    includeBreakfast,
+                    includeLunch,
+                    includeRestBlocks,
+                    includeDinner,
+                });
+                setPreviewSchedule(newItems);
+                setSelectedPreviewDay('all');
+                setMakerPhase('preview');
+                setIsGenerating(false);
+                return;
+            }
 
-        const newItems = generateForwardSmartSchedule({
-            tasks: makerTasks,
-            allottedMinutes,
-            startHour: actualStartHour,
-            startMinute: 0,
-            dateStr: targetDateStr,
-            includeBreakfast,
-            includeLunch,
-            includeRestBlocks,
-            includeDinner,
-        });
+            const targetDateStr = formatDateStr(selectedDate);
+            const isSelectedToday = targetDateStr === todayStr;
+            const currentH = new Date().getHours();
+            const actualStartHour = isSelectedToday ? Math.max(startHourInput, currentH) : startHourInput;
+            const allottedMinutes = Math.max(30, allottedHours * 60);
 
-        setPreviewSchedule(newItems);
-        setMakerPhase('preview');
+            const newItems = generateForwardSmartSchedule({
+                tasks: makerTasks,
+                allottedMinutes,
+                startHour: actualStartHour,
+                startMinute: 0,
+                dateStr: targetDateStr,
+                includeBreakfast,
+                includeLunch,
+                includeRestBlocks,
+                includeDinner,
+            });
+
+            setPreviewSchedule(newItems);
+            setMakerPhase('preview');
+            setIsGenerating(false);
+        }, 750);
     };
 
     const handleApplySchedule = () => {
+        if (planScope === 'week') {
+            const activeDatesSet = new Set(activeWeekDates);
+            const otherRoutines = allRoutines.filter((r) => !activeDatesSet.has(r.dateStr));
+            saveMasterRoutines([...otherRoutines, ...previewSchedule]);
+            setIsMakerOpen(false);
+            setMakerPhase('input');
+            setPreviewSchedule([]);
+            setSyncToast(`${activeWeekDates.length}-Day Weekly Schedule applied! 🚀`);
+            setTimeout(() => setSyncToast(null), 4000);
+            return;
+        }
+
         const targetDateStr = formatDateStr(selectedDate);
         const otherRoutines = allRoutines.filter((r) => r.dateStr !== targetDateStr);
         saveMasterRoutines([...otherRoutines, ...previewSchedule]);
         setIsMakerOpen(false);
         setMakerPhase('input');
+        setPreviewSchedule([]);
         setSyncToast('Schedule applied to Routine planner! 🎯');
         setTimeout(() => setSyncToast(null), 4000);
     };
 
     const handleUpdatePreviewDuration = (itemId: string, newDuration: number) => {
-        const targetDateStr = formatDateStr(selectedDate);
+        const itemToUpdate = previewSchedule.find((i) => i.id === itemId);
+        if (!itemToUpdate) return;
+
+        const targetDateStr = itemToUpdate.dateStr;
         const isSelectedToday = targetDateStr === todayStr;
         const currentH = new Date().getHours();
         const actualStartHour = isSelectedToday ? Math.max(startHourInput, currentH) : startHourInput;
+
+        if (planScope === 'week') {
+            const dayItems = previewSchedule.filter((i) => i.dateStr === targetDateStr);
+            const otherDaysItems = previewSchedule.filter((i) => i.dateStr !== targetDateStr);
+            const dayTargetMins = Math.max(30, Math.round((weeklyTotalHours * 60) / Math.max(1, activeWeekDates.length)));
+            const balancedDay = autoBalanceSchedule(dayItems, itemId, newDuration, dayTargetMins, actualStartHour, 0);
+            setPreviewSchedule([...otherDaysItems, ...balancedDay]);
+            return;
+        }
 
         setPreviewSchedule((prev) => {
             return autoBalanceSchedule(prev, itemId, newDuration, allottedHours * 60, actualStartHour, 0);
@@ -604,10 +739,21 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
     };
 
     const handleRemovePreviewItem = (itemId: string) => {
-        const targetDateStr = formatDateStr(selectedDate);
+        const itemToRemove = previewSchedule.find((i) => i.id === itemId);
+        if (!itemToRemove) return;
+
+        const targetDateStr = itemToRemove.dateStr;
         const isSelectedToday = targetDateStr === todayStr;
         const currentH = new Date().getHours();
         const actualStartHour = isSelectedToday ? Math.max(startHourInput, currentH) : startHourInput;
+
+        if (planScope === 'week') {
+            const dayItems = previewSchedule.filter((i) => i.dateStr === targetDateStr && i.id !== itemId);
+            const otherDaysItems = previewSchedule.filter((i) => i.dateStr !== targetDateStr);
+            const recalculatedDay = recalculateSequentialSchedule(dayItems, actualStartHour, 0);
+            setPreviewSchedule([...otherDaysItems, ...recalculatedDay]);
+            return;
+        }
 
         setPreviewSchedule((prev) => {
             const filtered = prev.filter((item) => item.id !== itemId);
@@ -690,6 +836,27 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
         setSelectedDate(d);
     };
 
+    // Range of date strings for current view (Day, Work week, or Full week)
+    const displayRangeDateStrs = useMemo(
+        () => new Set(displayDays.map((d) => formatDateStr(d))),
+        [displayDays]
+    );
+
+    const displayDaysRoutinesCount = useMemo(() => {
+        return allRoutines.filter((r) => displayRangeDateStrs.has(r.dateStr)).length;
+    }, [allRoutines, displayRangeDateStrs]);
+
+    const handleClearCurrentRangeSchedule = () => {
+        const isDayView = viewMode === 'day';
+        const label = isDayView ? 'day' : 'week';
+        if (displayDaysRoutinesCount === 0) return;
+
+        const remaining = allRoutines.filter((r) => !displayRangeDateStrs.has(r.dateStr));
+        saveMasterRoutines(remaining);
+        setSyncToast(`Cleared all routine events for this ${label}`);
+        setTimeout(() => setSyncToast(null), 3500);
+    };
+
     const hours = Array.from({ length: 18 }).map((_, i) => i + 6); // 6 AM to 11 PM
 
     return (
@@ -716,7 +883,7 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                             Routine
                         </h1>
                         <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                            Teams Schedule Timeline • Double-click any activity to view & edit details
+                            Your Schedule Timeline • Double-click any activity to view & edit details
                         </p>
                     </div>
                 </div>
@@ -1003,47 +1170,66 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                     </div>
                 </div>
 
-                {/* View Switcher Dropdown */}
-                <div
-                    className="flex items-center rounded-xl p-1 border"
-                    style={{
-                        background: 'var(--bg-elevated)',
-                        borderColor: 'var(--border-card)',
-                    }}
-                >
-                    <button
-                        onClick={() => setViewMode('day')}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                            viewMode === 'day' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
-                        }`}
+                <div className="flex items-center gap-2">
+                    {/* Clear Routine for visible Day / Week */}
+                    {displayDaysRoutinesCount > 0 && (
+                        <button
+                            type="button"
+                            onClick={handleClearCurrentRangeSchedule}
+                            className="px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 text-slate-400 hover:text-red-400 hover:border-red-500/40 hover:bg-red-500/10 cursor-pointer active:scale-95"
+                            style={{
+                                background: 'var(--bg-elevated)',
+                                borderColor: 'var(--border-card)',
+                            }}
+                            title={viewMode === 'day' ? 'Remove all events for today' : 'Remove all events for the entire week'}
+                        >
+                            <Trash2 size={13} className="text-red-400/80 shrink-0" />
+                            <span>{viewMode === 'day' ? 'Clear Day' : 'Clear Week'}</span>
+                        </button>
+                    )}
+
+                    {/* View Switcher Dropdown */}
+                    <div
+                        className="flex items-center rounded-xl p-1 border"
                         style={{
-                            color: viewMode === 'day' ? '#ffffff' : 'var(--text-secondary)',
+                            background: 'var(--bg-elevated)',
+                            borderColor: 'var(--border-card)',
                         }}
                     >
-                        Day
-                    </button>
-                    <button
-                        onClick={() => setViewMode('work_week')}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                            viewMode === 'work_week' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
-                        }`}
-                        style={{
-                            color: viewMode === 'work_week' ? '#ffffff' : 'var(--text-secondary)',
-                        }}
-                    >
-                        Work week
-                    </button>
-                    <button
-                        onClick={() => setViewMode('week')}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                            viewMode === 'week' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
-                        }`}
-                        style={{
-                            color: viewMode === 'week' ? '#ffffff' : 'var(--text-secondary)',
-                        }}
-                    >
-                        Week
-                    </button>
+                        <button
+                            onClick={() => setViewMode('day')}
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                                viewMode === 'day' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
+                            }`}
+                            style={{
+                                color: viewMode === 'day' ? '#ffffff' : 'var(--text-secondary)',
+                            }}
+                        >
+                            Day
+                        </button>
+                        <button
+                            onClick={() => setViewMode('work_week')}
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                                viewMode === 'work_week' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
+                            }`}
+                            style={{
+                                color: viewMode === 'work_week' ? '#ffffff' : 'var(--text-secondary)',
+                            }}
+                        >
+                            Work week
+                        </button>
+                        <button
+                            onClick={() => setViewMode('week')}
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                                viewMode === 'week' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
+                            }`}
+                            style={{
+                                color: viewMode === 'week' ? '#ffffff' : 'var(--text-secondary)',
+                            }}
+                        >
+                            Week
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -1192,9 +1378,10 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                 const isColliding = totalCols > 1;
 
                                                 const duration = Math.max(15, item.durationMinutes || 30);
-                                                const rawHeight = Math.round((duration / 60) * 90) - 8;
-                                                const calculatedHeight = Math.max(34, rawHeight);
-                                                const isCompact = calculatedHeight < 56;
+                                                const rawHeight = Math.round((duration / 60) * 90) - 6;
+                                                // 15m events use 18px height so they fit cleanly without overflowing into the next :15 start
+                                                const calculatedHeight = duration <= 15 ? 18 : Math.max(30, rawHeight);
+                                                const isCompact = calculatedHeight <= 26;
 
                                                 const endMinTotal = item.startHour * 60 + item.startMinute + duration;
                                                 const endH = Math.floor(endMinTotal / 60) % 24;
@@ -1216,7 +1403,9 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                             e.stopPropagation();
                                                             setSelectedRoutineDetails({ ...item });
                                                         }}
-                                                        className={`p-2 rounded-xl border shadow-md transition-all group overflow-hidden flex flex-col justify-between ${
+                                                        className={`rounded-xl border shadow-md transition-all group overflow-hidden flex flex-col justify-between ${
+                                                            isCompact ? 'px-2 py-0.5' : 'p-2'
+                                                        } ${
                                                             isPastTask
                                                                 ? 'cursor-default opacity-60'
                                                                 : 'cursor-grab active:cursor-grabbing hover:scale-[1.01]'
@@ -1239,12 +1428,12 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                             <div className="flex items-center justify-between gap-1 w-full h-full">
                                                                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                                                     <h4
-                                                                        className="font-semibold text-xs leading-none truncate"
+                                                                        className="font-semibold text-[11px] leading-none truncate"
                                                                         style={{ color: colors.text }}
                                                                     >
                                                                         {item.title}
                                                                     </h4>
-                                                                    <span className="text-[10px] font-mono opacity-80 shrink-0" style={{ color: colors.subtext }}>
+                                                                    <span className="text-[9px] font-mono opacity-80 shrink-0" style={{ color: colors.subtext }}>
                                                                         {formatTimeSlot(item.startHour, item.startMinute)}
                                                                     </span>
                                                                     {isPastTask && (
@@ -1885,11 +2074,11 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                 </div>
             )}
 
-            {/* 6. "Plan Your Day" Smart Routine Maker & Preview Modal */}
+            {/* 6. "Plan Your Day / Week" Smart Routine Maker & Preview Modal */}
             {isMakerOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in">
                     <div
-                        className="w-full max-w-xl rounded-3xl p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar border space-y-5"
+                        className="w-full max-w-xl rounded-3xl p-5 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar border space-y-3.5"
                         style={{
                             background: 'var(--bg-card-solid)',
                             borderColor: 'var(--border-card)',
@@ -1898,154 +2087,281 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                     >
                         {/* Header */}
                         <div className="flex items-center justify-between pb-3 border-b" style={{ borderColor: 'var(--border-secondary)' }}>
-                            <div className="flex items-center gap-2.5">
-                                <div className="p-2 rounded-xl bg-[#5b5fc7]/15 text-[#5b5fc7] dark:text-[#7b83eb]">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="p-2 rounded-xl bg-[#5b5fc7]/15 text-[#5b5fc7] dark:text-[#7b83eb] shrink-0">
                                     <Sparkles size={18} />
                                 </div>
-                                <div>
-                                    <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-                                        {makerPhase === 'input' ? 'Plan Your Day' : 'Review & Fine-Tune Schedule'}
-                                    </h3>
-                                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                                <div className="min-w-0">
+                                    <h3 className="text-base font-bold truncate" style={{ color: 'var(--text-primary)' }}>
                                         {makerPhase === 'input'
-                                            ? 'Set your available hours and add tasks to smartly generate your schedule.'
+                                            ? planScope === 'day'
+                                                ? 'Plan Your Day'
+                                                : 'Plan Your Week'
+                                            : planScope === 'day'
+                                            ? 'Review & Fine-Tune Day Schedule'
+                                            : 'Review & Fine-Tune Weekly Schedule'}
+                                    </h3>
+                                    <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                                        {makerPhase === 'input'
+                                            ? planScope === 'day'
+                                                ? 'Set available hours and tasks to intelligently generate your day.'
+                                                : 'Set daily work hours and tasks to distribute across all 7 days.'
                                             : 'Fine-tune task durations before applying to your routine.'}
                                     </p>
                                 </div>
                             </div>
+
                             <button
                                 onClick={() => {
                                     setIsMakerOpen(false);
                                     setMakerPhase('input');
                                 }}
-                                className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-all"
+                                className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-all cursor-pointer shrink-0"
                             >
                                 <X size={18} />
                             </button>
                         </div>
 
+                        {/* Centered Scope Selector: Day Plan vs Week Plan */}
+                        {makerPhase === 'input' && (
+                            <div className="flex justify-center w-full py-0.5">
+                                <div
+                                    className="inline-flex p-1 rounded-2xl border transition-all"
+                                    style={{
+                                        background: 'var(--bg-input)',
+                                        borderColor: 'var(--border-secondary)',
+                                    }}
+                                >
+                                    <button
+                                        type="button"
+                                        onClick={() => setPlanScope('day')}
+                                        className={`px-6 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                                            planScope === 'day'
+                                                ? 'bg-[#5b5fc7] text-white shadow-md'
+                                                : 'text-slate-400 hover:text-slate-200'
+                                        }`}
+                                    >
+                                        Day Plan
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPlanScope('week')}
+                                        className={`px-6 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
+                                            planScope === 'week'
+                                                ? 'bg-[#5b5fc7] text-white shadow-md'
+                                                : 'text-slate-400 hover:text-slate-200'
+                                        }`}
+                                    >
+                                        Week Plan
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         {makerPhase === 'input' ? (
                             <>
-                                {/* Allotted Time Today Selection */}
-                                <div className="p-3.5 rounded-2xl border space-y-2.5" style={{ background: 'var(--bg-input)', borderColor: 'var(--border-secondary)' }}>
+                                {/* Section 1: Available Time Selection */}
+                                <div
+                                    className="p-3.5 rounded-2xl border space-y-2.5 shadow-sm transition-all"
+                                    style={{
+                                        background: 'rgba(255, 255, 255, 0.03)',
+                                        borderColor: 'rgba(255, 255, 255, 0.08)',
+                                    }}
+                                >
                                     <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                                            <Clock size={13} className="text-[#5b5fc7]" /> Total Available Time Today
+                                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                                            <Clock size={13} className="text-[#5b5fc7]" />
+                                            {planScope === 'day' ? 'Available Time Today' : 'Total Weekly Work Hours'}
                                         </label>
                                         <span className="text-xs font-bold text-[#5b5fc7] dark:text-[#7b83eb]">
-                                            {allottedHours} {allottedHours === 1 ? 'hour' : 'hours'} ({allottedHours * 60} mins)
+                                            {planScope === 'day'
+                                                ? `${allottedHours} ${allottedHours === 1 ? 'hour' : 'hours'} (${allottedHours * 60}m)`
+                                                : `${weeklyTotalHours} hours weekly (~${(weeklyTotalHours / Math.max(1, activeWeekDates.length)).toFixed(1)}h/day across ${activeWeekDates.length} days)`}
                                         </span>
                                     </div>
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        {[2, 4, 6, 8, 10].map((h) => (
-                                            <button
-                                                key={h}
-                                                type="button"
-                                                onClick={() => setAllottedHours(h)}
-                                                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                                                    allottedHours === h
-                                                        ? 'bg-[#5b5fc7] text-white border-[#5b5fc7] shadow-sm shadow-[#5b5fc7]/30'
-                                                        : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200 hover:border-slate-600'
-                                                }`}
-                                            >
-                                                {h} hrs
-                                            </button>
-                                        ))}
-                                        <div className="flex items-center gap-1 ml-auto text-xs text-slate-400">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        {(planScope === 'day' ? [2, 4, 6, 8, 10] : [10, 15, 20, 30, 40]).map((h) => {
+                                            const isSelected = planScope === 'day' ? allottedHours === h : weeklyTotalHours === h;
+                                            return (
+                                                <button
+                                                    key={h}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (planScope === 'day') setAllottedHours(h);
+                                                        else setWeeklyTotalHours(h);
+                                                    }}
+                                                    className={`px-3 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                                                        isSelected
+                                                            ? 'bg-[#5b5fc7] text-white border-[#5b5fc7] shadow-sm shadow-[#5b5fc7]/30'
+                                                            : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white hover:border-slate-500'
+                                                    }`}
+                                                >
+                                                    {h} hrs
+                                                </button>
+                                            );
+                                        })}
+                                        <div className="flex items-center gap-1.5 ml-auto text-xs text-slate-400">
                                             <span>Custom:</span>
                                             <input
                                                 type="number"
                                                 min={1}
-                                                max={16}
-                                                value={allottedHours}
-                                                onChange={(e) => setAllottedHours(Math.max(1, Math.min(16, Number(e.target.value) || 1)))}
-                                                className="w-14 px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent text-center focus:outline-none focus:border-[#5b5fc7]"
-                                                style={{ color: 'var(--text-primary)', borderColor: 'var(--border-card)' }}
+                                                max={planScope === 'day' ? 16 : 80}
+                                                value={planScope === 'day' ? allottedHours : weeklyTotalHours}
+                                                onChange={(e) => {
+                                                    const val = Math.max(1, Math.min(planScope === 'day' ? 16 : 80, Number(e.target.value) || 1));
+                                                    if (planScope === 'day') setAllottedHours(val);
+                                                    else setWeeklyTotalHours(val);
+                                                }}
+                                                className="w-12 px-1.5 py-0.5 rounded-lg text-xs font-semibold border bg-black/20 dark:bg-white/5 text-center focus:outline-none focus:border-[#5b5fc7]"
+                                                style={{ color: 'var(--text-primary)', borderColor: 'rgba(255, 255, 255, 0.12)' }}
                                             />
                                             <span>h</span>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Routine Toggles & Start Time Row */}
-                                <div className="flex items-center justify-between gap-3 p-3 rounded-2xl border flex-wrap" style={{ background: 'var(--bg-input)', borderColor: 'var(--border-secondary)' }}>
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                        <button
-                                            type="button"
-                                            onClick={() => setIncludeBreakfast(!includeBreakfast)}
-                                            className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
-                                                includeBreakfast
-                                                    ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
-                                                    : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
-                                            }`}
-                                        >
-                                            ☕ Breakfast
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setIncludeLunch(!includeLunch)}
-                                            className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
-                                                includeLunch
-                                                    ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
-                                                    : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
-                                            }`}
-                                        >
-                                            🥗 Lunch
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setIncludeRestBlocks(!includeRestBlocks)}
-                                            className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
-                                                includeRestBlocks
-                                                    ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
-                                                    : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
-                                            }`}
-                                        >
-                                            🌿 Rest Breaks
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setIncludeDinner(!includeDinner)}
-                                            className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
-                                                includeDinner
-                                                    ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
-                                                    : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
-                                            }`}
-                                        >
-                                            🍽️ Dinner
-                                        </button>
+                                {/* Section 2: Routine Blocks & Scope Card (Zero Height Shift) */}
+                                <div
+                                    className="p-3.5 rounded-2xl border space-y-2.5 shadow-sm transition-all"
+                                    style={{
+                                        background: 'rgba(255, 255, 255, 0.03)',
+                                        borderColor: 'rgba(255, 255, 255, 0.08)',
+                                    }}
+                                >
+                                    {/* Row 1: Routine blocks + Start selector */}
+                                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <button
+                                                type="button"
+                                                onClick={() => setIncludeBreakfast(!includeBreakfast)}
+                                                className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all cursor-pointer ${
+                                                    includeBreakfast
+                                                        ? 'bg-[#5b5fc7]/20 border-[#5b5fc7]/60 text-[#7b83eb]'
+                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white'
+                                                }`}
+                                            >
+                                                Breakfast
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setIncludeLunch(!includeLunch)}
+                                                className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all cursor-pointer ${
+                                                    includeLunch
+                                                        ? 'bg-[#5b5fc7]/20 border-[#5b5fc7]/60 text-[#7b83eb]'
+                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white'
+                                                }`}
+                                            >
+                                                Lunch
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setIncludeRestBlocks(!includeRestBlocks)}
+                                                className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all cursor-pointer ${
+                                                    includeRestBlocks
+                                                        ? 'bg-[#5b5fc7]/20 border-[#5b5fc7]/60 text-[#7b83eb]'
+                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white'
+                                                }`}
+                                            >
+                                                Rest Breaks
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setIncludeDinner(!includeDinner)}
+                                                className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all cursor-pointer ${
+                                                    includeDinner
+                                                        ? 'bg-[#5b5fc7]/20 border-[#5b5fc7]/60 text-[#7b83eb]'
+                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white'
+                                                }`}
+                                            >
+                                                Dinner
+                                            </button>
+                                        </div>
+
+                                        <div className="flex items-center gap-1.5 shrink-0 text-xs text-slate-300">
+                                            <span className="font-medium text-slate-400">Start:</span>
+                                            <select
+                                                value={planScope === 'day' ? startHourInput : weekStartHourInput}
+                                                onChange={(e) => {
+                                                    const val = Number(e.target.value);
+                                                    if (planScope === 'day') setStartHourInput(val);
+                                                    else setWeekStartHourInput(val);
+                                                }}
+                                                className="px-2 py-1 rounded-xl text-xs font-semibold border bg-black/20 dark:bg-white/5 focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                style={{ color: 'var(--text-primary)', borderColor: 'rgba(255, 255, 255, 0.12)' }}
+                                            >
+                                                {hours
+                                                    .filter((h) => (formatDateStr(selectedDate) === todayStr && planScope === 'day' ? h >= new Date().getHours() : h >= 6 && h <= 23))
+                                                    .map((h) => (
+                                                        <option key={h} value={h} className="bg-slate-900 text-white">
+                                                            {formatHourLabel(h)}
+                                                        </option>
+                                                    ))}
+                                            </select>
+                                        </div>
                                     </div>
 
-                                    <div className="flex items-center gap-1.5 shrink-0 text-xs text-slate-400">
-                                        <span>Start:</span>
-                                        <select
-                                            value={startHourInput}
-                                            onChange={(e) => setStartHourInput(Number(e.target.value))}
-                                            className="px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent focus:outline-none focus:border-[#5b5fc7]"
-                                            style={{ color: 'var(--text-primary)', borderColor: 'var(--border-card)' }}
-                                        >
-                                            {hours
-                                                .filter((h) => (formatDateStr(selectedDate) === todayStr ? h >= new Date().getHours() : h >= 6 && h <= 23))
-                                                .map((h) => (
-                                                    <option key={h} value={h} className="bg-slate-900 text-white">
-                                                        {formatHourLabel(h)}
-                                                    </option>
-                                                ))}
-                                        </select>
+                                    {/* Row 2: Fixed height & aligned sub-row for both Day and Week */}
+                                    <div className="flex items-center justify-between pt-2 border-t text-xs text-slate-400" style={{ borderColor: 'rgba(255, 255, 255, 0.08)' }}>
+                                        {planScope === 'day' ? (
+                                            <>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[11px] font-medium text-slate-400">Target Schedule:</span>
+                                                    <span className="text-[11px] text-slate-300 font-semibold px-2 py-0.5 rounded-md bg-white/5 border border-white/10">
+                                                        {formatDateStr(selectedDate) === todayStr ? 'Today (24h Routine Cycle)' : formatDateStr(selectedDate)}
+                                                    </span>
+                                                </div>
+                                                <span className="text-[11px] text-slate-400 font-medium">Single Day Focus</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-[11px] font-medium text-slate-400">Included Days:</span>
+                                                    <span className="text-[11px] text-slate-300 font-semibold px-2 py-0.5 rounded-md bg-white/5 border border-white/10">
+                                                        Mon – Fri (Work Week)
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <label className="flex items-center gap-1.5 text-xs text-slate-300 font-medium cursor-pointer select-none">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={includeSaturday}
+                                                            onChange={(e) => setIncludeSaturday(e.target.checked)}
+                                                            className="rounded accent-[#5b5fc7] cursor-pointer"
+                                                        />
+                                                        Include Saturday
+                                                    </label>
+                                                    <label className="flex items-center gap-1.5 text-xs text-slate-300 font-medium cursor-pointer select-none">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={includeSunday}
+                                                            onChange={(e) => setIncludeSunday(e.target.checked)}
+                                                            className="rounded accent-[#5b5fc7] cursor-pointer"
+                                                        />
+                                                        Include Sunday
+                                                    </label>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
 
-                                {/* Task Input & List */}
-                                <div className="space-y-3">
+                                {/* Section 3: Tasks Section Card */}
+                                <div
+                                    className="p-3.5 rounded-2xl border space-y-2.5 shadow-sm transition-all"
+                                    style={{
+                                        background: 'rgba(255, 255, 255, 0.03)',
+                                        borderColor: 'rgba(255, 255, 255, 0.08)',
+                                    }}
+                                >
                                     <div className="flex items-center justify-between">
-                                        <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                                            Tasks ({makerTasks.length})
+                                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                                            {planScope === 'day' ? `Today's Tasks (${makerTasks.length})` : `Weekly Tasks (${makerTasks.length})`}
                                         </label>
                                         {(tasks || []).filter(t => !t.completed).length > 0 && (
                                             <button
                                                 type="button"
                                                 onClick={handleImportTasks}
-                                                className="text-xs px-2.5 py-0.5 rounded-lg bg-[#5b5fc7]/10 hover:bg-[#5b5fc7]/20 text-[#5b5fc7] dark:text-[#7b83eb] font-semibold transition-all flex items-center gap-1.5"
+                                                className="text-xs px-2.5 py-1 rounded-lg bg-[#5b5fc7]/15 hover:bg-[#5b5fc7]/25 text-[#7b83eb] font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
                                             >
                                                 <Download size={11} /> Import from Tasks ({tasks.filter(t => !t.completed).length})
                                             </button>
@@ -2069,40 +2385,72 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                     >
                                         <input
                                             type="text"
-                                            placeholder="Add task (e.g. Video editing, Leetcode, Build feature, Write docs)..."
+                                            placeholder={planScope === 'day' ? "Add task (e.g. Video editing, Leetcode, Build feature)..." : "Add weekly task (e.g. Build auth, Write docs, Deploy staging)..."}
                                             value={newTaskTitle}
                                             onChange={(e) => setNewTaskTitle(e.target.value)}
-                                            className="flex-1 px-3.5 py-2.5 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] transition-all"
+                                            className="flex-1 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] transition-all bg-black/20 dark:bg-white/5"
                                             style={{
-                                                background: 'var(--bg-input)',
                                                 color: 'var(--text-primary)',
-                                                borderColor: 'var(--border-input)',
+                                                borderColor: 'rgba(255, 255, 255, 0.12)',
                                             }}
                                         />
 
                                         <button
                                             type="submit"
                                             disabled={!newTaskTitle.trim()}
-                                            className="py-2.5 px-4 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm shrink-0 cursor-pointer"
+                                            className="py-2 px-3.5 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm shrink-0 cursor-pointer"
                                         >
                                             <Plus size={14} /> Add
                                         </button>
                                     </form>
 
+                                    {/* Personalized Quick Suggestions */}
+                                    {personalizedTaskSuggestions.length > 0 && (
+                                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                                            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1 shrink-0">
+                                                <Lightbulb size={15} className="text-[#5b5fc7]" /> 
+                                                Suggested:
+                                            </span>
+                                            {personalizedTaskSuggestions.map((sug, idx) => (
+                                                <button
+                                                    key={idx}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setMakerTasks((prev) => [
+                                                            ...prev,
+                                                            {
+                                                                title: sug.title,
+                                                                category: sug.category,
+                                                                priority: sug.priority || 'high',
+                                                            },
+                                                        ]);
+                                                    }}
+                                                    className="text-[11px] px-2 py-0.5 rounded-lg border bg-black/20 dark:bg-white/5 border-slate-700/40 hover:border-[#5b5fc7]/60 hover:bg-[#5b5fc7]/15 text-slate-300 hover:text-white transition-all flex items-center gap-1 cursor-pointer group"
+                                                >
+                                                    <Plus size={10} className="text-slate-400 group-hover:text-[#7b83eb]" />
+                                                    <span className="truncate max-w-[125px]">{sug.title}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+
                                     {/* Task List */}
-                                    <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pt-1">
+                                    <div className="space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar pt-0.5">
                                         {makerTasks.length === 0 ? (
-                                            <div className="py-7 text-center border border-dashed rounded-2xl" style={{ borderColor: 'var(--border-secondary)' }}>
-                                                <p className="text-xs text-slate-400">No tasks added yet. Type your task names above — the smart scheduler will allocate distinct time blocks prioritizing productive work.</p>
+                                            <div className="py-4 text-center border border-dashed rounded-xl" style={{ borderColor: 'rgba(255, 255, 255, 0.08)' }}>
+                                                <p className="text-xs text-slate-400">
+                                                    {planScope === 'day'
+                                                        ? 'No tasks added yet. Type above or click a suggestion to start.'
+                                                        : 'No weekly tasks added yet. Type above or click a suggestion to distribute across the week.'}
+                                                </p>
                                             </div>
                                         ) : (
                                             makerTasks.map((t, idx) => (
                                                 <div
                                                     key={idx}
-                                                    className="flex items-center justify-between px-3 py-2 rounded-xl border group hover:border-[#5b5fc7]/40 transition-all"
+                                                    className="flex items-center justify-between px-3 py-2 rounded-xl border group hover:border-[#5b5fc7]/40 transition-all bg-black/25 dark:bg-white/[0.04]"
                                                     style={{
-                                                        background: 'var(--bg-input)',
-                                                        borderColor: 'var(--border-secondary)',
+                                                        borderColor: 'rgba(255, 255, 255, 0.07)',
                                                     }}
                                                 >
                                                     <div className="flex items-center gap-2.5 min-w-0">
@@ -2126,26 +2474,37 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                 </div>
 
                                 {/* Footer Phase 1 */}
-                                <div className="flex items-center justify-between pt-4 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
+                                <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
                                     <div className="text-xs text-slate-400">
-                                        <span>Budget: {allottedHours}h available from {formatHourLabel(startHourInput)}</span>
+                                        <span>
+                                            {planScope === 'day'
+                                                ? `Budget: ${allottedHours}h available from ${formatHourLabel(startHourInput)}`
+                                                : `Weekly Budget: ${weeklyTotalHours}h total (~${(weeklyTotalHours / Math.max(1, activeWeekDates.length)).toFixed(1)}h/day starting ${formatHourLabel(weekStartHourInput)})`}
+                                        </span>
                                     </div>
 
                                     <div className="flex items-center gap-2.5">
                                         <button
                                             type="button"
                                             onClick={() => setIsMakerOpen(false)}
-                                            className="px-4 py-2 rounded-xl text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200"
+                                            className="px-3.5 py-2 rounded-xl text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 cursor-pointer"
                                         >
                                             Cancel
                                         </button>
                                         <button
                                             type="button"
                                             onClick={handleGenerateSchedule}
-                                            disabled={makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast}
-                                            className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs flex items-center gap-2 shadow-md shadow-[#5b5fc7]/20 transition-all disabled:opacity-40 cursor-pointer"
+                                            disabled={isGenerating || (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast)}
+                                            className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs shadow-md shadow-[#5b5fc7]/20 transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer"
                                         >
-                                            <Sparkles size={14} /> Smart Schedule
+                                            {isGenerating ? (
+                                                <>
+                                                    <Loader2 size={14} className="animate-spin text-white" />
+                                                    <span>Optimizing Schedule...</span>
+                                                </>
+                                            ) : (
+                                                <span>Generate Schedule</span>
+                                            )}
                                         </button>
                                     </div>
                                 </div>
@@ -2154,11 +2513,12 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                             <>
                                 {/* Phase 2: Schedule Preview & Duration Adjustment */}
                                 <div className="space-y-3.5">
-                                    {/* Allotted Budget Summary Bar (Auto-balanced, always positive) */}
+                                    {/* Allotted Budget Summary Bar */}
                                     {(() => {
                                         const productiveMins = previewSchedule
-                                            .filter((item) => item.category !== 'meal' && item.category !== 'sleep')
+                                            .filter((item) => item.category !== 'meal' && item.category !== 'sleep' && item.category !== 'break')
                                             .reduce((sum, item) => sum + item.durationMinutes, 0);
+                                        const scheduledDaysCount = new Set(previewSchedule.map((i) => i.dateStr)).size || activeWeekDates.length;
                                         const endHour = previewSchedule.length > 0
                                             ? Math.floor((previewSchedule[previewSchedule.length - 1].startHour * 60 + previewSchedule[previewSchedule.length - 1].startMinute + previewSchedule[previewSchedule.length - 1].durationMinutes) / 60) % 24
                                             : startHourInput;
@@ -2167,10 +2527,10 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                             <div className="p-3.5 rounded-2xl border space-y-2 bg-[#5b5fc7]/10 border-[#5b5fc7]/30">
                                                 <div className="flex items-center justify-between text-xs font-semibold">
                                                     <span className="text-[#5b5fc7] dark:text-[#7b83eb] flex items-center gap-1.5 font-bold">
-                                                        <Sparkles size={13} /> {formatHourLabel(previewSchedule[0]?.startHour || startHourInput)} → {formatHourLabel(endHour)} Routine
+                                                        <Sparkles size={13} /> {planScope === 'day' ? `${formatHourLabel(previewSchedule[0]?.startHour || startHourInput)} → ${formatHourLabel(endHour)} Routine` : `${scheduledDaysCount}-Day Weekly Plan (${previewSchedule.length} total blocks)`}
                                                     </span>
-                                                    <span className="font-mono text-emerald-400 text-xs font-bold flex items-center gap-1">
-                                                        ✨ {(productiveMins / 60).toFixed(1)}h / {allottedHours}h Work Time
+                                                    <span className="font-mono text-emerald-400 text-xs font-bold">
+                                                        {(productiveMins / 60).toFixed(1)}h {planScope === 'day' ? `/ ${allottedHours}h Work Time` : `/ ${weeklyTotalHours}h Weekly Total (~${(productiveMins / 60 / Math.max(1, scheduledDaysCount)).toFixed(1)}h/day)`}
                                                     </span>
                                                 </div>
 
@@ -2185,7 +2545,8 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
 
                                     {/* Mindset & Focus / Recovery Card */}
                                     {(() => {
-                                        const mindsetData = getMindsetCardData(previewSchedule, allottedHours, startHourInput);
+                                        const budgetForMindset = planScope === 'day' ? allottedHours : Math.round(weeklyTotalHours / Math.max(1, activeWeekDates.length));
+                                        const mindsetData = getMindsetCardData(previewSchedule, budgetForMindset, startHourInput);
                                         const isSleepType = mindsetData.type === 'sleep';
 
                                         return (
@@ -2224,56 +2585,116 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                         );
                                     })()}
 
+                                    {/* Week Day Filter Tabs (if Week mode) */}
+                                    {planScope === 'week' && (
+                                        <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setSelectedPreviewDay('all')}
+                                                className={`px-3 py-1 rounded-xl text-xs font-semibold shrink-0 transition-all cursor-pointer ${
+                                                    selectedPreviewDay === 'all'
+                                                        ? 'bg-[#5b5fc7] text-white shadow-sm'
+                                                        : 'bg-black/5 dark:bg-white/5 text-slate-400 hover:text-slate-200'
+                                                }`}
+                                            >
+                                                All {activeWeekDates.length} Days ({previewSchedule.length})
+                                            </button>
+                                            {displayDays
+                                                .filter((d) => activeWeekDates.includes(formatDateStr(d)))
+                                                .map((d) => {
+                                                    const dStr = formatDateStr(d);
+                                                    const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
+                                                    const count = previewSchedule.filter((item) => item.dateStr === dStr).length;
+                                                    return (
+                                                        <button
+                                                            key={dStr}
+                                                            type="button"
+                                                            onClick={() => setSelectedPreviewDay(dStr)}
+                                                            className={`px-3 py-1 rounded-xl text-xs font-semibold shrink-0 transition-all cursor-pointer ${
+                                                                selectedPreviewDay === dStr
+                                                                    ? 'bg-[#5b5fc7] text-white shadow-sm'
+                                                                    : 'bg-black/5 dark:bg-white/5 text-slate-400 hover:text-slate-200'
+                                                            }`}
+                                                        >
+                                                            {dayName} ({count})
+                                                        </button>
+                                                    );
+                                                })}
+                                        </div>
+                                    )}
+
                                     {/* Generated Schedule Timeline Items */}
                                     <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar pr-1">
-                                        {previewSchedule.map((item) => {
-                                            return (
-                                                <div
-                                                    key={item.id}
-                                                    className="flex items-center justify-between p-2.5 rounded-xl border gap-2 group transition-all"
-                                                    style={{
-                                                        background: 'var(--bg-input)',
-                                                        borderColor: 'var(--border-secondary)',
-                                                    }}
-                                                >
-                                                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
-                                                        <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-[#5b5fc7]/15 text-[#5b5fc7] dark:text-[#7b83eb] shrink-0">
-                                                            {String(item.startHour).padStart(2, '0')}:{String(item.startMinute).padStart(2, '0')}
-                                                        </span>
-                                                        <span className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-                                                            {item.title}
-                                                        </span>
-                                                    </div>
+                                        {previewSchedule
+                                            .filter((item) => selectedPreviewDay === 'all' || item.dateStr === selectedPreviewDay)
+                                            .map((item) => {
+                                                const dayLabel = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(item.dateStr).getDay()];
 
-                                                    <div className="flex items-center gap-2 shrink-0">
-                                                        {/* Duration Selector with auto balancing */}
-                                                        <select
-                                                            value={item.durationMinutes}
-                                                            onChange={(e) => handleUpdatePreviewDuration(item.id, Number(e.target.value))}
-                                                            className="px-2 py-1 rounded-lg text-xs font-mono border bg-transparent focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
-                                                            style={{ color: 'var(--text-primary)', borderColor: 'var(--border-card)' }}
-                                                        >
-                                                            <option value={15} className="bg-slate-900 text-white">15m</option>
-                                                            <option value={30} className="bg-slate-900 text-white">30m</option>
-                                                            <option value={45} className="bg-slate-900 text-white">45m</option>
-                                                            <option value={60} className="bg-slate-900 text-white">1h</option>
-                                                            <option value={75} className="bg-slate-900 text-white">1h 15m</option>
-                                                            <option value={90} className="bg-slate-900 text-white">1.5h</option>
-                                                            <option value={105} className="bg-slate-900 text-white">1h 45m</option>
-                                                            <option value={120} className="bg-slate-900 text-white">2h</option>
-                                                        </select>
+                                                return (
+                                                    <div
+                                                        key={item.id}
+                                                        className="flex items-center justify-between p-2.5 rounded-xl border gap-2 group transition-all"
+                                                        style={{
+                                                            background: 'var(--bg-input)',
+                                                            borderColor: 'var(--border-secondary)',
+                                                        }}
+                                                    >
+                                                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                            {planScope === 'week' && (
+                                                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 uppercase shrink-0">
+                                                                    {dayLabel}
+                                                                </span>
+                                                            )}
+                                                            <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-[#5b5fc7]/15 text-[#5b5fc7] dark:text-[#7b83eb] shrink-0">
+                                                                {String(item.startHour).padStart(2, '0')}:{String(item.startMinute).padStart(2, '0')}
+                                                            </span>
+                                                            <span className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                                                {item.title}
+                                                            </span>
+                                                        </div>
 
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleRemovePreviewItem(item.id)}
-                                                            className="p-1 rounded text-slate-400 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
-                                                        >
-                                                            <Trash2 size={13} />
-                                                        </button>
+                                                        <div className="flex items-center gap-2 shrink-0">
+                                                            {/* Duration Selector with auto balancing & full range support */}
+                                                            {(() => {
+                                                                const DURATION_PRESETS = [15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480];
+                                                                const allOptions = Array.from(new Set([...DURATION_PRESETS, item.durationMinutes])).sort((a, b) => a - b);
+
+                                                                const formatMins = (mins: number) => {
+                                                                    if (mins < 60) return `${mins}m`;
+                                                                    const h = Math.floor(mins / 60);
+                                                                    const m = mins % 60;
+                                                                    if (m === 0) return `${h}h`;
+                                                                    if (m === 30) return `${h}.5h`;
+                                                                    return `${h}h ${m}m`;
+                                                                };
+
+                                                                return (
+                                                                    <select
+                                                                        value={item.durationMinutes}
+                                                                        onChange={(e) => handleUpdatePreviewDuration(item.id, Number(e.target.value))}
+                                                                        className="px-2.5 py-1 rounded-lg text-xs font-mono border bg-transparent focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                                        style={{ color: 'var(--text-primary)', borderColor: 'var(--border-card)' }}
+                                                                    >
+                                                                        {allOptions.map((mins) => (
+                                                                            <option key={mins} value={mins} className="bg-slate-900 text-white">
+                                                                                {formatMins(mins)}
+                                                                            </option>
+                                                                        ))}
+                                                                    </select>
+                                                                );
+                                                            })()}
+
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemovePreviewItem(item.id)}
+                                                                className="p-1 rounded text-slate-400 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
+                                                            >
+                                                                <Trash2 size={13} />
+                                                            </button>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            );
-                                        })}
+                                                );
+                                            })}
                                     </div>
                                 </div>
 
@@ -2293,7 +2714,7 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                         disabled={previewSchedule.length === 0}
                                         className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                                     >
-                                        <Check size={14} /> Apply to Routine
+                                        <Check size={14} /> {planScope === 'day' ? 'Apply to Day Routine' : 'Apply to Week Routine'}
                                     </button>
                                 </div>
                             </>

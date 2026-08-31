@@ -91,22 +91,102 @@ export const inferOptimalSlot = (title: string, customCategory?: PlannedRoutineI
  * Allocates distinct, productivity-prioritized durations across a list of tasks
  * such that the sum of durations strictly does not exceed totalAllottedMinutes.
  */
+/**
+ * Detects low-value, unproductive, distraction, or daytime idle/sleep tasks.
+ */
+export const isUnproductiveOrLeisure = (title: string, category?: string): boolean => {
+    const low = title.toLowerCase().trim();
+    if (category === 'break' || category === 'meal') return false;
+
+    // Video editing / production is productive deep work, not passive consumption
+    if (low.includes('edit') || low.includes('production') || low.includes('render') || low.includes('film') || low.includes('thumbnail')) {
+        return false;
+    }
+
+    return (
+        low === 'sleep' ||
+        low.includes('sleeping') ||
+        low.includes('lay in bed') ||
+        low.includes('nap') ||
+        low.includes('fiddling') ||
+        low.includes('fiddle') ||
+        low.includes('fidget') ||
+        low.includes('scroll') ||
+        low.includes('doomscroll') ||
+        low.includes('insta') ||
+        low.includes('instagram') ||
+        low.includes('tiktok') ||
+        low.includes('reels') ||
+        low.includes('shorts') ||
+        low.includes('yt') ||
+        low.includes('youtube') ||
+        low.includes('netflix') ||
+        low.includes('anime') ||
+        low.includes('tv') ||
+        low.includes('movie') ||
+        low.includes('binge') ||
+        low.includes('chill') ||
+        low.includes('lounging') ||
+        low.includes('procrastinat') ||
+        low.includes('waste') ||
+        low.includes('gaming') ||
+        low.includes('games') ||
+        low.includes('play games') ||
+        low.includes('valorant') ||
+        low.includes('fortnite') ||
+        low.includes('roblox') ||
+        low.includes('gta') ||
+        low.includes('steam') ||
+        low.includes('twitch') ||
+        low.includes('reddit') ||
+        low.includes('twitter') ||
+        low.includes('x.com') ||
+        low.includes('facebook') ||
+        low.includes('random browse') ||
+        low.includes('browsing')
+    );
+};
+
+/**
+ * Allocates productive minutes across a list of user tasks using weighted smart heuristic.
+ * Highly values deep cognitive tasks (coding, study, editing) with large blocks (60-180m),
+ * gives low values and small capped time (15-30m) to unproductive tasks (yt, insta, sleep, fiddling),
+ * and caps admin tasks (30-45m).
+ */
 export const allocateProductiveTaskDurations = (
     tasks: { title: string; category?: PlannedRoutineItem['category']; priority?: 'high' | 'medium' | 'low' }[],
     totalAllottedMinutes: number
-): { title: string; category: PlannedRoutineItem['category']; priority: PlannedRoutineItem['priority']; duration: number }[] => {
+): { title: string; category: PlannedRoutineItem['category']; priority: PlannedRoutineItem['priority']; duration: number; isUnproductive?: boolean; isDeepWork?: boolean }[] => {
     if (!tasks || tasks.length === 0) return [];
     if (totalAllottedMinutes <= 0) totalAllottedMinutes = 240; // Default 4h
 
-    // 1. Calculate weight for each task based on cognitive depth & productivity
-    const scoredTasks = tasks.map((t) => {
+    // 1. Calculate weight for each task based on cognitive depth, impact & productivity
+    let taskList = [...tasks];
+
+    // If user provided only unproductive/idle activities, inject productive anchor blocks to preserve user growth
+    const allUnproductive = taskList.every((t) => isUnproductiveOrLeisure(t.title, t.category));
+    if (allUnproductive && totalAllottedMinutes >= 90) {
+        taskList = [
+            { title: 'Core Deep Work & Focus Block', category: 'development', priority: 'high' },
+            ...(totalAllottedMinutes >= 180 ? [{ title: 'Skill Building & Project Study', category: 'writing' as const, priority: 'medium' as const }] : []),
+            ...taskList,
+        ];
+    }
+
+    const scoredTasks = taskList.map((t) => {
         const slot = inferOptimalSlot(t.title, t.category);
         const cat = t.category || slot.inferredCategory;
         const lowTitle = t.title.toLowerCase();
+        const isUnproductive = isUnproductiveOrLeisure(t.title, cat);
 
         let weight = 2.0;
-        // Deep work / high cognitive tasks get highest weight
-        if (
+        let isDeepWork = false;
+        let isAdmin = false;
+
+        if (isUnproductive) {
+            // Unproductive tasks (sleep, yt, insta, fiddling) receive ultra-low weight
+            weight = 0.25;
+        } else if (
             cat === 'development' ||
             lowTitle.includes('code') ||
             lowTitle.includes('leetcode') ||
@@ -117,86 +197,128 @@ export const allocateProductiveTaskDurations = (
             lowTitle.includes('algorithm') ||
             lowTitle.includes('video') ||
             lowTitle.includes('edit') ||
+            lowTitle.includes('editing') ||
             lowTitle.includes('study') ||
-            lowTitle.includes('exam')
+            lowTitle.includes('exam') ||
+            lowTitle.includes('project') ||
+            lowTitle.includes('build') ||
+            lowTitle.includes('architect') ||
+            lowTitle.includes('learn')
         ) {
-            weight = 3.5;
+            // High cognitive depth / deep work tasks get highest weight (long focus blocks)
+            weight = 5.0;
+            isDeepWork = true;
         } else if (
             cat === 'design' ||
             cat === 'writing' ||
             lowTitle.includes('design') ||
             lowTitle.includes('doc') ||
             lowTitle.includes('article') ||
-            lowTitle.includes('research')
+            lowTitle.includes('research') ||
+            lowTitle.includes('write') ||
+            lowTitle.includes('plan')
         ) {
-            weight = 2.5;
+            weight = 3.0;
+            isDeepWork = true;
         } else if (
             cat === 'meeting' ||
             lowTitle.includes('meeting') ||
             lowTitle.includes('sync') ||
             lowTitle.includes('email') ||
             lowTitle.includes('admin') ||
-            lowTitle.includes('call')
+            lowTitle.includes('call') ||
+            lowTitle.includes('chat') ||
+            lowTitle.includes('catchup') ||
+            lowTitle.includes('social') ||
+            lowTitle.includes('chore')
         ) {
-            weight = 1.2;
+            weight = 1.0;
+            isAdmin = true;
         }
 
-        if (t.priority === 'high') weight *= 1.2;
-        else if (t.priority === 'low') weight *= 0.8;
+        if (t.priority === 'high') weight *= 1.4;
+        else if (t.priority === 'low') weight *= 0.6;
 
         return {
             title: t.title,
             category: cat,
-            priority: (t.priority || 'high') as PlannedRoutineItem['priority'],
+            priority: (t.priority || (isDeepWork ? 'high' : isUnproductive ? 'low' : 'medium')) as PlannedRoutineItem['priority'],
             weight,
+            isDeepWork,
+            isAdmin,
+            isUnproductive,
         };
     });
 
     const totalWeight = scoredTasks.reduce((sum, t) => sum + t.weight, 0);
 
-    // 2. Initial duration allocation in 15-minute steps
+    // 2. Initial duration allocation in 30-minute steps (clean slot alignment)
     let allocated = scoredTasks.map((t) => {
-        const rawMins = (t.weight / totalWeight) * totalAllottedMinutes;
-        // Snap to nearest 15 mins (minimum 15 mins)
-        let snapped = Math.max(15, Math.round(rawMins / 15) * 15);
+        let rawMins = (t.weight / totalWeight) * totalAllottedMinutes;
+        // Unproductive activities get capped to max 15-30m
+        if (t.isUnproductive) {
+            rawMins = Math.min(rawMins, 30);
+        } else if (t.isAdmin && scoredTasks.length > 1) {
+            rawMins = Math.min(rawMins, 45);
+        }
+        // Snap to nearest 30 mins (minimum 15 mins for short/admin/unproductive, 30 mins for deep work)
+        const step = (t.isUnproductive || t.isAdmin) ? 15 : 30;
+        let snapped = Math.max(step, Math.round(rawMins / step) * step);
         return {
             ...t,
             duration: snapped,
         };
     });
 
-    // 3. Rebalance so sum(durations) <= totalAllottedMinutes
+    // 3. Rebalance so sum(durations) === totalAllottedMinutes
     let currentTotal = allocated.reduce((sum, t) => sum + t.duration, 0);
 
-    // If total exceeds allotted budget, decrement 15m from largest / lowest weight items
+    // If total exceeds allotted budget, decrement 15m/30m from unproductive or lowest weight items first
     while (currentTotal > totalAllottedMinutes) {
         const candidates = allocated
             .map((item, idx) => ({ ...item, idx }))
             .filter((item) => item.duration > 15)
-            .sort((a, b) => (b.duration / b.weight) - (a.duration / a.weight));
+            .sort((a, b) => {
+                if (a.isUnproductive !== b.isUnproductive) return a.isUnproductive ? -1 : 1;
+                return (b.duration / b.weight) - (a.duration / a.weight);
+            });
 
         if (candidates.length === 0) break;
-        allocated[candidates[0].idx].duration -= 15;
-        currentTotal -= 15;
+        const dec = Math.min(15, currentTotal - totalAllottedMinutes);
+        allocated[candidates[0].idx].duration -= dec;
+        currentTotal -= dec;
     }
 
-    // If total is significantly less than allotted budget, give extra 15m to highest weight items (cap at 120m)
+    // If total is less than allotted budget, give extra 15m/30m strictly to deep work and productive tasks
     while (totalAllottedMinutes - currentTotal >= 15) {
         const candidates = allocated
             .map((item, idx) => ({ ...item, idx }))
-            .filter((item) => item.duration < 120)
+            .filter((item) => !item.isUnproductive && (!item.isAdmin || item.duration < 45))
             .sort((a, b) => b.weight - a.weight);
 
-        if (candidates.length === 0) break;
-        allocated[candidates[0].idx].duration += 15;
-        currentTotal += 15;
+        const inc = Math.min(15, totalAllottedMinutes - currentTotal);
+        if (candidates.length === 0) {
+            allocated[0].duration += inc;
+            currentTotal += inc;
+        } else {
+            allocated[candidates[0].idx].duration += inc;
+            currentTotal += inc;
+        }
     }
 
-    return allocated.map(({ title, category, priority, duration }) => ({
+    // Sort order: Deep work first (Morning/Afternoon), Unproductive / Leisure last (Evening)
+    allocated.sort((a, b) => {
+        if (a.isUnproductive !== b.isUnproductive) return a.isUnproductive ? 1 : -1;
+        return b.weight - a.weight;
+    });
+
+    return allocated.map(({ title, category, priority, duration, isUnproductive, isDeepWork }) => ({
         title,
         category,
         priority,
         duration,
+        isUnproductive,
+        isDeepWork,
     }));
 };
 
@@ -221,35 +343,23 @@ export const PRODUCTIVITY_QUOTES = [
         author: "Abraham Lincoln",
     },
     {
-        quote: "Your future is created by what you do today, not tomorrow.",
-        author: "Robert Kiyosaki",
+        quote: "Your energy is your greatest currency. Balance intense sprints with restorative breaks.",
+        author: "Jim Loehr",
     },
 ];
 
-export const SLEEP_QUOTES = [
+export const SLEEP_RECOVERY_QUOTES = [
     {
-        quote: "Sleep is the ultimate cognitive enhancer. Rest tonight, dominate tomorrow.",
-        author: "Peak Performance Habit",
+        quote: "Sleep is the greatest legal performance enhancing drug that most people are neglecting.",
+        author: "Dr. Matthew Walker",
     },
     {
-        quote: "Rest is not idleness; it is the fuel for tomorrow's brilliance.",
-        author: "Marcus Aurelius",
+        quote: "Quality rest tonight fuels breakthrough clarity and unstoppable focus tomorrow.",
+        author: "Arianna Huffington",
     },
     {
-        quote: "Deep work requires deep recovery. Protect your sleep like your code.",
-        author: "Productivity Law",
-    },
-    {
-        quote: "A well-rested mind solves in 20 minutes what an exhausted mind struggles with for 3 hours.",
-        author: "Cognitive Focus",
-    },
-    {
-        quote: "Take rest; a field that has rested gives a bountiful crop.",
-        author: "Ovid",
-    },
-    {
-        quote: "Sleep is the best meditation and the multiplier of mental stamina.",
-        author: "Dalai Lama",
+        quote: "A well-rested mind solves in minutes what an exhausted mind struggles with for hours.",
+        author: "James Clear",
     },
 ];
 
@@ -263,7 +373,7 @@ export const getMindsetCardData = (schedule: PlannedRoutineItem[], allottedHours
     const isLateNight = endMins >= 1350 || endHour >= 22 || endHour <= 4; // 10:30 PM+ or late night
 
     if (isLateNight) {
-        const quote = SLEEP_QUOTES[Math.floor(Math.random() * SLEEP_QUOTES.length)];
+        const quote = SLEEP_RECOVERY_QUOTES[Math.floor(Math.random() * SLEEP_RECOVERY_QUOTES.length)];
         return {
             type: 'sleep',
             title: 'Rest & Recovery Mindset',
@@ -319,158 +429,211 @@ export const generateForwardSmartSchedule = ({
     }
 
     const dayIndex = new Date(dateStr).getDay();
-    const startMins = startHour * 60 + startMinute;
-    const endMins = startMins + allottedMinutes;
-
-    // 1. Identify relevant fixed meals/breaks that fall strictly within [startMins, endMins + 60]
-    const breakBlocks: { title: string; category: PlannedRoutineItem['category']; preferredMins: number; duration: number; subtitle: string }[] = [];
-
-    // Breakfast: 8:00 AM (480 mins, 45 mins)
-    if (includeBreakfast && startMins <= 480 && endMins >= 525) {
-        breakBlocks.push({
-            title: 'Breakfast & Morning Routine ☕',
-            category: 'meal',
-            preferredMins: Math.max(startMins, 480),
-            duration: 45,
-            subtitle: 'Healthy breakfast & mindset prep',
-        });
-    }
-
-    // Lunch: 1:00 PM (780 mins, 60 mins)
-    if (includeLunch && startMins <= 780 && endMins >= 840) {
-        breakBlocks.push({
-            title: 'Lunch Break & Recharge 🥗',
-            category: 'meal',
-            preferredMins: Math.max(startMins, 780),
-            duration: 60,
-            subtitle: 'Healthy meal & fresh air',
-        });
-    }
-
-    // Rest Blocks (Afternoon recharge & Evening walk)
-    if (includeRestBlocks) {
-        if (startMins <= 990 && endMins >= 1020) { // 4:30 PM (990 mins)
-            breakBlocks.push({
-                title: 'Afternoon Recharge & Coffee ☕',
-                category: 'break',
-                preferredMins: Math.max(startMins, 990),
-                duration: 30,
-                subtitle: 'Hydration & quick stretch',
-            });
-        }
-        if (startMins <= 1110 && endMins >= 1140) { // 6:30 PM (1110 mins)
-            breakBlocks.push({
-                title: 'Evening Walk & Unwind 🌿',
-                category: 'break',
-                preferredMins: Math.max(startMins, 1110),
-                duration: 30,
-                subtitle: 'Fresh air & mental recovery',
-            });
-        }
-    }
-
-    // Dinner: 8:00 PM (1200 mins, 60 mins)
-    if (includeDinner && startMins <= 1200 && (endMins >= 1200 || startMins >= 1140)) {
-        breakBlocks.push({
-            title: 'Dinner & Relaxation 🍽️',
-            category: 'meal',
-            preferredMins: Math.max(startMins, 1200),
-            duration: 60,
-            subtitle: 'Family / Rest & nourishment',
-        });
-    }
-
-    // 2. Allocate the FULL allottedMinutes to the user's productive tasks (do not steal work budget for meals)
-    const allocatedWorkTasks = allocateProductiveTaskDurations(tasks, allottedMinutes);
-
-    // 3. Sequentially build the schedule from startMins forward
+    const initialStartMins = startHour * 60 + startMinute;
     const schedule: PlannedRoutineItem[] = [];
-    let currentMins = startMins;
-    const taskQueue = [...allocatedWorkTasks];
-    const breakQueue = [...breakBlocks].sort((a, b) => a.preferredMins - b.preferredMins);
 
-    while (taskQueue.length > 0 || breakQueue.length > 0) {
-        // Check if next item should be a break that was reached
-        if (breakQueue.length > 0 && breakQueue[0].preferredMins <= currentMins) {
-            const nextBreak = breakQueue.shift()!;
-            const sH = Math.floor(currentMins / 60) % 24;
-            const sM = currentMins % 60;
-            schedule.push({
-                id: `break-${Date.now()}-${schedule.length}-${Math.random().toString(36).substring(2, 5)}`,
-                title: nextBreak.title,
-                category: nextBreak.category,
-                priority: 'medium',
-                dayIndex,
-                dateStr,
-                startHour: sH,
-                startMinute: sM,
-                durationMinutes: nextBreak.duration,
-                completed: false,
-                subtitle: nextBreak.subtitle,
-            });
-            currentMins += nextBreak.duration;
-            continue;
-        }
+    // 1. Allocate the FULL allottedMinutes to the user's productive tasks
+    const allocatedWorkTasks = allocateProductiveTaskDurations(tasks, allottedMinutes);
+    const n = allocatedWorkTasks.length;
 
-        // If there's a task in queue, schedule it
-        if (taskQueue.length > 0) {
-            const nextTask = taskQueue.shift()!;
-            const sH = Math.floor(currentMins / 60) % 24;
-            const sM = currentMins % 60;
-            schedule.push({
-                id: `task-${Date.now()}-${schedule.length}-${Math.random().toString(36).substring(2, 5)}`,
-                title: nextTask.title,
-                category: nextTask.category,
-                priority: nextTask.priority,
-                dayIndex,
-                dateStr,
-                startHour: sH,
-                startMinute: sM,
-                durationMinutes: nextTask.duration,
-                completed: false,
-                subtitle: nextTask.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
-            });
-            currentMins += nextTask.duration;
-            continue;
-        }
+    // Determine how many tasks to allocate per daily energy zone
+    // Morning (9:00 AM - 12:30 PM), Afternoon (1:30 PM - 5:30 PM), Evening (5:30 PM - 8:00 PM)
+    let morningCount = 0;
+    let afternoonCount = 0;
+    let eveningCount = 0;
 
-        // If remaining break in queue
-        if (breakQueue.length > 0) {
-            const nextBreak = breakQueue.shift()!;
-            const sH = Math.floor(currentMins / 60) % 24;
-            const sM = currentMins % 60;
-            schedule.push({
-                id: `break-${Date.now()}-${schedule.length}-${Math.random().toString(36).substring(2, 5)}`,
-                title: nextBreak.title,
-                category: nextBreak.category,
-                priority: 'medium',
-                dayIndex,
-                dateStr,
-                startHour: sH,
-                startMinute: sM,
-                durationMinutes: nextBreak.duration,
-                completed: false,
-                subtitle: nextBreak.subtitle,
-            });
-            currentMins += nextBreak.duration;
+    if (initialStartMins >= 1080) { // >= 6:00 PM (Late evening start)
+        eveningCount = n;
+    } else if (initialStartMins >= 780) { // >= 1:00 PM (Afternoon start)
+        afternoonCount = Math.min(n, Math.ceil(n * 0.7));
+        eveningCount = n - afternoonCount;
+    } else { // Normal morning start (e.g. 9:00 AM)
+        if (n === 1) {
+            morningCount = 1;
+        } else if (n === 2) {
+            morningCount = 1;
+            afternoonCount = 1;
+        } else if (n === 3) {
+            morningCount = 1;
+            afternoonCount = 1;
+            eveningCount = 1;
+        } else if (n === 4) {
+            morningCount = 2;
+            afternoonCount = 1;
+            eveningCount = 1;
+        } else {
+            // 5 or more tasks
+            morningCount = Math.min(2, Math.floor(n * 0.4));
+            afternoonCount = Math.min(2, Math.floor(n * 0.4));
+            eveningCount = n - morningCount - afternoonCount;
         }
     }
 
-    // 4. Night Sleep indicator only if schedule finishes late into night (>= 23:00 / 11 PM or midnight)
-    if (currentMins >= 1380 && !schedule.some((s) => s.category === 'sleep')) {
+    const morningTasks = allocatedWorkTasks.slice(0, morningCount);
+    const afternoonTasks = allocatedWorkTasks.slice(morningCount, morningCount + afternoonCount);
+    const eveningTasks = allocatedWorkTasks.slice(morningCount + afternoonCount);
+
+    let currentMins = initialStartMins;
+
+    // Helper to append a routine item cleanly with zero overlap
+    const appendItem = (item: {
+        title: string;
+        category: PlannedRoutineItem['category'];
+        priority?: PlannedRoutineItem['priority'];
+        duration: number;
+        subtitle?: string;
+    }) => {
         const sH = Math.floor(currentMins / 60) % 24;
         const sM = currentMins % 60;
         schedule.push({
-            id: `sleep-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-            title: 'Night Sleep & Recovery 🌙',
-            category: 'sleep',
-            priority: 'high',
+            id: `item-${Date.now()}-${schedule.length}-${Math.random().toString(36).substring(2, 6)}`,
+            title: item.title,
+            category: item.category,
+            priority: item.priority || 'medium',
             dayIndex,
             dateStr,
             startHour: sH,
             startMinute: sM,
-            durationMinutes: 60,
+            durationMinutes: item.duration,
             completed: false,
+            subtitle: item.subtitle,
+        });
+        currentMins += item.duration;
+    };
+
+    // ─── ZONE 1: MORNING ROUTINE & FOCUS (Start -> 12:30 PM) ───
+    if (includeBreakfast && initialStartMins <= 510) {
+        currentMins = Math.max(currentMins, 480); // 8:00 AM
+        appendItem({
+            title: 'Morning Routine & Breakfast ☕',
+            category: 'meal',
+            priority: 'medium',
+            duration: 60,
+            subtitle: 'Healthy breakfast, shower & prep',
+        });
+    }
+
+    // Schedule Morning Focus Tasks
+    for (let i = 0; i < morningTasks.length; i++) {
+        const task = morningTasks[i];
+        if (i > 0) {
+            // Space morning tasks with a 30m stretch & hydration break
+            if (includeRestBlocks && currentMins <= 690) {
+                appendItem({
+                    title: 'Morning Stretch & Hydration 💧',
+                    category: 'break',
+                    priority: 'medium',
+                    duration: 30,
+                    subtitle: 'Quick stretch, posture reset & water',
+                });
+            }
+        }
+        appendItem({
+            title: task.title,
+            category: task.category,
+            priority: task.priority,
+            duration: task.duration,
+            subtitle: task.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
+        });
+    }
+
+    // ─── ZONE 2: MIDDAY NOURISHMENT & LUNCH (12:30 PM - 1:30 PM) ───
+    if (includeLunch && initialStartMins <= 780 && (afternoonTasks.length > 0 || eveningTasks.length > 0 || currentMins >= 720)) {
+        // Fast-forward to at least 12:30 PM (750 mins) for lunch
+        currentMins = Math.max(currentMins, 750);
+        appendItem({
+            title: 'Lunch Break & Mindful Rest 🥗',
+            category: 'meal',
+            priority: 'medium',
+            duration: 60,
+            subtitle: 'Nutritious meal & mental reset',
+        });
+    }
+
+    // ─── ZONE 3: AFTERNOON EXECUTION & RECHARGE (1:30 PM - 5:30 PM) ───
+    if (afternoonTasks.length > 0) {
+        // Start afternoon session cleanly at 1:30 PM (810 mins)
+        currentMins = Math.max(currentMins, 810);
+
+        for (let i = 0; i < afternoonTasks.length; i++) {
+            const task = afternoonTasks[i];
+            if (i > 0 && includeRestBlocks) {
+                // Spacing break between afternoon tasks at ~3:00 PM or 3:30 PM
+                appendItem({
+                    title: 'Afternoon Recharge & Coffee ☕',
+                    category: 'break',
+                    priority: 'medium',
+                    duration: 30,
+                    subtitle: 'Hydration & short walk',
+                });
+            }
+            appendItem({
+                title: task.title,
+                category: task.category,
+                priority: task.priority,
+                duration: task.duration,
+                subtitle: task.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
+            });
+        }
+    }
+
+    // ─── ZONE 4: EVENING REVIEW & WRAP-UP (5:30 PM - 7:30 PM) ───
+    if (eveningTasks.length > 0) {
+        // Fast-forward to evening zone (~5:30 PM = 1050 mins)
+        currentMins = Math.max(currentMins, 1050);
+
+        for (let i = 0; i < eveningTasks.length; i++) {
+            const task = eveningTasks[i];
+            if (i > 0 && includeRestBlocks) {
+                appendItem({
+                    title: 'Mental Refresh & Stretch 🧘',
+                    category: 'break',
+                    priority: 'medium',
+                    duration: 30,
+                    subtitle: 'Eye rest & stretch',
+                });
+            }
+            appendItem({
+                title: task.title,
+                category: task.category,
+                priority: task.priority,
+                duration: task.duration,
+                subtitle: task.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
+            });
+        }
+    }
+
+    // ─── ZONE 5: EVENING WALK, DINNER & NIGHT RECOVERY (6:30 PM - 11:00 PM) ───
+    if (includeRestBlocks && currentMins <= 1170) { // Before 7:30 PM
+        currentMins = Math.max(currentMins, 1110); // 6:30 PM
+        appendItem({
+            title: 'Evening Walk & Mental Recovery 🌿',
+            category: 'break',
+            priority: 'medium',
+            duration: 30,
+            subtitle: 'Fresh air & decompression',
+        });
+    }
+
+    if (includeDinner && currentMins <= 1260) { // Before 9:00 PM
+        currentMins = Math.max(currentMins, 1200); // 8:00 PM
+        appendItem({
+            title: 'Dinner & Family Relaxation 🍽️',
+            category: 'meal',
+            priority: 'medium',
+            duration: 60,
+            subtitle: 'Family & nourishing dinner',
+        });
+    }
+
+    // Night Sleep Block
+    if (currentMins >= 1320 && !schedule.some((s) => s.category === 'sleep')) {
+        currentMins = Math.max(currentMins, 1380); // 11:00 PM
+        appendItem({
+            title: 'Night Sleep & Recovery 🌙',
+            category: 'sleep',
+            priority: 'high',
+            duration: 60,
             subtitle: 'Essential 7-8 hrs rest for peak performance',
         });
     }
@@ -492,9 +655,7 @@ export const autoBalanceSchedule = (
     startMinute = 0
 ): PlannedRoutineItem[] => {
     const updated = items.map((item) => (item.id === changedItemId ? { ...item, durationMinutes: newDuration } : { ...item }));
-    
-    // Find all work tasks (excluding meal/sleep)
-    const workItems = updated.filter((item) => item.category !== 'meal' && item.category !== 'sleep');
+    const workItems = updated.filter((item) => item.category !== 'meal' && item.category !== 'sleep' && item.category !== 'break');
     const maxWorkBudget = allottedMinutes;
     let currentWorkTotal = workItems.reduce((sum, item) => sum + item.durationMinutes, 0);
 
@@ -660,6 +821,52 @@ export const calculateDayEventCollisions = (
     }
 
     return collisionMap;
+};
+
+/**
+ * Resolves all time collisions on a day by sequencing overlapping tasks forward.
+ * Ensures zero tasks overlap in time.
+ */
+export const resolveCollisionsSequentially = (
+    dayItems: PlannedRoutineItem[]
+): PlannedRoutineItem[] => {
+    if (!dayItems || dayItems.length <= 1) return dayItems;
+
+    // Sort items by start time ascending, then by duration descending
+    const sorted = [...dayItems].sort((a, b) => {
+        const aStart = a.startHour * 60 + a.startMinute;
+        const bStart = b.startHour * 60 + b.startMinute;
+        if (aStart !== bStart) return aStart - bStart;
+        return (b.durationMinutes || 0) - (a.durationMinutes || 0);
+    });
+
+    let currentEndMins = 0;
+    const resolved: PlannedRoutineItem[] = [];
+
+    for (let i = 0; i < sorted.length; i++) {
+        const item = sorted[i];
+        let itemStartMins = item.startHour * 60 + item.startMinute;
+
+        // If this item starts before the previous item finishes, sequence it right after
+        if (i > 0 && itemStartMins < currentEndMins) {
+            itemStartMins = currentEndMins;
+        }
+
+        const sH = Math.floor(itemStartMins / 60) % 24;
+        const sM = itemStartMins % 60;
+        const duration = Math.max(15, item.durationMinutes || 30);
+
+        resolved.push({
+            ...item,
+            startHour: sH,
+            startMinute: sM,
+            durationMinutes: duration,
+        });
+
+        currentEndMins = itemStartMins + duration;
+    }
+
+    return resolved;
 };
 
 /**
@@ -861,3 +1068,104 @@ export const findSmartSlotForSingleTask = (
         subtitle: 'Created from Tasks & Goals',
     };
 };
+
+export interface WeeklyScheduleOptions {
+    weekDates: string[]; // Active dates to schedule (e.g. Mon-Fri or Mon-Sun)
+    tasks: TaskToSchedule[];
+    totalWeeklyHours?: number; // Total weekly work budget across all active days (e.g. 10 hours)
+    dailyAllottedHours?: number; // Fallback daily work budget
+    defaultStartHour?: number; // e.g. 9 AM
+    todayDateStr?: string;
+    todayCurrentHour?: number;
+    includeBreakfast?: boolean;
+    includeLunch?: boolean;
+    includeRestBlocks?: boolean;
+    includeDinner?: boolean;
+}
+
+/**
+ * Generates an intelligent, non-colliding weekly schedule across selected week dates.
+ * Divides total weekly work hours across active days (e.g. 10h total across 5 work days = 2h/day).
+ */
+export const generateWeeklySmartSchedule = (
+    options: WeeklyScheduleOptions
+): PlannedRoutineItem[] => {
+    const {
+        weekDates,
+        tasks,
+        totalWeeklyHours,
+        dailyAllottedHours,
+        defaultStartHour = 9,
+        todayDateStr = '',
+        todayCurrentHour = 8,
+        includeBreakfast = false,
+        includeLunch = true,
+        includeRestBlocks = true,
+        includeDinner = true,
+    } = options;
+
+    if (!weekDates || weekDates.length === 0) return [];
+
+    const fullWeeklySchedule: PlannedRoutineItem[] = [];
+    const pool = [...tasks];
+
+    // Filter active week dates: exclude strictly past dates (< todayDateStr)
+    const validWeekDates = todayDateStr
+        ? weekDates.filter((dStr) => dStr >= todayDateStr)
+        : weekDates;
+
+    if (validWeekDates.length === 0) return [];
+
+    // Calculate daily work minutes from total weekly budget across the remaining valid dates
+    const dailyMinutes = totalWeeklyHours !== undefined
+        ? Math.max(30, Math.round((totalWeeklyHours * 60) / validWeekDates.length))
+        : Math.max(30, (dailyAllottedHours || 4) * 60);
+
+    // For each date, generate a clean forward smart schedule with all user tasks included
+    for (let i = 0; i < validWeekDates.length; i++) {
+        const dateStr = validWeekDates[i];
+        const isToday = dateStr === todayDateStr;
+
+        let dayStartHour = defaultStartHour;
+        let dayAllottedMinutes = dailyMinutes;
+
+        // If today, only schedule future available hours (excluding past times)
+        if (isToday) {
+            const nextAvailableHour = todayCurrentHour + 1;
+            if (nextAvailableHour >= 22) {
+                // If it's already late night (>= 10 PM), skip today
+                continue;
+            }
+            if (nextAvailableHour > defaultStartHour) {
+                dayStartHour = nextAvailableHour;
+                const remainingMinutesToday = Math.max(30, (23 - dayStartHour) * 60);
+                dayAllottedMinutes = Math.min(dailyMinutes, remainingMinutesToday);
+            }
+        }
+
+        const finalDayTasks: TaskToSchedule[] =
+            pool.length > 0
+                ? [...pool]
+                : [
+                      { title: 'Core Focus & Deep Work', category: 'development' },
+                      { title: 'Task Execution & Review', category: 'writing' },
+                  ];
+
+        const daySchedule = generateForwardSmartSchedule({
+            tasks: finalDayTasks,
+            allottedMinutes: dayAllottedMinutes,
+            startHour: dayStartHour,
+            startMinute: 0,
+            dateStr,
+            includeBreakfast: isToday && dayStartHour > 10 ? false : includeBreakfast,
+            includeLunch: isToday && dayStartHour > 14 ? false : includeLunch,
+            includeRestBlocks: isToday && dayStartHour > 18 ? false : includeRestBlocks,
+            includeDinner: isToday && dayStartHour > 20 ? false : includeDinner,
+        });
+
+        fullWeeklySchedule.push(...daySchedule);
+    }
+
+    return fullWeeklySchedule;
+};
+

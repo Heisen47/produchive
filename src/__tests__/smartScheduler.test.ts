@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
     allocateProductiveTaskDurations,
     generateForwardSmartSchedule,
+    generateWeeklySmartSchedule,
     autoBalanceSchedule,
     getMindsetCardData,
     calculateDayEventCollisions,
@@ -45,7 +46,7 @@ describe('smartScheduler - Forward Planning & Auto-Balancing', () => {
         expect(editingTask!.durationMinutes).toBe(120);
 
         const productiveMins = schedule
-            .filter((item) => item.category !== 'meal' && item.category !== 'sleep')
+            .filter((item) => item.category !== 'meal' && item.category !== 'sleep' && item.category !== 'break')
             .reduce((sum, item) => sum + item.durationMinutes, 0);
         expect(productiveMins).toBe(120);
     });
@@ -163,5 +164,198 @@ describe('smartScheduler - Forward Planning & Auto-Balancing', () => {
         expect(collisions.get('task-2')!.totalCols).toBe(1);
         expect(collisions.get('task-2')!.colIndex).toBe(0);
     });
-});
 
+    it('generates a full 7-day weekly schedule distributed across week dates', () => {
+        const weekDates = [
+            '2026-08-31',
+            '2026-09-01',
+            '2026-09-02',
+            '2026-09-03',
+            '2026-09-04',
+            '2026-09-05',
+            '2026-09-06',
+        ];
+
+        const tasks = [
+            { title: 'Build OAuth backend', category: 'development' as const },
+            { title: 'Refactor UI state', category: 'development' as const },
+            { title: 'Write integration tests', category: 'development' as const },
+            { title: 'Review pull requests', category: 'writing' as const },
+        ];
+
+        const weeklySchedule = generateWeeklySmartSchedule({
+            weekDates,
+            tasks,
+            dailyAllottedHours: 4,
+            defaultStartHour: 9,
+            includeLunch: true,
+            includeDinner: true,
+            includeRestBlocks: true,
+        });
+
+        // Every day of the 7 days must have scheduled tasks
+        for (const dStr of weekDates) {
+            const dayItems = weeklySchedule.filter((item) => item.dateStr === dStr);
+            expect(dayItems.length).toBeGreaterThan(0);
+            expect(dayItems[0].startHour).toBe(9);
+            // Ensure zero collisions on that day
+            const dayCollisions = calculateDayEventCollisions(dayItems);
+            for (const item of dayItems) {
+                expect(dayCollisions.get(item.id)!.totalCols).toBe(1);
+            }
+        }
+    });
+
+    it('distributes total weekly hours across 5-day work week (Monday to Friday)', () => {
+        const workWeekDates = [
+            '2026-08-31', // Mon
+            '2026-09-01', // Tue
+            '2026-09-02', // Wed
+            '2026-09-03', // Thu
+            '2026-09-04', // Fri
+        ];
+
+        const tasks = [
+            { title: 'System design study', category: 'development' as const },
+            { title: 'Leetcode', category: 'development' as const },
+            { title: 'Video editing', category: 'writing' as const },
+        ];
+
+        // 10 hours total across 5 work days = 2 hours (120 mins) per day
+        const weeklySchedule = generateWeeklySmartSchedule({
+            weekDates: workWeekDates,
+            tasks,
+            totalWeeklyHours: 10,
+            defaultStartHour: 9,
+            includeLunch: true,
+            includeDinner: false,
+            includeRestBlocks: false,
+        });
+
+        for (const dStr of workWeekDates) {
+            const dayItems = weeklySchedule.filter((item) => item.dateStr === dStr);
+            const workMins = dayItems
+                .filter((item) => item.category !== 'meal' && item.category !== 'sleep' && item.category !== 'break')
+                .reduce((sum, item) => sum + item.durationMinutes, 0);
+
+            // Each day should have 120 minutes (2h) of work
+            expect(workMins).toBe(120);
+        }
+    });
+
+    it('allocates large deep work time to editing/coding and small time to admin tasks', () => {
+        const tasks = [
+            { title: 'Video Editing', category: 'development' as const },
+            { title: 'Answer emails and check messages', category: 'meeting' as const },
+        ];
+
+        // 4 hours (240 mins) total budget
+        const allocated = allocateProductiveTaskDurations(tasks, 240);
+
+        const editingTask = allocated.find((t) => t.title.toLowerCase().includes('editing'))!;
+        const emailTask = allocated.find((t) => t.title.toLowerCase().includes('email'))!;
+
+        expect(editingTask).toBeDefined();
+        expect(emailTask).toBeDefined();
+
+        // Deep work task gets the majority of time (at least 3 hours / 180 mins)
+        expect(editingTask.duration).toBeGreaterThanOrEqual(180);
+        // Admin task gets small capped time (<= 45 mins)
+        expect(emailTask.duration).toBeLessThanOrEqual(45);
+        // Total equals allotted budget
+        expect(editingTask.duration + emailTask.duration).toBe(240);
+    });
+
+    it('includes all 4 selected tasks in each scheduled day and excludes past time', () => {
+        const weekDates = [
+            '2026-08-31', // Mon (Today)
+            '2026-09-01', // Tue
+            '2026-09-02', // Wed
+        ];
+
+        const tasks = [
+            { title: 'Code Review & PRs', category: 'writing' as const },
+            { title: 'Leetcode & DSA', category: 'development' as const },
+            { title: 'Video Editing', category: 'writing' as const },
+            { title: 'System Design Study', category: 'development' as const },
+        ];
+
+        const weeklySchedule = generateWeeklySmartSchedule({
+            weekDates,
+            tasks,
+            totalWeeklyHours: 12,
+            defaultStartHour: 9,
+            todayDateStr: '2026-08-31',
+            todayCurrentHour: 20, // 8 PM (late evening)
+            includeLunch: true,
+            includeDinner: true,
+            includeRestBlocks: true,
+        });
+
+        // For upcoming full day (Tue: 2026-09-01), all 4 tasks must be present in the day's schedule
+        const tuesdayItems = weeklySchedule.filter((item) => item.dateStr === '2026-09-01');
+        const tuesdayTaskTitles = tuesdayItems
+            .filter((item) => item.category !== 'meal' && item.category !== 'sleep' && item.category !== 'break')
+            .map((item) => item.title);
+
+        expect(tuesdayTaskTitles).toContain('Code Review & PRs');
+        expect(tuesdayTaskTitles).toContain('Leetcode & DSA');
+        expect(tuesdayTaskTitles).toContain('Video Editing');
+        expect(tuesdayTaskTitles).toContain('System Design Study');
+
+        // On Monday (at 8 PM), no past events (at 9 AM, 11 AM, etc.) should exist
+        const mondayItems = weeklySchedule.filter((item) => item.dateStr === '2026-08-31');
+        for (const item of mondayItems) {
+            expect(item.startHour).toBeGreaterThanOrEqual(21);
+        }
+    });
+
+    it('penalizes unproductive activities (sleep, yt, insta, fiddling) and caps them to small duration', () => {
+        const tasks = [
+            { title: 'Leetcode & System Design', category: 'development' as const },
+            { title: 'watch yt & doomscroll insta', category: 'other' as const },
+            { title: 'fiddling around', category: 'other' as const },
+        ];
+
+        // 4 hours (240 mins) budget
+        const allocated = allocateProductiveTaskDurations(tasks, 240);
+
+        const deepWork = allocated.find((t) => t.title.includes('Leetcode'))!;
+        const ytTask = allocated.find((t) => t.title.includes('watch yt'))!;
+        const fiddleTask = allocated.find((t) => t.title.includes('fiddling'))!;
+
+        expect(deepWork).toBeDefined();
+        expect(ytTask).toBeDefined();
+        expect(fiddleTask).toBeDefined();
+
+        // Deep work gets vast majority of hours (>= 180 mins)
+        expect(deepWork.duration).toBeGreaterThanOrEqual(180);
+        // Unproductive activities get capped to <= 30 mins each
+        expect(ytTask.duration).toBeLessThanOrEqual(30);
+        expect(fiddleTask.duration).toBeLessThanOrEqual(30);
+
+        // Sum equals 240 mins exactly
+        const totalAllocated = allocated.reduce((s, i) => s + i.duration, 0);
+        expect(totalAllocated).toBe(240);
+    });
+
+    it('injects core deep focus blocks when user provides only unproductive tasks', () => {
+        const tasks = [{ title: 'sleep' }];
+        // 4 hours (240 mins)
+        const allocated = allocateProductiveTaskDurations(tasks, 240);
+
+        const sleepTask = allocated.find((t) => t.title.toLowerCase().includes('sleep'))!;
+        const coreWork = allocated.find((t) => t.title.toLowerCase().includes('deep work'))!;
+
+        expect(sleepTask).toBeDefined();
+        expect(coreWork).toBeDefined();
+
+        // Daytime sleep does not take all 4 hours, capped to <= 30 mins
+        expect(sleepTask.duration).toBeLessThanOrEqual(30);
+        // Core deep work is prioritized
+        expect(coreWork.duration).toBeGreaterThanOrEqual(120);
+        // Total equals 240 mins
+        const total = allocated.reduce((s, i) => s + i.duration, 0);
+        expect(total).toBe(240);
+    });
+});

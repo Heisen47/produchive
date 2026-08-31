@@ -1,0 +1,167 @@
+import { describe, it, expect } from 'vitest';
+import {
+    allocateProductiveTaskDurations,
+    generateForwardSmartSchedule,
+    autoBalanceSchedule,
+    getMindsetCardData,
+    calculateDayEventCollisions,
+    recalculateSequentialSchedule
+} from '../renderer/lib/smartScheduler';
+
+describe('smartScheduler - Forward Planning & Auto-Balancing', () => {
+    it('should allocate durations that strictly do not exceed the allotted time', () => {
+        const tasks = [
+            { title: 'Leetcode DSA practice' },
+            { title: 'Fix auth bug' },
+            { title: 'Write documentation' },
+            { title: 'Team sync meeting' },
+        ];
+
+        const allottedMinutes = 240; // 4 hours
+        const allocated = allocateProductiveTaskDurations(tasks, allottedMinutes);
+
+        expect(allocated).toHaveLength(4);
+        const totalAllocated = allocated.reduce((sum, t) => sum + t.duration, 0);
+        expect(totalAllocated).toBeLessThanOrEqual(allottedMinutes);
+        expect(totalAllocated).toBeGreaterThanOrEqual(180);
+    });
+
+    it('gives full allotted work time to user task when 2 hours is selected', () => {
+        const tasks = [{ title: 'editing' }];
+        const allottedMinutes = 120; // 2 hours
+
+        const schedule = generateForwardSmartSchedule({
+            tasks,
+            allottedMinutes,
+            startHour: 19, // 7 PM
+            startMinute: 0,
+            dateStr: '2026-08-31',
+            includeDinner: true,
+        });
+
+        const editingTask = schedule.find((s) => s.title === 'editing');
+        expect(editingTask).toBeDefined();
+        // User requested 2 hours, so editing gets the full 2 hours (120 mins)
+        expect(editingTask!.durationMinutes).toBe(120);
+
+        const productiveMins = schedule
+            .filter((item) => item.category !== 'meal' && item.category !== 'sleep')
+            .reduce((sum, item) => sum + item.durationMinutes, 0);
+        expect(productiveMins).toBe(120);
+    });
+
+    it('gives more priority and higher time to core productive/coding tasks', () => {
+        const tasks = [
+            { title: 'Build new feature backend and frontend' },
+            { title: 'Email checking and admin' },
+        ];
+
+        const allottedMinutes = 180; // 3 hours
+        const allocated = allocateProductiveTaskDurations(tasks, allottedMinutes);
+
+        const codingTask = allocated.find((t) => t.title.includes('Build new feature'));
+        const adminTask = allocated.find((t) => t.title.includes('Email'));
+
+        expect(codingTask).toBeDefined();
+        expect(adminTask).toBeDefined();
+        expect(codingTask!.duration).toBeGreaterThan(adminTask!.duration);
+    });
+
+    it('generates forward schedule starting strictly in future from 18:00 (6 PM) onwards', () => {
+        const tasks = [
+            { title: 'Gaming stream' },
+            { title: 'Leetcode practice' },
+        ];
+
+        // 6 hours available starting at 18:00 (6 PM)
+        const schedule = generateForwardSmartSchedule({
+            tasks,
+            allottedMinutes: 360,
+            startHour: 18,
+            startMinute: 0,
+            dateStr: '2026-08-31',
+            includeBreakfast: true, // Should be omitted because 18:00 > 8:00 AM
+            includeLunch: true,     // Should be omitted because 18:00 > 1:00 PM
+            includeDinner: true,    // Included at 20:00 (8:00 PM)
+        });
+
+        expect(schedule.length).toBeGreaterThanOrEqual(2);
+        // First task starts at 18:00
+        expect(schedule[0].startHour).toBe(18);
+        expect(schedule[0].startMinute).toBe(0);
+
+        // No tasks in morning/lunch
+        expect(schedule.every((item) => item.startHour >= 18 || item.startHour <= 2)).toBe(true);
+        expect(schedule.some((item) => item.title.includes('Breakfast'))).toBe(false);
+        expect(schedule.some((item) => item.title.includes('Lunch'))).toBe(false);
+    });
+
+    it('returns focus quote for evening routine ending before 10:30 PM and sleep quote for late night', () => {
+        // Evening routine ending at 9 PM (21:00)
+        const eveningSchedule: any[] = [
+            { startHour: 19, startMinute: 0, durationMinutes: 120, category: 'development' },
+        ];
+        const eveningCard = getMindsetCardData(eveningSchedule, 2, 19);
+        expect(eveningCard.type).toBe('productivity');
+        expect(eveningCard.title).toContain('Focus & Execution');
+        expect(eveningCard.tip).toContain('11 PM');
+
+        // Late night routine ending at 11:30 PM (23:30)
+        const lateSchedule: any[] = [
+            { startHour: 22, startMinute: 0, durationMinutes: 90, category: 'development' },
+        ];
+        const lateCard = getMindsetCardData(lateSchedule, 1.5, 22);
+        expect(lateCard.type).toBe('sleep');
+        expect(lateCard.title).toContain('Rest & Recovery');
+    });
+
+    it('auto-balances other tasks when user increases a task duration without exceeding budget', () => {
+        const items: any[] = [
+            { id: '1', title: 'Task 1', category: 'development', startHour: 18, startMinute: 0, durationMinutes: 60 },
+            { id: '2', title: 'Task 2', category: 'development', startHour: 19, startMinute: 0, durationMinutes: 60 },
+            { id: '3', title: 'Task 3', category: 'development', startHour: 20, startMinute: 0, durationMinutes: 60 },
+        ];
+
+        const allottedMinutes = 180; // 3 hours
+
+        // Increase Task 1 from 60 to 90 mins
+        const balanced = autoBalanceSchedule(items, '1', 90, allottedMinutes, 18, 0);
+
+        const totalWork = balanced.filter(i => i.category !== 'meal' && i.category !== 'sleep').reduce((sum, item) => sum + item.durationMinutes, 0);
+        expect(totalWork).toBe(allottedMinutes);
+        expect(balanced.find((i) => i.id === '1')!.durationMinutes).toBe(90);
+    });
+
+    it('gracefully handles colliding/overlapping tasks with side-by-side split columns', () => {
+        const dayItems: any[] = [
+            { id: 'video-editing', title: 'video editing', startHour: 19, startMinute: 0, durationMinutes: 180 }, // 7 PM - 10 PM
+            { id: 'dinner', title: 'Dinner', startHour: 21, startMinute: 0, durationMinutes: 60 },                 // 9 PM - 10 PM
+        ];
+
+        const collisions = calculateDayEventCollisions(dayItems);
+        const editingCollision = collisions.get('video-editing');
+        const dinnerCollision = collisions.get('dinner');
+
+        expect(editingCollision).toBeDefined();
+        expect(dinnerCollision).toBeDefined();
+        // Both belong to a 2-column collision cluster
+        expect(editingCollision!.totalCols).toBe(2);
+        expect(dinnerCollision!.totalCols).toBe(2);
+        // They occupy distinct side-by-side columns (0 and 1)
+        expect(editingCollision!.colIndex).not.toBe(dinnerCollision!.colIndex);
+    });
+
+    it('assigns single column (100% width) to non-overlapping tasks', () => {
+        const dayItems: any[] = [
+            { id: 'task-1', title: 'Task 1', startHour: 9, startMinute: 0, durationMinutes: 60 },  // 9 AM - 10 AM
+            { id: 'task-2', title: 'Task 2', startHour: 11, startMinute: 0, durationMinutes: 60 }, // 11 AM - 12 PM
+        ];
+
+        const collisions = calculateDayEventCollisions(dayItems);
+        expect(collisions.get('task-1')!.totalCols).toBe(1);
+        expect(collisions.get('task-1')!.colIndex).toBe(0);
+        expect(collisions.get('task-2')!.totalCols).toBe(1);
+        expect(collisions.get('task-2')!.colIndex).toBe(0);
+    });
+});
+

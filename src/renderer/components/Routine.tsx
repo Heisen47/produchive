@@ -19,7 +19,10 @@ import {
     Edit3,
     Activity as ActivityIcon,
     Save,
-    ArrowRightLeft
+    ArrowRightLeft,
+    ArrowLeft,
+    Check,
+    Moon
 } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
@@ -27,7 +30,17 @@ import { Activity } from '../global';
 import { GoogleOAuthModal } from './GoogleOAuthModal';
 import { LoginModal } from './LoginModal';
 import { getGoogleAuthToken, getGoogleCalendarConfig, performGoogleCalendarSync, isGoogleCalendarConnected, isCalendarSyncUpToDate } from '../lib/googleCalendar';
-import { distributeSmartSchedule, TaskToSchedule } from '../lib/smartScheduler';
+import {
+    distributeSmartSchedule,
+    allocateProductiveTaskDurations,
+    recalculateSequentialSchedule,
+    generateForwardSmartSchedule,
+    autoBalanceSchedule,
+    getMindsetCardData,
+    calculateDayEventCollisions,
+    EventCollisionInfo,
+    TaskToSchedule
+} from '../lib/smartScheduler';
 
 // ─── Types ───
 export interface PlannedRoutineItem {
@@ -500,112 +513,106 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
         fetchRange();
     }, [displayDays]);
 
+    // ─── Precompute Overlapping Task Collision Layouts per Day (Side-by-side positioning) ───
+    const collisionsByDate = useMemo(() => {
+        const map = new Map<string, Map<string, EventCollisionInfo>>();
+        const grouped = new Map<string, PlannedRoutineItem[]>();
+
+        for (const r of allRoutines) {
+            if (!grouped.has(r.dateStr)) {
+                grouped.set(r.dateStr, []);
+            }
+            grouped.get(r.dateStr)!.push(r);
+        }
+
+        for (const [dStr, dayItems] of grouped.entries()) {
+            map.set(dStr, calculateDayEventCollisions(dayItems));
+        }
+        return map;
+    }, [allRoutines]);
+
     // ─── Routine Maker Form State ───
-    const [availableHours, setAvailableHours] = useState<number>(8);
+    const [allottedHours, setAllottedHours] = useState<number>(6);
+    const [makerPhase, setMakerPhase] = useState<'input' | 'preview'>('input');
     const [startHourInput, setStartHourInput] = useState<number>(9);
     const [includeBreakfast, setIncludeBreakfast] = useState<boolean>(false);
     const [includeLunch, setIncludeLunch] = useState<boolean>(true);
     const [includeRestBlocks, setIncludeRestBlocks] = useState<boolean>(true);
     const [includeDinner, setIncludeDinner] = useState<boolean>(true);
     const [makerTasks, setMakerTasks] = useState<
-        Array<{ title: string; duration: number; category: PlannedRoutineItem['category']; priority: PlannedRoutineItem['priority'] }>
+        Array<{ title: string; category?: PlannedRoutineItem['category']; priority?: PlannedRoutineItem['priority'] }>
     >([]);
     const [newTaskTitle, setNewTaskTitle] = useState('');
-    const [newTaskDuration, setNewTaskDuration] = useState(60);
-    const [newTaskCategory, setNewTaskCategory] = useState<PlannedRoutineItem['category']>('development');
-    const [newTaskPriority, setNewTaskPriority] = useState<PlannedRoutineItem['priority']>('high');
+    const [previewSchedule, setPreviewSchedule] = useState<PlannedRoutineItem[]>([]);
 
-    // ─── Smart Schedule Generator ───
+    // When opening Plan Your Day modal for today, automatically default startHourInput to current future hour
+    useEffect(() => {
+        if (isMakerOpen) {
+            const isToday = formatDateStr(selectedDate) === todayStr;
+            if (isToday) {
+                const nowHour = new Date().getHours();
+                setStartHourInput(Math.min(23, nowHour));
+            }
+        }
+    }, [isMakerOpen, selectedDate, todayStr]);
+
+    // ─── Smart Forward Schedule Generator (Strictly Future Times, Productivity Prioritization) ───
     const handleGenerateSchedule = () => {
-        if (makerTasks.length === 0) return;
+        if (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast) return;
 
         const targetDateStr = formatDateStr(selectedDate);
+        const isSelectedToday = targetDateStr === todayStr;
+        const currentH = new Date().getHours();
+        const actualStartHour = isSelectedToday ? Math.max(startHourInput, currentH) : startHourInput;
+        const allottedMinutes = Math.max(30, allottedHours * 60);
+
+        const newItems = generateForwardSmartSchedule({
+            tasks: makerTasks,
+            allottedMinutes,
+            startHour: actualStartHour,
+            startMinute: 0,
+            dateStr: targetDateStr,
+            includeBreakfast,
+            includeLunch,
+            includeRestBlocks,
+            includeDinner,
+        });
+
+        setPreviewSchedule(newItems);
+        setMakerPhase('preview');
+    };
+
+    const handleApplySchedule = () => {
+        const targetDateStr = formatDateStr(selectedDate);
         const otherRoutines = allRoutines.filter((r) => r.dateStr !== targetDateStr);
-
-        const tasksToDistribute: TaskToSchedule[] = makerTasks.map((t) => ({
-            title: t.title,
-            category: t.category,
-            priority: t.priority,
-            duration: t.duration,
-            subtitle: t.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
-        }));
-
-        // Breakfast insertion at 8:00 AM (Optional)
-        if (includeBreakfast && !tasksToDistribute.some((t) => t.title.toLowerCase().includes('breakfast'))) {
-            tasksToDistribute.push({
-                title: 'Breakfast & Morning Routine ☕',
-                category: 'meal',
-                priority: 'high',
-                duration: 45,
-                subtitle: 'Healthy breakfast & mindset prep',
-            });
-        }
-
-        // Lunch Break insertion at 1:00 PM (Default)
-        if (includeLunch && !tasksToDistribute.some((t) => t.title.toLowerCase().includes('lunch'))) {
-            tasksToDistribute.push({
-                title: 'Lunch Break & Recharge 🥗',
-                category: 'meal',
-                priority: 'high',
-                duration: 60,
-                subtitle: 'Healthy meal & fresh air',
-            });
-        }
-
-        // Rest & Recharge Blocks (Default: Afternoon coffee/stretch & Evening walk)
-        if (includeRestBlocks) {
-            if (!tasksToDistribute.some((t) => t.title.toLowerCase().includes('recharge') || t.title.toLowerCase().includes('coffee') || t.title.toLowerCase().includes('tea') || t.title.toLowerCase().includes('snack'))) {
-                tasksToDistribute.push({
-                    title: 'Afternoon Recharge & Coffee ☕',
-                    category: 'break',
-                    priority: 'medium',
-                    duration: 30,
-                    subtitle: 'Hydration, quick stretch & recharge',
-                });
-            }
-            if (!tasksToDistribute.some((t) => t.title.toLowerCase().includes('walk') || t.title.toLowerCase().includes('stretch') || t.title.toLowerCase().includes('gym') || t.title.toLowerCase().includes('workout') || t.title.toLowerCase().includes('exercise'))) {
-                tasksToDistribute.push({
-                    title: 'Evening Walk & Unwind 🌿',
-                    category: 'break',
-                    priority: 'medium',
-                    duration: 30,
-                    subtitle: 'Fresh air & physical break',
-                });
-            }
-        }
-
-        // Dinner Break insertion at 8:00 PM (Default)
-        if (includeDinner && !tasksToDistribute.some((t) => t.title.toLowerCase().includes('dinner'))) {
-            tasksToDistribute.push({
-                title: 'Dinner & Relaxation 🍽️',
-                category: 'meal',
-                priority: 'high',
-                duration: 60,
-                subtitle: 'Family / Rest',
-            });
-        }
-
-        // Night Sleep indicator at 11:00 PM
-        if (!tasksToDistribute.some((t) => t.title.toLowerCase().includes('sleep'))) {
-            tasksToDistribute.push({
-                title: 'Night Sleep & Recovery 🌙',
-                category: 'sleep',
-                priority: 'high',
-                duration: 60,
-                subtitle: 'Recommended 7-8 hrs rest',
-            });
-        }
-
-        const newItems = distributeSmartSchedule(
-            tasksToDistribute,
-            targetDateStr,
-            [],
-            startHourInput,
-            23
-        );
-
-        saveMasterRoutines([...otherRoutines, ...newItems]);
+        saveMasterRoutines([...otherRoutines, ...previewSchedule]);
         setIsMakerOpen(false);
+        setMakerPhase('input');
+        setSyncToast('Schedule applied to Routine planner! 🎯');
+        setTimeout(() => setSyncToast(null), 4000);
+    };
+
+    const handleUpdatePreviewDuration = (itemId: string, newDuration: number) => {
+        const targetDateStr = formatDateStr(selectedDate);
+        const isSelectedToday = targetDateStr === todayStr;
+        const currentH = new Date().getHours();
+        const actualStartHour = isSelectedToday ? Math.max(startHourInput, currentH) : startHourInput;
+
+        setPreviewSchedule((prev) => {
+            return autoBalanceSchedule(prev, itemId, newDuration, allottedHours * 60, actualStartHour, 0);
+        });
+    };
+
+    const handleRemovePreviewItem = (itemId: string) => {
+        const targetDateStr = formatDateStr(selectedDate);
+        const isSelectedToday = targetDateStr === todayStr;
+        const currentH = new Date().getHours();
+        const actualStartHour = isSelectedToday ? Math.max(startHourInput, currentH) : startHourInput;
+
+        setPreviewSchedule((prev) => {
+            const filtered = prev.filter((item) => item.id !== itemId);
+            return recalculateSequentialSchedule(filtered, actualStartHour, 0);
+        });
     };
 
     // ─── Drag and Drop Handlers with Past Task & Past Timeslot Blocking ───
@@ -669,7 +676,6 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
 
         const imported = uncompleted.map((t) => ({
             title: t.text,
-            duration: 45,
             category: 'development' as const,
             priority: 'high' as const,
         }));
@@ -1181,6 +1187,25 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                             {cellRoutines.map((item) => {
                                                 const colors = getEventColors(item.category, isDark);
                                                 const isPastTask = item.dateStr < todayStr || (item.dateStr === todayStr && item.startHour < currentHour);
+                                                const collisionInfo = collisionsByDate.get(dateStr)?.get(item.id) || { colIndex: 0, totalCols: 1 };
+                                                const { colIndex, totalCols } = collisionInfo;
+                                                const isColliding = totalCols > 1;
+
+                                                const duration = Math.max(15, item.durationMinutes || 30);
+                                                const rawHeight = Math.round((duration / 60) * 90) - 8;
+                                                const calculatedHeight = Math.max(34, rawHeight);
+                                                const isCompact = calculatedHeight < 56;
+
+                                                const endMinTotal = item.startHour * 60 + item.startMinute + duration;
+                                                const endH = Math.floor(endMinTotal / 60) % 24;
+                                                const endM = endMinTotal % 60;
+                                                const timeRangeString = `${formatTimeSlot(item.startHour, item.startMinute)} - ${formatTimeSlot(endH, endM)} (${duration}m)`;
+
+                                                const colWidthPercent = 100 / totalCols;
+                                                const colLeftPercent = (colIndex * 100) / totalCols;
+                                                const widthStyle = isColliding ? `calc(${colWidthPercent}% - 6px)` : 'calc(100% - 12px)';
+                                                const leftStyle = isColliding ? `calc(${colLeftPercent}% + ${colIndex === 0 ? 4 : 2}px)` : '6px';
+                                                const topOffset = Math.round((item.startMinute / 60) * 90) + 4;
 
                                                 return (
                                                     <div
@@ -1191,10 +1216,10 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                             e.stopPropagation();
                                                             setSelectedRoutineDetails({ ...item });
                                                         }}
-                                                        className={`p-2.5 rounded-xl border shadow-md transition-all group relative overflow-hidden ${
+                                                        className={`p-2 rounded-xl border shadow-md transition-all group overflow-hidden flex flex-col justify-between ${
                                                             isPastTask
                                                                 ? 'cursor-default opacity-60'
-                                                                : 'cursor-grab active:cursor-grabbing hover:scale-[1.02]'
+                                                                : 'cursor-grab active:cursor-grabbing hover:scale-[1.01]'
                                                         } ${item.completed ? 'line-through' : ''}`}
                                                         style={{
                                                             background: colors.bg,
@@ -1202,98 +1227,166 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                             boxShadow: isDark
                                                                 ? '0 4px 12px rgba(0,0,0,0.25)'
                                                                 : '0 2px 8px rgba(0,0,0,0.06)',
+                                                            position: 'absolute',
+                                                            top: `${topOffset}px`,
+                                                            height: `${calculatedHeight}px`,
+                                                            left: leftStyle,
+                                                            width: widthStyle,
+                                                            zIndex: 20 + colIndex,
                                                         }}
                                                     >
-                                                        <div className="flex items-start justify-between gap-1.5">
-                                                            <div className="flex items-center gap-1.5 min-w-0">
-                                                                <h4
-                                                                    className="font-semibold text-xs leading-tight truncate"
-                                                                    style={{ color: colors.text }}
-                                                                >
-                                                                    {item.title}
-                                                                </h4>
-                                                                {isPastTask && (
-                                                                    <span
-                                                                        className="text-[9px] px-1 py-0.2 rounded font-medium shrink-0"
-                                                                        style={{
-                                                                            background: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.08)',
-                                                                            color: colors.subtext,
-                                                                        }}
+                                                        {isCompact ? (
+                                                            <div className="flex items-center justify-between gap-1 w-full h-full">
+                                                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                                                    <h4
+                                                                        className="font-semibold text-xs leading-none truncate"
+                                                                        style={{ color: colors.text }}
                                                                     >
-                                                                        Past
+                                                                        {item.title}
+                                                                    </h4>
+                                                                    <span className="text-[10px] font-mono opacity-80 shrink-0" style={{ color: colors.subtext }}>
+                                                                        {formatTimeSlot(item.startHour, item.startMinute)}
                                                                     </span>
-                                                                )}
-                                                            </div>
-                                                            {!isPastTask && (
-                                                                <GripVertical
-                                                                    size={12}
-                                                                    style={{ color: colors.subtext }}
-                                                                    className="opacity-0 group-hover:opacity-100 shrink-0 cursor-grab"
-                                                                />
-                                                            )}
-                                                        </div>
-
-                                                        {item.subtitle && (
-                                                            <p
-                                                                className="text-[11px] mt-1 truncate"
-                                                                style={{ color: colors.subtext }}
-                                                            >
-                                                                {item.subtitle}
-                                                            </p>
-                                                        )}
-
-                                                        <div
-                                                            className="flex items-center justify-between mt-2 pt-1.5 border-t text-[10px]"
-                                                            style={{
-                                                                borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                                                                color: colors.subtext,
-                                                            }}
-                                                        >
-                                                            <span>
-                                                                {formatTimeSlot(item.startHour, item.startMinute)} ({item.durationMinutes}m)
-                                                            </span>
-
-                                                            <div className="flex items-center gap-1.5">
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        saveMasterRoutines(
-                                                                            allRoutines.map((r) =>
-                                                                                r.id === item.id ? { ...r, completed: !r.completed } : r
-                                                                            )
-                                                                        );
-                                                                    }}
-                                                                    className="hover:text-emerald-500 transition-colors"
-                                                                    title="Mark done"
-                                                                >
-                                                                    {item.completed ? (
-                                                                        <CheckCircle2 size={13} className="text-emerald-500" />
-                                                                    ) : (
-                                                                        <Circle size={13} />
+                                                                    {isPastTask && (
+                                                                        <span
+                                                                            className="text-[9px] px-1 py-0.2 rounded font-medium shrink-0"
+                                                                            style={{
+                                                                                background: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.08)',
+                                                                                color: colors.subtext,
+                                                                            }}
+                                                                        >
+                                                                            Past
+                                                                        </span>
                                                                     )}
-                                                                </button>
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setSelectedRoutineDetails({ ...item });
-                                                                    }}
-                                                                    className="opacity-0 group-hover:opacity-100 hover:text-indigo-500 transition-all"
-                                                                    title="Edit Details"
-                                                                >
-                                                                    <Edit3 size={12} />
-                                                                </button>
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        saveMasterRoutines(allRoutines.filter((r) => r.id !== item.id));
-                                                                    }}
-                                                                    className="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"
-                                                                    title="Delete"
-                                                                >
-                                                                    <Trash2 size={12} />
-                                                                </button>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            saveMasterRoutines(
+                                                                                allRoutines.map((r) =>
+                                                                                    r.id === item.id ? { ...r, completed: !r.completed } : r
+                                                                                )
+                                                                            );
+                                                                        }}
+                                                                        className="hover:text-emerald-500 transition-colors"
+                                                                        title="Mark done"
+                                                                    >
+                                                                        {item.completed ? (
+                                                                            <CheckCircle2 size={12} className="text-emerald-500" />
+                                                                        ) : (
+                                                                            <Circle size={12} />
+                                                                        )}
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setSelectedRoutineDetails({ ...item });
+                                                                        }}
+                                                                        className="opacity-0 group-hover:opacity-100 hover:text-indigo-500 transition-all"
+                                                                        title="Edit Details"
+                                                                    >
+                                                                        <Edit3 size={11} />
+                                                                    </button>
+                                                                </div>
                                                             </div>
-                                                        </div>
+                                                        ) : (
+                                                            <>
+                                                                <div>
+                                                                    <div className="flex items-start justify-between gap-1.5">
+                                                                        <div className="flex items-center gap-1.5 min-w-0">
+                                                                            <h4
+                                                                                className="font-semibold text-xs leading-tight truncate"
+                                                                                style={{ color: colors.text }}
+                                                                            >
+                                                                                {item.title}
+                                                                            </h4>
+                                                                            {isPastTask && (
+                                                                                <span
+                                                                                    className="text-[9px] px-1 py-0.2 rounded font-medium shrink-0"
+                                                                                    style={{
+                                                                                        background: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.08)',
+                                                                                        color: colors.subtext,
+                                                                                    }}
+                                                                                >
+                                                                                    Past
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                        {!isPastTask && (
+                                                                            <GripVertical
+                                                                                size={12}
+                                                                                style={{ color: colors.subtext }}
+                                                                                className="opacity-0 group-hover:opacity-100 shrink-0 cursor-grab"
+                                                                            />
+                                                                        )}
+                                                                    </div>
+
+                                                                    {item.subtitle && (
+                                                                        <p
+                                                                            className="text-[11px] mt-1 truncate"
+                                                                            style={{ color: colors.subtext }}
+                                                                        >
+                                                                            {item.subtitle}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+
+                                                                <div
+                                                                    className="flex items-center justify-between mt-2 pt-1.5 border-t text-[10px]"
+                                                                    style={{
+                                                                        borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                                                                        color: colors.subtext,
+                                                                    }}
+                                                                >
+                                                                    <span className="font-medium truncate">
+                                                                        {timeRangeString}
+                                                                    </span>
+
+                                                                    <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                saveMasterRoutines(
+                                                                                    allRoutines.map((r) =>
+                                                                                        r.id === item.id ? { ...r, completed: !r.completed } : r
+                                                                                    )
+                                                                                );
+                                                                            }}
+                                                                            className="hover:text-emerald-500 transition-colors"
+                                                                            title="Mark done"
+                                                                        >
+                                                                            {item.completed ? (
+                                                                                <CheckCircle2 size={13} className="text-emerald-500" />
+                                                                            ) : (
+                                                                                <Circle size={13} />
+                                                                            )}
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                setSelectedRoutineDetails({ ...item });
+                                                                            }}
+                                                                            className="opacity-0 group-hover:opacity-100 hover:text-indigo-500 transition-all"
+                                                                            title="Edit Details"
+                                                                        >
+                                                                            <Edit3 size={12} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                saveMasterRoutines(allRoutines.filter((r) => r.id !== item.id));
+                                                                            }}
+                                                                            className="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"
+                                                                            title="Delete"
+                                                                        >
+                                                                            <Trash2 size={12} />
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 );
                                             })}
@@ -1792,7 +1885,7 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                 </div>
             )}
 
-            {/* 6. Minimalist "Plan Your Day" Modal */}
+            {/* 6. "Plan Your Day" Smart Routine Maker & Preview Modal */}
             {isMakerOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in">
                     <div
@@ -1811,227 +1904,400 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                 </div>
                                 <div>
                                     <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-                                        Plan Your Day
+                                        {makerPhase === 'input' ? 'Plan Your Day' : 'Review & Fine-Tune Schedule'}
                                     </h3>
                                     <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                                        Add tasks to automatically generate your balanced schedule.
+                                        {makerPhase === 'input'
+                                            ? 'Set your available hours and add tasks to smartly generate your schedule.'
+                                            : 'Fine-tune task durations before applying to your routine.'}
                                     </p>
                                 </div>
                             </div>
                             <button
-                                onClick={() => setIsMakerOpen(false)}
+                                onClick={() => {
+                                    setIsMakerOpen(false);
+                                    setMakerPhase('input');
+                                }}
                                 className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-all"
                             >
                                 <X size={18} />
                             </button>
                         </div>
 
-                        {/* Routine Toggles & Start Time Row */}
-                        <div className="flex items-center justify-between gap-3 p-3 rounded-2xl border flex-wrap" style={{ background: 'var(--bg-input)', borderColor: 'var(--border-secondary)' }}>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                                <button
-                                    type="button"
-                                    onClick={() => setIncludeBreakfast(!includeBreakfast)}
-                                    className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
-                                        includeBreakfast
-                                            ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
-                                            : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
-                                    }`}
-                                >
-                                    ☕ Breakfast
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setIncludeLunch(!includeLunch)}
-                                    className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
-                                        includeLunch
-                                            ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
-                                            : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
-                                    }`}
-                                >
-                                    🥗 Lunch
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setIncludeRestBlocks(!includeRestBlocks)}
-                                    className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
-                                        includeRestBlocks
-                                            ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
-                                            : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
-                                    }`}
-                                >
-                                    🌿 Rest Breaks
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setIncludeDinner(!includeDinner)}
-                                    className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
-                                        includeDinner
-                                            ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
-                                            : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
-                                    }`}
-                                >
-                                    🍽️ Dinner
-                                </button>
-                            </div>
-
-                            <div className="flex items-center gap-1.5 shrink-0 text-xs text-slate-400">
-                                <span>Start:</span>
-                                <select
-                                    value={startHourInput}
-                                    onChange={(e) => setStartHourInput(Number(e.target.value))}
-                                    className="px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent focus:outline-none focus:border-[#5b5fc7]"
-                                    style={{ color: 'var(--text-primary)', borderColor: 'var(--border-card)' }}
-                                >
-                                    {hours.slice(6, 16).map((h) => (
-                                        <option key={h} value={h} className="bg-slate-900 text-white">
-                                            {formatHourLabel(h)}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                        </div>
-
-                        {/* Task Input & List */}
-                        <div className="space-y-3">
-                            <div className="flex items-center justify-between">
-                                <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                                    Tasks ({makerTasks.length})
-                                </label>
-                                {(tasks || []).filter(t => !t.completed).length > 0 && (
-                                    <button
-                                        type="button"
-                                        onClick={handleImportTasks}
-                                        className="text-xs px-2.5 py-0.5 rounded-lg bg-[#5b5fc7]/10 hover:bg-[#5b5fc7]/20 text-[#5b5fc7] dark:text-[#7b83eb] font-semibold transition-all flex items-center gap-1.5"
-                                    >
-                                        <Download size={11} /> Import from Tasks ({tasks.filter(t => !t.completed).length})
-                                    </button>
-                                )}
-                            </div>
-
-                            <form
-                                onSubmit={(e) => {
-                                    e.preventDefault();
-                                    if (!newTaskTitle.trim()) return;
-                                    setMakerTasks((prev) => [
-                                        ...prev,
-                                        {
-                                            title: newTaskTitle.trim(),
-                                            duration: newTaskDuration,
-                                            category: newTaskCategory,
-                                            priority: newTaskPriority,
-                                        },
-                                    ]);
-                                    setNewTaskTitle('');
-                                }}
-                                className="flex items-center gap-2"
-                            >
-                                <input
-                                    type="text"
-                                    placeholder="Add task (e.g. Video editing, Leetcode, Build feature)..."
-                                    value={newTaskTitle}
-                                    onChange={(e) => setNewTaskTitle(e.target.value)}
-                                    className="flex-1 px-3.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] transition-all"
-                                    style={{
-                                        background: 'var(--bg-input)',
-                                        color: 'var(--text-primary)',
-                                        borderColor: 'var(--border-input)',
-                                    }}
-                                />
-
-                                <select
-                                    value={newTaskDuration}
-                                    onChange={(e) => setNewTaskDuration(Number(e.target.value))}
-                                    className="px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] shrink-0 font-medium"
-                                    style={{
-                                        background: 'var(--bg-input)',
-                                        color: 'var(--text-primary)',
-                                        borderColor: 'var(--border-input)',
-                                    }}
-                                >
-                                    <option value={30}>30m</option>
-                                    <option value={45}>45m</option>
-                                    <option value={60}>1h</option>
-                                    <option value={90}>1.5h</option>
-                                    <option value={120}>2h</option>
-                                </select>
-
-                                <button
-                                    type="submit"
-                                    disabled={!newTaskTitle.trim()}
-                                    className="py-2 px-3.5 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1 transition-all shadow-sm shrink-0 cursor-pointer"
-                                >
-                                    <Plus size={14} /> Add
-                                </button>
-                            </form>
-
-                            {/* Task List */}
-                            <div className="space-y-1.5 max-h-52 overflow-y-auto custom-scrollbar pt-1">
-                                {makerTasks.length === 0 ? (
-                                    <div className="py-7 text-center border border-dashed rounded-2xl" style={{ borderColor: 'var(--border-secondary)' }}>
-                                        <p className="text-xs text-slate-400">No tasks added yet. Type a task above or import existing tasks.</p>
+                        {makerPhase === 'input' ? (
+                            <>
+                                {/* Allotted Time Today Selection */}
+                                <div className="p-3.5 rounded-2xl border space-y-2.5" style={{ background: 'var(--bg-input)', borderColor: 'var(--border-secondary)' }}>
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                                            <Clock size={13} className="text-[#5b5fc7]" /> Total Available Time Today
+                                        </label>
+                                        <span className="text-xs font-bold text-[#5b5fc7] dark:text-[#7b83eb]">
+                                            {allottedHours} {allottedHours === 1 ? 'hour' : 'hours'} ({allottedHours * 60} mins)
+                                        </span>
                                     </div>
-                                ) : (
-                                    makerTasks.map((t, idx) => (
-                                        <div
-                                            key={idx}
-                                            className="flex items-center justify-between px-3 py-2 rounded-xl border group hover:border-[#5b5fc7]/40 transition-all"
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        {[2, 4, 6, 8, 10].map((h) => (
+                                            <button
+                                                key={h}
+                                                type="button"
+                                                onClick={() => setAllottedHours(h)}
+                                                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                                                    allottedHours === h
+                                                        ? 'bg-[#5b5fc7] text-white border-[#5b5fc7] shadow-sm shadow-[#5b5fc7]/30'
+                                                        : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                                                }`}
+                                            >
+                                                {h} hrs
+                                            </button>
+                                        ))}
+                                        <div className="flex items-center gap-1 ml-auto text-xs text-slate-400">
+                                            <span>Custom:</span>
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                max={16}
+                                                value={allottedHours}
+                                                onChange={(e) => setAllottedHours(Math.max(1, Math.min(16, Number(e.target.value) || 1)))}
+                                                className="w-14 px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent text-center focus:outline-none focus:border-[#5b5fc7]"
+                                                style={{ color: 'var(--text-primary)', borderColor: 'var(--border-card)' }}
+                                            />
+                                            <span>h</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Routine Toggles & Start Time Row */}
+                                <div className="flex items-center justify-between gap-3 p-3 rounded-2xl border flex-wrap" style={{ background: 'var(--bg-input)', borderColor: 'var(--border-secondary)' }}>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                        <button
+                                            type="button"
+                                            onClick={() => setIncludeBreakfast(!includeBreakfast)}
+                                            className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                                                includeBreakfast
+                                                    ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
+                                                    : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
+                                            }`}
+                                        >
+                                            ☕ Breakfast
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIncludeLunch(!includeLunch)}
+                                            className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                                                includeLunch
+                                                    ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
+                                                    : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
+                                            }`}
+                                        >
+                                            🥗 Lunch
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIncludeRestBlocks(!includeRestBlocks)}
+                                            className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                                                includeRestBlocks
+                                                    ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
+                                                    : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
+                                            }`}
+                                        >
+                                            🌿 Rest Breaks
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIncludeDinner(!includeDinner)}
+                                            className={`text-xs px-2.5 py-1 rounded-lg border font-medium transition-all ${
+                                                includeDinner
+                                                    ? 'bg-[#5b5fc7]/15 border-[#5b5fc7]/40 text-[#5b5fc7] dark:text-[#7b83eb]'
+                                                    : 'bg-transparent border-slate-700/30 text-slate-400 hover:text-slate-200'
+                                            }`}
+                                        >
+                                            🍽️ Dinner
+                                        </button>
+                                    </div>
+
+                                    <div className="flex items-center gap-1.5 shrink-0 text-xs text-slate-400">
+                                        <span>Start:</span>
+                                        <select
+                                            value={startHourInput}
+                                            onChange={(e) => setStartHourInput(Number(e.target.value))}
+                                            className="px-2 py-1 rounded-lg text-xs font-semibold border bg-transparent focus:outline-none focus:border-[#5b5fc7]"
+                                            style={{ color: 'var(--text-primary)', borderColor: 'var(--border-card)' }}
+                                        >
+                                            {hours
+                                                .filter((h) => (formatDateStr(selectedDate) === todayStr ? h >= new Date().getHours() : h >= 6 && h <= 23))
+                                                .map((h) => (
+                                                    <option key={h} value={h} className="bg-slate-900 text-white">
+                                                        {formatHourLabel(h)}
+                                                    </option>
+                                                ))}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Task Input & List */}
+                                <div className="space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                                            Tasks ({makerTasks.length})
+                                        </label>
+                                        {(tasks || []).filter(t => !t.completed).length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={handleImportTasks}
+                                                className="text-xs px-2.5 py-0.5 rounded-lg bg-[#5b5fc7]/10 hover:bg-[#5b5fc7]/20 text-[#5b5fc7] dark:text-[#7b83eb] font-semibold transition-all flex items-center gap-1.5"
+                                            >
+                                                <Download size={11} /> Import from Tasks ({tasks.filter(t => !t.completed).length})
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <form
+                                        onSubmit={(e) => {
+                                            e.preventDefault();
+                                            if (!newTaskTitle.trim()) return;
+                                            setMakerTasks((prev) => [
+                                                ...prev,
+                                                {
+                                                    title: newTaskTitle.trim(),
+                                                    priority: 'high',
+                                                },
+                                            ]);
+                                            setNewTaskTitle('');
+                                        }}
+                                        className="flex items-center gap-2"
+                                    >
+                                        <input
+                                            type="text"
+                                            placeholder="Add task (e.g. Video editing, Leetcode, Build feature, Write docs)..."
+                                            value={newTaskTitle}
+                                            onChange={(e) => setNewTaskTitle(e.target.value)}
+                                            className="flex-1 px-3.5 py-2.5 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] transition-all"
                                             style={{
                                                 background: 'var(--bg-input)',
-                                                borderColor: 'var(--border-secondary)',
+                                                color: 'var(--text-primary)',
+                                                borderColor: 'var(--border-input)',
                                             }}
+                                        />
+
+                                        <button
+                                            type="submit"
+                                            disabled={!newTaskTitle.trim()}
+                                            className="py-2.5 px-4 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm shrink-0 cursor-pointer"
                                         >
-                                            <div className="flex items-center gap-2.5 min-w-0">
-                                                <span className="w-1.5 h-1.5 rounded-full bg-[#5b5fc7] shrink-0"></span>
-                                                <span className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-                                                    {t.title}
-                                                </span>
-                                            </div>
+                                            <Plus size={14} /> Add
+                                        </button>
+                                    </form>
 
-                                            <div className="flex items-center gap-3 shrink-0">
-                                                <span className="text-[11px] text-slate-400 font-mono">
-                                                    {t.duration}m
-                                                </span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setMakerTasks((prev) => prev.filter((_, i) => i !== idx))}
-                                                    className="p-1 rounded text-slate-400 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-all"
+                                    {/* Task List */}
+                                    <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar pt-1">
+                                        {makerTasks.length === 0 ? (
+                                            <div className="py-7 text-center border border-dashed rounded-2xl" style={{ borderColor: 'var(--border-secondary)' }}>
+                                                <p className="text-xs text-slate-400">No tasks added yet. Type your task names above — the smart scheduler will allocate distinct time blocks prioritizing productive work.</p>
+                                            </div>
+                                        ) : (
+                                            makerTasks.map((t, idx) => (
+                                                <div
+                                                    key={idx}
+                                                    className="flex items-center justify-between px-3 py-2 rounded-xl border group hover:border-[#5b5fc7]/40 transition-all"
+                                                    style={{
+                                                        background: 'var(--bg-input)',
+                                                        borderColor: 'var(--border-secondary)',
+                                                    }}
                                                 >
-                                                    <Trash2 size={13} />
-                                                </button>
+                                                    <div className="flex items-center gap-2.5 min-w-0">
+                                                        <span className="w-2 h-2 rounded-full bg-[#5b5fc7] shrink-0"></span>
+                                                        <span className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                                            {t.title}
+                                                        </span>
+                                                    </div>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setMakerTasks((prev) => prev.filter((_, i) => i !== idx))}
+                                                        className="p-1 rounded text-slate-400 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
+                                                    >
+                                                        <Trash2 size={13} />
+                                                    </button>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Footer Phase 1 */}
+                                <div className="flex items-center justify-between pt-4 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
+                                    <div className="text-xs text-slate-400">
+                                        <span>Budget: {allottedHours}h available from {formatHourLabel(startHourInput)}</span>
+                                    </div>
+
+                                    <div className="flex items-center gap-2.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsMakerOpen(false)}
+                                            className="px-4 py-2 rounded-xl text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200"
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleGenerateSchedule}
+                                            disabled={makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast}
+                                            className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs flex items-center gap-2 shadow-md shadow-[#5b5fc7]/20 transition-all disabled:opacity-40 cursor-pointer"
+                                        >
+                                            <Sparkles size={14} /> Smart Schedule
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                {/* Phase 2: Schedule Preview & Duration Adjustment */}
+                                <div className="space-y-3.5">
+                                    {/* Allotted Budget Summary Bar (Auto-balanced, always positive) */}
+                                    {(() => {
+                                        const productiveMins = previewSchedule
+                                            .filter((item) => item.category !== 'meal' && item.category !== 'sleep')
+                                            .reduce((sum, item) => sum + item.durationMinutes, 0);
+                                        const endHour = previewSchedule.length > 0
+                                            ? Math.floor((previewSchedule[previewSchedule.length - 1].startHour * 60 + previewSchedule[previewSchedule.length - 1].startMinute + previewSchedule[previewSchedule.length - 1].durationMinutes) / 60) % 24
+                                            : startHourInput;
+
+                                        return (
+                                            <div className="p-3.5 rounded-2xl border space-y-2 bg-[#5b5fc7]/10 border-[#5b5fc7]/30">
+                                                <div className="flex items-center justify-between text-xs font-semibold">
+                                                    <span className="text-[#5b5fc7] dark:text-[#7b83eb] flex items-center gap-1.5 font-bold">
+                                                        <Sparkles size={13} /> {formatHourLabel(previewSchedule[0]?.startHour || startHourInput)} → {formatHourLabel(endHour)} Routine
+                                                    </span>
+                                                    <span className="font-mono text-emerald-400 text-xs font-bold flex items-center gap-1">
+                                                        ✨ {(productiveMins / 60).toFixed(1)}h / {allottedHours}h Work Time
+                                                    </span>
+                                                </div>
+
+                                                <div className="w-full h-2 rounded-full bg-slate-800/60 overflow-hidden">
+                                                    <div
+                                                        className="h-full transition-all duration-300 rounded-full bg-gradient-to-r from-[#5b5fc7] via-indigo-400 to-emerald-400 w-full"
+                                                    />
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
+                                        );
+                                    })()}
 
-                        {/* Footer */}
-                        <div className="flex items-center justify-between pt-4 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
-                            <div className="text-xs text-slate-400">
-                                {makerTasks.reduce((acc, t) => acc + t.duration, 0) > 0 && (
-                                    <span>Total: {(makerTasks.reduce((acc, t) => acc + t.duration, 0) / 60).toFixed(1)} hrs</span>
-                                )}
-                            </div>
+                                    {/* Mindset & Focus / Recovery Card */}
+                                    {(() => {
+                                        const mindsetData = getMindsetCardData(previewSchedule, allottedHours, startHourInput);
+                                        const isSleepType = mindsetData.type === 'sleep';
 
-                            <div className="flex items-center gap-2.5">
-                                <button
-                                    type="button"
-                                    onClick={() => setIsMakerOpen(false)}
-                                    className="px-4 py-2 rounded-xl text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleGenerateSchedule}
-                                    disabled={makerTasks.length === 0 && !includeLunch && !includeDinner}
-                                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs flex items-center gap-2 shadow-md shadow-[#5b5fc7]/20 transition-all disabled:opacity-40 cursor-pointer"
-                                >
-                                    <Sparkles size={14} /> Smart Schedule
-                                </button>
-                            </div>
-                        </div>
+                                        return (
+                                            <div
+                                                className={`p-3.5 rounded-2xl border space-y-1.5 backdrop-blur-sm ${
+                                                    isSleepType
+                                                        ? 'bg-gradient-to-br from-indigo-950/40 via-purple-950/20 to-slate-900/60 border-indigo-500/20'
+                                                        : 'bg-gradient-to-br from-blue-950/40 via-indigo-950/20 to-slate-900/60 border-blue-500/20'
+                                                }`}
+                                            >
+                                                <div className="flex items-center justify-between text-xs">
+                                                    <div className={`flex items-center gap-1.5 font-bold ${isSleepType ? 'text-indigo-400' : 'text-blue-400'}`}>
+                                                        {isSleepType ? <Moon size={14} className="text-indigo-400" /> : <Sparkles size={14} className="text-blue-400" />}
+                                                        <span>{mindsetData.title}</span>
+                                                    </div>
+                                                    <span
+                                                        className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border ${
+                                                            isSleepType
+                                                                ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/25'
+                                                                : 'bg-blue-500/15 text-blue-300 border-blue-500/25'
+                                                        }`}
+                                                    >
+                                                        {mindsetData.badge}
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs italic text-slate-300 leading-relaxed pt-0.5">
+                                                    “{mindsetData.quote}”
+                                                </p>
+                                                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-700/30">
+                                                    <span className="font-medium text-slate-400">— {mindsetData.author}</span>
+                                                    <span className={isSleepType ? 'text-amber-300/90 font-medium' : 'text-emerald-300/90 font-medium'}>
+                                                        {mindsetData.tip}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {/* Generated Schedule Timeline Items */}
+                                    <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar pr-1">
+                                        {previewSchedule.map((item) => {
+                                            return (
+                                                <div
+                                                    key={item.id}
+                                                    className="flex items-center justify-between p-2.5 rounded-xl border gap-2 group transition-all"
+                                                    style={{
+                                                        background: 'var(--bg-input)',
+                                                        borderColor: 'var(--border-secondary)',
+                                                    }}
+                                                >
+                                                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                        <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-[#5b5fc7]/15 text-[#5b5fc7] dark:text-[#7b83eb] shrink-0">
+                                                            {String(item.startHour).padStart(2, '0')}:{String(item.startMinute).padStart(2, '0')}
+                                                        </span>
+                                                        <span className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                                            {item.title}
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        {/* Duration Selector with auto balancing */}
+                                                        <select
+                                                            value={item.durationMinutes}
+                                                            onChange={(e) => handleUpdatePreviewDuration(item.id, Number(e.target.value))}
+                                                            className="px-2 py-1 rounded-lg text-xs font-mono border bg-transparent focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                            style={{ color: 'var(--text-primary)', borderColor: 'var(--border-card)' }}
+                                                        >
+                                                            <option value={15} className="bg-slate-900 text-white">15m</option>
+                                                            <option value={30} className="bg-slate-900 text-white">30m</option>
+                                                            <option value={45} className="bg-slate-900 text-white">45m</option>
+                                                            <option value={60} className="bg-slate-900 text-white">1h</option>
+                                                            <option value={75} className="bg-slate-900 text-white">1h 15m</option>
+                                                            <option value={90} className="bg-slate-900 text-white">1.5h</option>
+                                                            <option value={105} className="bg-slate-900 text-white">1h 45m</option>
+                                                            <option value={120} className="bg-slate-900 text-white">2h</option>
+                                                        </select>
+
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemovePreviewItem(item.id)}
+                                                            className="p-1 rounded text-slate-400 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* Footer Phase 2 */}
+                                <div className="flex items-center justify-between pt-4 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setMakerPhase('input')}
+                                        className="px-3.5 py-2 rounded-xl text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 flex items-center gap-1.5 cursor-pointer"
+                                    >
+                                        <ArrowLeft size={13} /> Back to Tasks
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={handleApplySchedule}
+                                        disabled={previewSchedule.length === 0}
+                                        className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                    >
+                                        <Check size={14} /> Apply to Routine
+                                    </button>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             )}

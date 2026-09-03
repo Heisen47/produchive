@@ -45,6 +45,7 @@ import {
     recalculateSequentialSchedule,
     generateForwardSmartSchedule,
     generateWeeklySmartSchedule,
+    isOccupationBlock,
     autoBalanceSchedule,
     getMindsetCardData,
     calculateDayEventCollisions,
@@ -859,13 +860,18 @@ export const Routine = () => {
         const uncompleted = (tasks || []).filter((t) => !t.completed);
         if (uncompleted.length === 0) return;
 
-        const imported = uncompleted.map((t) => ({
-            title: t.text,
-            category: 'development' as const,
-            priority: 'high' as const,
-        }));
-
-        setMakerTasks((prev) => [...prev, ...imported]);
+        setMakerTasks((prev) => {
+            const existingTitles = new Set(prev.map((item) => item.title.trim().toLowerCase()));
+            const newTasks = uncompleted
+                .filter((t) => !existingTitles.has(t.text.trim().toLowerCase()))
+                .map((t) => ({
+                    title: t.text.trim(),
+                    category: 'development' as const,
+                    priority: 'high' as const,
+                }));
+            if (newTasks.length === 0) return prev;
+            return [...prev, ...newTasks];
+        });
     };
 
     const handleDateStep = (step: number) => {
@@ -2594,6 +2600,67 @@ export const Routine = () => {
                                             >
                                                 Dinner
                                             </button>
+
+                                            <span className="w-px h-4 bg-white/10 mx-0.5" />
+
+                                            {/* Occupation Bubbles: School, College, Office, Uni (Mutually Exclusive: Either-Or) */}
+                                            {(() => {
+                                                const OCCUPATION_OPTIONS = [
+                                                    { label: 'School', title: 'School' },
+                                                    { label: 'College', title: 'College' },
+                                                    { label: 'Office', title: 'Office' },
+                                                    { label: 'Uni', title: 'Uni' },
+                                                ];
+
+                                                const selectedOccupation = OCCUPATION_OPTIONS.find((occ) =>
+                                                    makerTasks.some((t) => {
+                                                        const low = t.title.toLowerCase().trim();
+                                                        if (occ.label === 'Uni') {
+                                                            return low === 'uni' || low.startsWith('uni ') || low.endsWith(' uni') || low.includes(' uni ') || low.includes('university');
+                                                        }
+                                                        return low.includes(occ.label.toLowerCase());
+                                                    })
+                                                );
+                                                const hasOccupationSelected = Boolean(selectedOccupation);
+
+                                                return OCCUPATION_OPTIONS.map((occ) => {
+                                                    const isSelected = selectedOccupation?.label === occ.label;
+                                                    const isDisabled = hasOccupationSelected && !isSelected;
+
+                                                    return (
+                                                        <button
+                                                            key={occ.label}
+                                                            type="button"
+                                                            disabled={isDisabled}
+                                                            title={isDisabled ? 'Only one occupation can be chosen at a time' : undefined}
+                                                            onClick={() => {
+                                                                if (isSelected) {
+                                                                    // Deselect: remove all occupation tasks
+                                                                    setMakerTasks((prev) => prev.filter((t) => !isOccupationBlock(t.title)));
+                                                                } else if (!isDisabled) {
+                                                                    // Select: replace any occupation tasks, add this one, and set start time to 9 AM
+                                                                    setMakerTasks((prev) => [
+                                                                        ...prev.filter((t) => !isOccupationBlock(t.title)),
+                                                                        { title: occ.title, category: 'development', priority: 'high' },
+                                                                    ]);
+                                                                    if (startHourInput > 9) {
+                                                                        setStartHourInput(9);
+                                                                    }
+                                                                }
+                                                            }}
+                                                            className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all select-none ${
+                                                                isSelected
+                                                                    ? 'bg-[#5b5fc7]/25 border-[#5b5fc7]/80 text-[#8b92f8] shadow-sm font-bold cursor-pointer'
+                                                                    : isDisabled
+                                                                    ? 'bg-black/10 dark:bg-white/5 border-slate-800/40 text-slate-500 opacity-40 cursor-not-allowed'
+                                                                    : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white hover:border-slate-500 cursor-pointer'
+                                                            }`}
+                                                        >
+                                                            {occ.label}
+                                                        </button>
+                                                    );
+                                                });
+                                            })()}
                                         </div>
 
                                         <div className="flex items-center gap-1.5 shrink-0 text-xs text-slate-300">
@@ -2672,19 +2739,48 @@ export const Routine = () => {
                                         borderColor: 'rgba(255, 255, 255, 0.08)',
                                     }}
                                 >
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between gap-2 flex-wrap">
                                         <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
                                             {planScope === 'day' ? `Today's Tasks (${makerTasks.length})` : `Weekly Tasks (${makerTasks.length})`}
                                         </label>
-                                        {(tasks || []).filter(t => !t.completed).length > 0 && (
+                                        <div className="flex items-center gap-2">
                                             <button
                                                 type="button"
-                                                onClick={handleImportTasks}
-                                                className="text-xs px-2.5 py-1 rounded-lg bg-[#5b5fc7]/15 hover:bg-[#5b5fc7]/25 text-[#7b83eb] font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                                                onClick={() => setMakerTasks([])}
+                                                disabled={makerTasks.length === 0}
+                                                className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
+                                                    makerTasks.length === 0
+                                                        ? 'bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed opacity-50'
+                                                        : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 cursor-pointer shadow-sm'
+                                                }`}
+                                                title="Remove all tasks from list"
                                             >
-                                                <Download size={11} /> Import from Tasks ({tasks.filter(t => !t.completed).length})
+                                                <Trash2 size={11} /> Remove All
                                             </button>
-                                        )}
+
+                                            {(() => {
+                                                const uncompleted = (tasks || []).filter((t) => !t.completed);
+                                                if (uncompleted.length === 0) return null;
+                                                const unimported = uncompleted.filter(
+                                                    (t) => !makerTasks.some((m) => m.title.trim().toLowerCase() === t.text.trim().toLowerCase())
+                                                );
+                                                const allImported = unimported.length === 0;
+                                                return (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleImportTasks}
+                                                        disabled={allImported}
+                                                        className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
+                                                            allImported
+                                                                ? 'bg-white/5 text-slate-500 border border-white/5 cursor-default'
+                                                                : 'bg-[#5b5fc7]/15 hover:bg-[#5b5fc7]/25 text-[#7b83eb] cursor-pointer'
+                                                        }`}
+                                                    >
+                                                        <Download size={11} /> {allImported ? 'All Tasks Imported' : `Import from Tasks (${unimported.length})`}
+                                                    </button>
+                                                );
+                                            })()}
+                                        </div>
                                     </div>
 
                                     <form

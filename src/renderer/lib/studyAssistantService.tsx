@@ -32,6 +32,7 @@ class StudyAssistantService {
 
     // Routine alerts cache for today: { [routineId]: dateStr }
     private notifiedRoutines: Record<string, string> = {};
+    private lastRoutineAlertTime = 0;
 
     public init() {
         if (this.isInitialized) return;
@@ -58,15 +59,17 @@ class StudyAssistantService {
 
     public getStudiedTopics(): StudiedTopic[] {
         try {
-            if (typeof localStorage === 'undefined') return [];
-            const saved = localStorage.getItem(TOPICS_STORAGE_KEY);
-            return saved ? JSON.parse(saved) : [];
-        } catch {
-            return [];
+            if (typeof localStorage !== 'undefined') {
+                const saved = localStorage.getItem(TOPICS_STORAGE_KEY);
+                return saved ? JSON.parse(saved) : [];
+            }
+        } catch (e) {
+            console.error('Failed to parse studied topics:', e);
         }
+        return [];
     }
 
-    public saveStudiedTopics(topics: StudiedTopic[]) {
+    private saveStudiedTopics(topics: StudiedTopic[]) {
         try {
             if (typeof localStorage !== 'undefined') {
                 localStorage.setItem(TOPICS_STORAGE_KEY, JSON.stringify(topics));
@@ -139,31 +142,31 @@ class StudyAssistantService {
     }
 
     /**
-     * Finds topics needing gentle revision (>= 4 days since last study, not muted, not snoozed)
+     * Identifies topics that haven't been reviewed in >= 4 days and aren't snoozed/muted
      */
     public getTopicsNeedingRevision(): StudiedTopic[] {
-        const topics = this.getStudiedTopics();
         const now = Date.now();
+        const topics = this.getStudiedTopics();
 
         return topics.filter((t) => {
             if (t.muted) return false;
             if (t.snoozedUntil && t.snoozedUntil > now) return false;
-            const daysSince = (now - t.lastStudiedAt) / MS_PER_DAY;
-            return daysSince >= DAYS_BEFORE_REVISION;
-        }).sort((a, b) => a.lastStudiedAt - b.lastStudiedAt); // oldest first
+            const daysElapsed = Math.floor((now - t.lastStudiedAt) / MS_PER_DAY);
+            return daysElapsed >= DAYS_BEFORE_REVISION;
+        });
     }
 
     /**
-     * Checks if a revision nudge should be delivered today (max once per day so it never annoys)
+     * Checks once a day if any studied topic needs revision
      */
     public checkDailyRevisionNudge() {
         if (typeof localStorage === 'undefined') return;
+
         const todayStr = new Date().toISOString().split('T')[0];
         const lastCheckedDay = localStorage.getItem(LAST_REVISION_CHECK_KEY);
 
-        if (lastCheckedDay === todayStr) {
-            return; // Already offered gentle check-in today
-        }
+        // Run at most once per calendar day
+        if (lastCheckedDay === todayStr) return;
 
         const candidates = this.getTopicsNeedingRevision();
         if (candidates.length === 0) return;
@@ -179,7 +182,7 @@ class StudyAssistantService {
      * Displays a polite, non-annoying interactive notification & toast with 3 clear choices
      */
     public showRevisionNudge(topic: StudiedTopic, daysElapsed: number) {
-        const title = '🌱 Gentle Revision Check-in';
+        const title = 'Revision Check-in';
         const body = `It's been ${daysElapsed} days since you studied "${topic.topic}". Ready for a quick refresh?`;
 
         // 1. Native desktop notification
@@ -189,41 +192,38 @@ class StudyAssistantService {
             }
         } catch (_) {}
 
-        // 2. Interactive in-app toast with 3 options: Yes, No, Never
+        // 2. Ultra-compact in-app toast with 3 clear options
         toast.custom(
             (toastId) => (
-                <div className="w-[360px] p-4 rounded-2xl bg-[var(--bg-card-solid)] border border-[var(--border-card)] shadow-2xl text-[var(--text-primary)] space-y-3">
-                    <div className="flex items-start gap-2.5">
-                        <span className="text-xl">🌱</span>
-                        <div className="min-w-0 flex-1">
-                            <h4 className="text-xs font-bold tracking-tight text-[var(--text-primary)]">
-                                Revision Check-in
-                            </h4>
-                            <p className="text-[11px] text-[var(--text-muted)] mt-0.5 leading-relaxed">
-                                It's been <span className="font-semibold text-[#5b5fc7]">{daysElapsed} days</span> since you studied <strong className="text-[var(--text-primary)]">"{topic.topic}"</strong>.
-                            </p>
-                        </div>
+                <div className="w-[280px] p-2.5 rounded-xl bg-[var(--bg-card-solid)] border border-[var(--border-card)] shadow-lg text-[var(--text-primary)] space-y-2 text-xs">
+                    <div className="min-w-0">
+                        <h4 className="text-[11px] font-bold text-[var(--text-primary)]">
+                            Revision Check-in ({daysElapsed}d ago)
+                        </h4>
+                        <p className="text-[11px] text-[var(--text-muted)] mt-0.5 truncate">
+                            Refresh <strong className="text-[var(--text-primary)]">"{topic.topic}"</strong>?
+                        </p>
                     </div>
 
-                    <div className="flex flex-col gap-1.5 pt-1 border-t border-[var(--border-secondary)]">
-                        <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-1 pt-1 border-t border-[var(--border-secondary)]">
+                        <div className="flex items-center gap-1.5">
                             <button
                                 onClick={() => {
                                     toast.dismiss(toastId);
                                     this.handleRevisionAction(topic.id, 'yes');
                                 }}
-                                className="flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold bg-[#5b5fc7] text-white hover:opacity-90 transition-all text-center"
+                                className="flex-1 py-1 px-2 rounded-lg text-[11px] font-semibold bg-[#5b5fc7] text-white hover:opacity-90 transition-all text-center cursor-pointer"
                             >
-                                Yes, Revise
+                                Revise
                             </button>
                             <button
                                 onClick={() => {
                                     toast.dismiss(toastId);
                                     this.handleRevisionAction(topic.id, 'no');
                                 }}
-                                className="py-1.5 px-3 rounded-lg text-xs font-medium bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-primary)] transition-all"
+                                className="py-1 px-2 rounded-lg text-[11px] font-medium bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-primary)] transition-all cursor-pointer"
                             >
-                                Not Today
+                                Later
                             </button>
                         </div>
 
@@ -232,14 +232,14 @@ class StudyAssistantService {
                                 toast.dismiss(toastId);
                                 this.handleRevisionAction(topic.id, 'never');
                             }}
-                            className="w-full py-1 text-[10px] text-[var(--text-muted)] hover:text-rose-400 text-center transition-colors"
+                            className="w-full py-0.5 text-[9px] text-[var(--text-muted)] hover:text-rose-400 text-center transition-colors cursor-pointer"
                         >
-                            Never give me reminder for this
+                            Never remind for this topic
                         </button>
                     </div>
                 </div>
             ),
-            { duration: 15000 }
+            { id: 'revision-nudge', duration: 8000 }
         );
     }
 
@@ -388,16 +388,27 @@ class StudyAssistantService {
             // 5 minutes ahead alert window (4 to 5 minutes)
             if (diffMinutes >= 4 && diffMinutes <= 5) {
                 const cacheKey = `${routine.id}-${todayStr}`;
-                if (this.notifiedRoutines[cacheKey]) {
-                    continue; // Already notified once
+                const semanticKey = `${routine.title.toLowerCase().trim()}-${todayStr}-${routine.startHour}:${routine.startMinute}`;
+                const titleKey = `${routine.title.toLowerCase().trim()}-${todayStr}`;
+
+                if (this.notifiedRoutines[cacheKey] || this.notifiedRoutines[semanticKey] || this.notifiedRoutines[titleKey]) {
+                    continue; // Already notified today
                 }
 
+                // Anti-spam cooldown: don't fire multiple reminder notifications within 3 minutes
+                if (this.lastRoutineAlertTime && Date.now() - this.lastRoutineAlertTime < 3 * 60 * 1000) {
+                    continue;
+                }
+                this.lastRoutineAlertTime = Date.now();
+
                 this.notifiedRoutines[cacheKey] = todayStr;
+                this.notifiedRoutines[semanticKey] = todayStr;
+                this.notifiedRoutines[titleKey] = todayStr;
                 this.saveNotifiedRoutines();
 
                 const timeFormatted = `${String(routine.startHour).padStart(2, '0')}:${String(routine.startMinute).padStart(2, '0')}`;
-                const title = '⏰ Starting in 5 Minutes';
-                const body = `"${routine.title}" starts at ${timeFormatted}. Time to wrap up and get ready!`;
+                const title = 'Starting in 5 Minutes';
+                const body = `"${routine.title}" starts at ${timeFormatted}. Time to wrap up and get ready.`;
 
                 try {
                     if (window.electronAPI?.showNotification) {
@@ -405,9 +416,10 @@ class StudyAssistantService {
                     }
                 } catch (_) {}
 
-                toast.info(`Upcoming in 5 mins: ${routine.title}`, {
+                toast.info(`Upcoming in 5m: ${routine.title}`, {
+                    id: 'routine-5min-alert',
                     description: `Starts at ${timeFormatted} (${routine.durationMinutes}m block)`,
-                    duration: 9000,
+                    duration: 4000,
                 });
             }
         }

@@ -10,7 +10,7 @@ import { UsageCharts } from './components/UsageCharts';
 import { WelcomeModal } from './components/WelcomeModal';
 import { ActivityConfirmationPopup } from './components/ActivityConfirmationPopup';
 import { DebugPanel } from './components/DebugPanel';
-import { Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
 import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
@@ -90,6 +90,9 @@ const AppContent = () => {
 
     // Listen for activity updates and deep link auth tokens
     useEffect(() => {
+        try {
+            toast.dismiss('auto-activity-logged');
+        } catch (_) {}
         syncEngine.start();
         activityAutoTracker.init();
         studyAssistantService.init();
@@ -278,15 +281,18 @@ const AppContent = () => {
             <Toaster
                 position="bottom-right"
                 theme={isDark ? 'dark' : 'light'}
-                duration={5000}
+                duration={3500}
+                visibleToasts={1}
                 toastOptions={{
-                    duration: 5000,
+                    duration: 3500,
                     style: {
                         background: 'var(--bg-card-solid)',
                         color: 'var(--text-primary)',
                         border: '1px solid var(--border-card)',
                         boxShadow: 'var(--shadow-card)',
-                        borderRadius: '16px',
+                        borderRadius: '12px',
+                        fontSize: '12px',
+                        padding: '10px 14px',
                     },
                 }}
             />

@@ -24,7 +24,7 @@ app.setName("Produchive");
 app.name = "Produchive";
 
 if (process.platform === "win32") {
-  app.setAppUserModelId(app.isPackaged ? "com.produchive.app" : process.execPath);
+  app.setAppUserModelId("Produchive");
 }
 
 const logger = createLogger("Main");

@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { Sparkles } from 'lucide-react';
 import { PlannedRoutineItem } from '../components/Routine';
 import { openFeedbackForm } from './urls';
+import { useStore } from './store';
 
 export interface InferredActivity {
     category: PlannedRoutineItem['category'];
@@ -413,79 +414,13 @@ export const submitActivityFeedback = async (
 };
 
 /**
- * Displays an interactive Sonner toast asking user if detection was accurate,
- * styled to match Produchive aesthetics.
+ * Keeps background activity tracking completely quiet (only important notifications shown to the user).
+ * Auto-detected items are cleanly accessible in the Dashboard tray without annoying toast popups.
  */
-export const showAutoActivityToast = (routine: PlannedRoutineItem) => {
+export const showAutoActivityToast = (_routine?: PlannedRoutineItem) => {
     try {
-        toast.custom(
-            (t) => (
-                <div
-                    className="w-80 max-w-[calc(100vw-32px)] rounded-2xl p-4 shadow-2xl border backdrop-blur-xl animate-fade-in"
-                    style={{
-                        background: 'var(--bg-card-solid)',
-                        borderColor: 'var(--border-card)',
-                        boxShadow: '0 20px 45px rgba(0,0,0,0.3)',
-                        color: 'var(--text-primary)',
-                    }}
-                >
-                    <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                            <div className="p-1.5 rounded-xl bg-emerald-500/20 text-emerald-400">
-                                <Sparkles size={14} />
-                            </div>
-                            <div>
-                                <h4 className="text-xs font-bold leading-tight" style={{ color: 'var(--text-primary)' }}>
-                                    Logged to Calendar
-                                </h4>
-                                <p className="text-[10px] text-slate-400">
-                                    {routine.detectedApp} • {routine.durationMinutes}m
-                                </p>
-                            </div>
-                        </div>
-                        <button
-                            onClick={() => toast.dismiss(t)}
-                            className="text-slate-400 hover:text-white p-1 rounded-lg text-xs"
-                            title="Dismiss"
-                        >
-                            ✕
-                        </button>
-                    </div>
-
-                    <p className="text-xs font-semibold mt-2.5 mb-1 truncate" style={{ color: 'var(--text-primary)' }}>
-                        {routine.title}
-                    </p>
-
-                    <div className="mt-3 pt-2.5 border-t border-slate-700/50 flex items-center justify-between">
-                        <span className="text-[10px] text-slate-400">Accurate detection?</span>
-                        <div className="flex items-center gap-1.5">
-                            <button
-                                onClick={async () => {
-                                    toast.dismiss(t);
-                                    await submitActivityFeedback(routine.id, 'accurate');
-                                }}
-                                className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30 transition-all flex items-center gap-1"
-                            >
-                                👍 Yes
-                            </button>
-                            <button
-                                onClick={async () => {
-                                    toast.dismiss(t);
-                                    await submitActivityFeedback(routine.id, 'inaccurate');
-                                }}
-                                className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/30 transition-all flex items-center gap-1"
-                            >
-                                👎 No
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            ),
-            { duration: 8000 }
-        );
-    } catch (e) {
-        console.warn('Could not display activity toast:', e);
-    }
+        toast.dismiss('auto-activity-logged');
+    } catch (_) {}
 };
 
 /**
@@ -501,7 +436,11 @@ class ActivityAutoTrackerEngine {
         if (this.initialized) return;
         this.initialized = true;
 
-        await this.checkPermissionAndStart();
+        try {
+            toast.dismiss('auto-activity-logged');
+        } catch (_) {}
+
+        await this.checkPermission();
 
         // Listen for live activity updates from Electron main process
         if (window.electronAPI?.onActivityUpdate) {
@@ -510,22 +449,18 @@ class ActivityAutoTrackerEngine {
             });
         }
 
-        // Periodic flush of current active session (e.g. every 30 seconds)
+        // Periodic flush of current active session (e.g. every 30 seconds) ONLY if actively monitoring
         setInterval(() => {
-            if (this.currentSession && this.isPermissionGranted) {
+            if (this.currentSession && useStore.getState().isMonitoring) {
                 upsertAutoDetectedCalendarEvent(this.currentSession);
             }
         }, 30000);
     }
 
-    public async checkPermissionAndStart(): Promise<boolean> {
+    public async checkPermission(): Promise<boolean> {
         try {
             const perm = await window.electronAPI?.getScreenPermission();
             this.isPermissionGranted = perm === 'granted';
-            if (this.isPermissionGranted) {
-                // Ensure monitoring is started
-                await window.electronAPI?.startMonitoring();
-            }
             return this.isPermissionGranted;
         } catch {
             this.isPermissionGranted = true; // Non-macOS
@@ -533,12 +468,34 @@ class ActivityAutoTrackerEngine {
         }
     }
 
+    public async checkPermissionAndStart(): Promise<boolean> {
+        return this.checkPermission();
+    }
+
     public handleIncomingActivity(act: any) {
+        // App MUST NOT track or log activities without the user explicitly clicking 'Start Monitoring'
+        if (!useStore.getState().isMonitoring) {
+            return;
+        }
+
         if (!act || !act.owner?.name) return;
 
         const appName = act.owner.name;
-        // Ignore Produchive's own window
-        if (appName.toLowerCase().includes('produchive') || appName.toLowerCase().includes('electron')) {
+        const lowerApp = appName.toLowerCase();
+        const lowerTitle = (act.title || '').toLowerCase();
+
+        // Ignore Produchive's own window, system overlays, screenshot utilities, and Windows shells
+        const IGNORED_SYSTEM_APPS = [
+            'produchive', 'electron',
+            'snippingtool', 'screenclippinghost', 'snip & sketch', 'screenshot',
+            'explorer', 'taskmgr', 'task manager',
+            'searchapp', 'searchhost', 'startmenuexperiencehost',
+            'shellexperiencehost', 'systemsettings', 'applicationframehost',
+            'textinputhost', 'lockapp', 'securityhealthsystray', 'ctfmon',
+            'idle', 'unknown', 'system', 'dwm',
+        ];
+
+        if (IGNORED_SYSTEM_APPS.some((ignored) => lowerApp.includes(ignored) || lowerTitle.includes(ignored))) {
             return;
         }
 

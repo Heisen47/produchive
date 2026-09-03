@@ -416,11 +416,16 @@ export const isOccupationBlock = (title: string): boolean => {
     const t = title.toLowerCase().trim();
     const occupationKeywords = [
         'job', 'office', 'work shift', '9 to 5', '9-5', '9to5',
-        'school', 'college', 'university', 'class', 'classes', 'lecture', 'lectures',
+        'school', 'college', 'uni', 'university', 'class', 'classes', 'lecture', 'lectures',
         'internship', 'intern', 'placement', 'corporate', 'day job',
         'clinic', 'hospital shift', 'teaching', 'tutoring hours',
     ];
-    return occupationKeywords.some((kw) => t.includes(kw));
+    return occupationKeywords.some((kw) => {
+        if (kw === 'uni') {
+            return t === 'uni' || t.startsWith('uni ') || t.endsWith(' uni') || t.includes(' uni ');
+        }
+        return t.includes(kw);
+    });
 };
 
 /**
@@ -428,7 +433,7 @@ export const isOccupationBlock = (title: string): boolean => {
  * Allocates the full user-allotted time to their work tasks, placing relevant breaks/meals
  * cleanly without stealing their work budget, and strictly in future hours.
  *
- * If an occupation block (job/school/college) is detected among tasks, it reserves
+ * If an occupation block (job/school/college/uni/office) is detected among tasks, it reserves
  * 9 AM - 5 PM for that occupation with a lunch break, and schedules all other tasks
  * before 9 AM or after 5 PM.
  */
@@ -479,17 +484,17 @@ export const generateForwardSmartSchedule = ({
     };
 
     // ─── OCCUPATION BLOCK PATH ───
-    // If any task is a job/school/college block, reserve 9 AM - 5 PM for it
+    // If any task is a job/school/college/uni/office block, reserve 9 AM - 5 PM for it
     const occupationTask = (tasks || []).find((t) => isOccupationBlock(t.title));
-    if (occupationTask && initialStartMins <= 540) {
-        const otherTasks = (tasks || []).filter((t) => t !== occupationTask);
+    if (occupationTask) {
+        const otherTasks = (tasks || []).filter((t) => t !== occupationTask && !isOccupationBlock(t.title));
         const occupationCategory = occupationTask.category || 'other';
 
         // Pre-occupation: only breakfast before 9 AM
         if (includeBreakfast && initialStartMins <= 510) {
             currentMins = Math.max(currentMins, 480); // 8:00 AM
             appendItem({
-                title: 'Morning Routine & Breakfast ☕',
+                title: 'Morning Routine & Breakfast',
                 category: 'meal',
                 priority: 'medium',
                 duration: 45,
@@ -498,7 +503,7 @@ export const generateForwardSmartSchedule = ({
         }
 
         // Occupation Morning Session: 9:00 AM - 12:30 PM (210 mins)
-        currentMins = Math.max(currentMins, 540); // 9:00 AM
+        currentMins = 540; // 9:00 AM
         appendItem({
             title: occupationTask.title,
             category: occupationCategory,
@@ -507,20 +512,18 @@ export const generateForwardSmartSchedule = ({
             subtitle: 'Morning session',
         });
 
-        // Lunch Break: 12:30 PM - 1:30 PM
-        if (includeLunch) {
-            currentMins = Math.max(currentMins, 750); // 12:30 PM
-            appendItem({
-                title: 'Lunch Break 🥗',
-                category: 'meal',
-                priority: 'medium',
-                duration: 60,
-                subtitle: 'Midday meal & rest',
-            });
-        }
+        // Small lunch break at normal lunch time: 12:30 PM - 1:30 PM (60 mins)
+        currentMins = 750; // 12:30 PM
+        appendItem({
+            title: 'Lunch Break',
+            category: 'meal',
+            priority: 'medium',
+            duration: 60,
+            subtitle: 'Midday meal & rest',
+        });
 
         // Occupation Afternoon Session: 1:30 PM - 5:00 PM (210 mins)
-        currentMins = Math.max(currentMins, 810); // 1:30 PM
+        currentMins = 810; // 1:30 PM
         appendItem({
             title: `${occupationTask.title} (Afternoon)`,
             category: occupationCategory,
@@ -530,11 +533,11 @@ export const generateForwardSmartSchedule = ({
         });
 
         // Post-occupation: 5:00 PM onwards - schedule remaining personal tasks
-        currentMins = Math.max(currentMins, 1020); // 5:00 PM
+        currentMins = 1020; // 5:00 PM
 
         if (includeRestBlocks) {
             appendItem({
-                title: 'Evening Transition & Decompress 🌿',
+                title: 'Evening Transition & Decompress',
                 category: 'break',
                 priority: 'medium',
                 duration: 30,
@@ -567,7 +570,7 @@ export const generateForwardSmartSchedule = ({
         if (includeDinner) {
             currentMins = Math.max(currentMins, DINNER_TIME_OCC);
             appendItem({
-                title: 'Dinner & Family Relaxation 🍽️',
+                title: 'Dinner & Family Relaxation',
                 category: 'meal',
                 priority: 'medium',
                 duration: 60,
@@ -597,7 +600,7 @@ export const generateForwardSmartSchedule = ({
         if (!schedule.some((s) => s.category === 'sleep')) {
             currentMins = Math.max(currentMins, 1380); // 11:00 PM or later
             appendItem({
-                title: 'Night Sleep & Recovery 🌙',
+                title: 'Night Sleep & Recovery',
                 category: 'sleep',
                 priority: 'high',
                 duration: 60,

@@ -31,6 +31,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveRating: (rating: any) => ipcRenderer.invoke("save-rating", rating),
   getRatingsByDate: (dateStr: string) =>
     ipcRenderer.invoke("get-ratings-by-date", dateStr),
+  saveActivityFeedback: (feedback: any) =>
+    ipcRenderer.invoke("save-activity-feedback", feedback),
+  getActivityFeedbacks: () => ipcRenderer.invoke("get-activity-feedbacks"),
   getActivityDataByDate: (dateStr: string) =>
     ipcRenderer.invoke("get-activity-data-by-date", dateStr),
   getActivityDataRange: (startDate: string, endDate: string) =>

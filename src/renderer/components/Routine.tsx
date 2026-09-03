@@ -24,8 +24,11 @@ import {
     ArrowLeft,
     Check,
     Moon,
-    Loader2
+    Loader2,
+    ThumbsUp,
+    ThumbsDown
 } from 'lucide-react';
+import { submitActivityFeedback } from '../lib/activityAutoTracker';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { Activity } from '../global';
@@ -61,6 +64,14 @@ export interface PlannedRoutineItem {
     completed: boolean;
     subtitle?: string;
     attendees?: string;
+    isAutoDetected?: boolean;
+    detectedApp?: string;
+    detectedTitle?: string;
+    detectionConfidence?: number;
+    actualDurationSeconds?: number;
+    detectionFeedback?: 'accurate' | 'inaccurate' | null;
+    detectionFeedbackComment?: string;
+    feedbackAt?: number;
 }
 
 export interface ActivityGuess {
@@ -384,6 +395,29 @@ export const Routine = () => {
         hour: number;
         guess: ActivityGuess;
     } | null>(null);
+
+    // Multi-app overflow collapse modal
+    const [slotAppsModal, setSlotAppsModal] = useState<{
+        dateStr: string;
+        hour: number;
+        items: PlannedRoutineItem[];
+    } | null>(null);
+
+    const handleRateActivity = async (
+        e: React.MouseEvent,
+        item: PlannedRoutineItem,
+        rating: 'accurate' | 'inaccurate',
+        corrections?: { category?: PlannedRoutineItem['category']; title?: string }
+    ) => {
+        e.stopPropagation();
+        await submitActivityFeedback(item.id, rating, corrections);
+        try {
+            const saved = localStorage.getItem('produchive_master_routines');
+            if (saved) {
+                setAllRoutines(JSON.parse(saved));
+            }
+        } catch (_) {}
+    };
 
     // Range activities from database
     const [rangeActivities, setRangeActivities] = useState<Record<string, { activities: Activity[] }>>({});
@@ -1314,6 +1348,15 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                         (r) => r.dateStr === dateStr && r.startHour === hour
                                     );
 
+                                    // Handle CSS overflow: if > 2 auto-detected apps in same slot, collapse excess into "+N apps detected"
+                                    const regularRoutines = cellRoutines.filter((r) => !r.isAutoDetected);
+                                    const autoRoutines = cellRoutines.filter((r) => r.isAutoDetected);
+                                    const shouldCollapseAuto = autoRoutines.length > 2;
+                                    const visibleRoutines = shouldCollapseAuto
+                                        ? [...regularRoutines, autoRoutines[0]]
+                                        : cellRoutines;
+                                    const hiddenAutoCount = shouldCollapseAuto ? autoRoutines.length - 1 : 0;
+
                                     const dayActs = isDayToday
                                         ? activities
                                         : rangeActivities[dateStr]?.activities || [];
@@ -1336,7 +1379,7 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                             style={{ borderColor: 'var(--border-secondary)' }}
                                         >
                                             {/* Draggable Routine Cards */}
-                                            {cellRoutines.map((item) => {
+                                            {visibleRoutines.map((item) => {
                                                 const colors = getEventColors(item.category, isDark);
                                                 const isPastTask = item.dateStr < todayStr || (item.dateStr === todayStr && item.startHour < currentHour);
                                                 const collisionInfo = collisionsByDate.get(dateStr)?.get(item.id) || { colIndex: 0, totalCols: 1 };
@@ -1393,6 +1436,14 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                         {isCompact ? (
                                                             <div className="flex items-center justify-between gap-1 w-full h-full">
                                                                 <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                                                    {item.isAutoDetected && (
+                                                                        <span
+                                                                            className="text-[8px] px-1 py-0.2 rounded font-bold uppercase shrink-0 bg-emerald-500/20 text-emerald-400"
+                                                                            title={`Auto-detected: ${item.detectedApp}`}
+                                                                        >
+                                                                            🤖 Auto
+                                                                        </span>
+                                                                    )}
                                                                     <h4
                                                                         className="font-semibold text-[11px] leading-none truncate"
                                                                         style={{ color: colors.text }}
@@ -1412,6 +1463,32 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                                         >
                                                                             Past
                                                                         </span>
+                                                                    )}
+                                                                    {item.isAutoDetected && (
+                                                                        <div className="flex items-center gap-0.5 shrink-0 ml-auto" onClick={(e) => e.stopPropagation()}>
+                                                                            {!item.detectionFeedback ? (
+                                                                                <>
+                                                                                    <button
+                                                                                        onClick={(e) => handleRateActivity(e, item, 'accurate')}
+                                                                                        className="hover:scale-125 transition-transform text-[9px]"
+                                                                                        title="Detection accurate"
+                                                                                    >
+                                                                                        👍
+                                                                                    </button>
+                                                                                    <button
+                                                                                        onClick={(e) => handleRateActivity(e, item, 'inaccurate')}
+                                                                                        className="hover:scale-125 transition-transform text-[9px]"
+                                                                                        title="Detection inaccurate"
+                                                                                    >
+                                                                                        👎
+                                                                                    </button>
+                                                                                </>
+                                                                            ) : item.detectionFeedback === 'accurate' ? (
+                                                                                <span className="text-[8px] font-bold text-emerald-500">✓</span>
+                                                                            ) : (
+                                                                                <span className="text-[8px] font-bold text-amber-500">⚠️</span>
+                                                                            )}
+                                                                        </div>
                                                                     )}
                                                                 </div>
 
@@ -1451,6 +1528,14 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                                 <div>
                                                                     <div className="flex items-start justify-between gap-1.5">
                                                                         <div className="flex items-center gap-1.5 min-w-0">
+                                                                            {item.isAutoDetected && (
+                                                                                <span
+                                                                                    className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 bg-emerald-500/20 text-emerald-400"
+                                                                                    title={`Auto-detected: ${item.detectedApp}`}
+                                                                                >
+                                                                                    🤖 Auto
+                                                                                </span>
+                                                                            )}
                                                                             <h4
                                                                                 className="font-semibold text-xs leading-tight truncate"
                                                                                 style={{ color: colors.text }}
@@ -1499,6 +1584,39 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                                         {timeRangeString}
                                                                     </span>
 
+                                                                    {/* Accuracy rating buttons for auto-detected events */}
+                                                                    {item.isAutoDetected && (
+                                                                        <div className="flex items-center gap-1 shrink-0 ml-1" onClick={(e) => e.stopPropagation()}>
+                                                                            {!item.detectionFeedback ? (
+                                                                                <div className="flex items-center gap-1 text-[9px] bg-black/10 dark:bg-white/5 px-1.5 py-0.5 rounded-lg">
+                                                                                    <span className="opacity-75">Accurate?</span>
+                                                                                    <button
+                                                                                        onClick={(e) => handleRateActivity(e, item, 'accurate')}
+                                                                                        className="hover:scale-125 transition-transform"
+                                                                                        title="Mark detection accurate"
+                                                                                    >
+                                                                                        👍
+                                                                                    </button>
+                                                                                    <button
+                                                                                        onClick={(e) => handleRateActivity(e, item, 'inaccurate')}
+                                                                                        className="hover:scale-125 transition-transform"
+                                                                                        title="Mark detection inaccurate"
+                                                                                    >
+                                                                                        👎
+                                                                                    </button>
+                                                                                </div>
+                                                                            ) : item.detectionFeedback === 'accurate' ? (
+                                                                                <span className="text-[9px] text-emerald-400 font-bold flex items-center gap-0.5">
+                                                                                    ✓ Accurate
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span className="text-[9px] text-amber-400 font-bold flex items-center gap-0.5">
+                                                                                    ⚠️ Inaccurate
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+
                                                                     <div className="flex items-center gap-1.5 shrink-0 ml-1">
                                                                         <button
                                                                             onClick={(e) => {
@@ -1545,6 +1663,41 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                     </div>
                                                 );
                                             })}
+
+                                            {/* Overflow badge if more than 2 auto-detected apps in this slot */}
+                                            {hiddenAutoCount > 0 && (
+                                                <div
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSlotAppsModal({
+                                                            dateStr,
+                                                            hour,
+                                                            items: autoRoutines,
+                                                        });
+                                                    }}
+                                                    className="rounded-lg border shadow-sm px-2 py-1 transition-all hover:scale-[1.02] cursor-pointer flex items-center justify-between text-[11px] font-semibold animate-fade-in group"
+                                                    style={{
+                                                        background: isDark ? 'rgba(30, 41, 59, 0.95)' : '#f8fafc',
+                                                        borderColor: isDark ? 'rgba(99, 102, 241, 0.5)' : '#cbd5e1',
+                                                        position: 'absolute',
+                                                        bottom: '2px',
+                                                        left: '4px',
+                                                        right: '4px',
+                                                        zIndex: 35,
+                                                    }}
+                                                    title="Click to view all detected apps"
+                                                >
+                                                    <div className="flex items-center gap-1.5 truncate">
+                                                        <Sparkles size={11} className="text-indigo-400 shrink-0" />
+                                                        <span className="text-indigo-400 truncate text-[10px] font-bold">
+                                                            +{hiddenAutoCount} apps detected
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[9px] text-slate-400 group-hover:text-indigo-300 shrink-0 font-medium">
+                                                        View all →
+                                                    </span>
+                                                </div>
+                                            )}
 
                                             {/* Tracked Activity Guess Card */}
                                             {guess && (
@@ -1806,6 +1959,92 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                 </div>
                             </div>
 
+                            {/* Auto-detected event feedback & accuracy inspection */}
+                            {selectedRoutineDetails.isAutoDetected && (
+                                <div
+                                    className="p-3.5 rounded-2xl border"
+                                    style={{
+                                        background: isDark ? 'rgba(16, 185, 129, 0.08)' : 'rgba(16, 185, 129, 0.05)',
+                                        borderColor: 'rgba(16, 185, 129, 0.3)',
+                                    }}
+                                >
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-bold flex items-center gap-1.5 text-emerald-500">
+                                            <Sparkles size={13} /> Screen Activity Detection
+                                        </span>
+                                        {selectedRoutineDetails.detectionConfidence && (
+                                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 font-semibold">
+                                                {selectedRoutineDetails.detectionConfidence}% Confidence
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="text-xs" style={{ color: 'var(--text-primary)' }}>
+                                        Detected App: <strong>{selectedRoutineDetails.detectedApp || 'Screen Monitor'}</strong>
+                                    </p>
+                                    {selectedRoutineDetails.detectedTitle && (
+                                        <p className="text-[11px] truncate mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                                            Window: "{selectedRoutineDetails.detectedTitle}"
+                                        </p>
+                                    )}
+                                    <div className="mt-3 pt-2.5 border-t border-emerald-500/20">
+                                        <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                                            Was this detection accurate?
+                                        </p>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    await submitActivityFeedback(selectedRoutineDetails.id, 'accurate');
+                                                    setSelectedRoutineDetails({
+                                                        ...selectedRoutineDetails,
+                                                        detectionFeedback: 'accurate',
+                                                        feedbackAt: Date.now(),
+                                                    });
+                                                    try {
+                                                        const saved = localStorage.getItem('produchive_master_routines');
+                                                        if (saved) setAllRoutines(JSON.parse(saved));
+                                                    } catch (_) {}
+                                                }}
+                                                className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                                                    selectedRoutineDetails.detectionFeedback === 'accurate'
+                                                        ? 'bg-emerald-500 text-white shadow-md'
+                                                        : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                                                }`}
+                                            >
+                                                <ThumbsUp size={12} /> 👍 Accurate
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    await submitActivityFeedback(selectedRoutineDetails.id, 'inaccurate');
+                                                    setSelectedRoutineDetails({
+                                                        ...selectedRoutineDetails,
+                                                        detectionFeedback: 'inaccurate',
+                                                        feedbackAt: Date.now(),
+                                                    });
+                                                    try {
+                                                        const saved = localStorage.getItem('produchive_master_routines');
+                                                        if (saved) setAllRoutines(JSON.parse(saved));
+                                                    } catch (_) {}
+                                                }}
+                                                className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                                                    selectedRoutineDetails.detectionFeedback === 'inaccurate'
+                                                        ? 'bg-amber-500 text-white shadow-md'
+                                                        : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
+                                                }`}
+                                            >
+                                                <ThumbsDown size={12} /> 👎 Inaccurate
+                                            </button>
+                                        </div>
+                                        {selectedRoutineDetails.detectionFeedback && (
+                                            <p className="text-[10px] text-slate-400 mt-2 text-center">
+                                                Rating recorded and stored for developer feedback.
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             <div
                                 className="p-3 rounded-xl border flex items-center justify-between"
                                 style={{
@@ -2032,6 +2271,153 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                     color: 'var(--text-primary)',
                                     borderColor: 'var(--border-card)',
                                 }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 5.5 Multi-App Overflow Modal (shows each separate detected app event at this time) */}
+            {slotAppsModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in">
+                    <div
+                        className="w-full max-w-lg rounded-3xl p-6 shadow-2xl relative border"
+                        style={{
+                            background: 'var(--bg-card-solid)',
+                            borderColor: 'var(--border-card)',
+                            boxShadow: 'var(--shadow-card)',
+                        }}
+                    >
+                        <div className="flex items-center justify-between pb-4 border-b mb-5" style={{ borderColor: 'var(--border-secondary)' }}>
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                                    <Sparkles size={18} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-display font-bold" style={{ color: 'var(--text-primary)' }}>
+                                        Detected Apps at {formatHourLabel(slotAppsModal.hour)}
+                                    </h3>
+                                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                                        {slotAppsModal.dateStr} • {slotAppsModal.items.length} separate events tracked
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setSlotAppsModal(null)}
+                                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-all text-slate-400 hover:text-white"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-1">
+                            {slotAppsModal.items.map((appItem) => {
+                                const colors = getEventColors(appItem.category, isDark);
+                                return (
+                                    <div
+                                        key={appItem.id}
+                                        className="p-3.5 rounded-2xl border transition-all"
+                                        style={{
+                                            background: colors.bg,
+                                            borderColor: colors.border,
+                                        }}
+                                    >
+                                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="font-bold text-xs truncate" style={{ color: colors.text }}>
+                                                        {appItem.title}
+                                                    </h4>
+                                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded uppercase" style={{ background: colors.accent + '20', color: colors.accent }}>
+                                                        {appItem.category}
+                                                    </span>
+                                                </div>
+                                                {appItem.detectedTitle && (
+                                                    <p className="text-[11px] truncate mt-0.5" style={{ color: colors.subtext }}>
+                                                        {appItem.detectedApp}: {appItem.detectedTitle}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <span className="text-[10px] font-mono shrink-0 px-2 py-0.5 rounded-lg bg-black/10 dark:bg-black/20" style={{ color: colors.text }}>
+                                                {appItem.durationMinutes}m duration
+                                            </span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between pt-2 border-t text-xs" style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px]" style={{ color: colors.subtext }}>Was detection accurate?</span>
+                                                {!appItem.detectionFeedback ? (
+                                                    <div className="flex items-center gap-1.5">
+                                                        <button
+                                                            onClick={async (e) => {
+                                                                await handleRateActivity(e, appItem, 'accurate');
+                                                                setSlotAppsModal((prev) => prev ? {
+                                                                    ...prev,
+                                                                    items: prev.items.map(it => it.id === appItem.id ? { ...it, detectionFeedback: 'accurate' } : it)
+                                                                } : null);
+                                                            }}
+                                                            className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-all flex items-center gap-1"
+                                                        >
+                                                            <ThumbsUp size={10} /> Accurate
+                                                        </button>
+                                                        <button
+                                                            onClick={async (e) => {
+                                                                await handleRateActivity(e, appItem, 'inaccurate');
+                                                                setSlotAppsModal((prev) => prev ? {
+                                                                    ...prev,
+                                                                    items: prev.items.map(it => it.id === appItem.id ? { ...it, detectionFeedback: 'inaccurate' } : it)
+                                                                } : null);
+                                                            }}
+                                                            className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-all flex items-center gap-1"
+                                                        >
+                                                            <ThumbsDown size={10} /> Inaccurate
+                                                        </button>
+                                                    </div>
+                                                ) : appItem.detectionFeedback === 'accurate' ? (
+                                                    <span className="text-[10px] font-bold text-emerald-400">✓ Accurate (Rated)</span>
+                                                ) : (
+                                                    <span className="text-[10px] font-bold text-amber-400">⚠️ Inaccurate (Feedback Sent)</span>
+                                                )}
+                                            </div>
+
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    onClick={() => {
+                                                        setSlotAppsModal(null);
+                                                        setSelectedRoutineDetails(appItem);
+                                                    }}
+                                                    className="p-1 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 text-slate-300"
+                                                    title="Edit Details"
+                                                >
+                                                    <Edit3 size={13} />
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        saveMasterRoutines(allRoutines.filter(r => r.id !== appItem.id));
+                                                        setSlotAppsModal((prev) => prev ? {
+                                                            ...prev,
+                                                            items: prev.items.filter(it => it.id !== appItem.id)
+                                                        } : null);
+                                                    }}
+                                                    className="p-1 rounded-lg hover:bg-red-500/20 text-red-400"
+                                                    title="Delete"
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <div className="mt-5 pt-3 border-t flex justify-end" style={{ borderColor: 'var(--border-secondary)' }}>
+                            <button
+                                onClick={() => setSlotAppsModal(null)}
+                                className="px-4 py-2 rounded-xl text-xs font-semibold"
+                                style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
                             >
                                 Close
                             </button>

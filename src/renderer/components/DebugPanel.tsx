@@ -12,11 +12,13 @@ import {
     CheckCircle2,
     RotateCcw,
     Sparkles,
-    BellRing
+    BellRing,
+    ExternalLink
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { useStore } from '../lib/store';
 import { PlannedRoutineItem } from './Routine';
+import { openFeedbackForm } from '../lib/urls';
 
 const formatDateStr = (date: Date): string => {
     const y = date.getFullYear();
@@ -32,6 +34,8 @@ export const DebugPanel: React.FC = () => {
     const [dbContents, setDbContents] = useState<any>(null);
     const [showDbContents, setShowDbContents] = useState(false);
     const [routines, setRoutines] = useState<PlannedRoutineItem[]>([]);
+    const [activityFeedbacks, setActivityFeedbacks] = useState<any[]>([]);
+    const [showFeedbacks, setShowFeedbacks] = useState(false);
     const { isDark } = useTheme();
 
     const loadSystemInfo = async () => {
@@ -49,6 +53,15 @@ export const DebugPanel: React.FC = () => {
         } catch {}
     };
 
+    const loadActivityFeedbacks = async () => {
+        try {
+            if (window.electronAPI?.getActivityFeedbacks) {
+                const list = await window.electronAPI.getActivityFeedbacks();
+                setActivityFeedbacks(list || []);
+            }
+        } catch {}
+    };
+
     const loadRoutines = () => {
         try {
             const saved = localStorage.getItem('produchive_master_routines');
@@ -58,6 +71,7 @@ export const DebugPanel: React.FC = () => {
         } catch (e) {
             console.error(e);
         }
+        loadActivityFeedbacks();
     };
 
     // Real-time synchronization when routines change or debug toggle is triggered
@@ -293,6 +307,76 @@ export const DebugPanel: React.FC = () => {
                                     <span className="truncate max-w-[200px]">{String(value)}</span>
                                 </div>
                             ))}
+                        </div>
+                    )}
+                </div>
+
+                {/* 2.5 Activity Detection Ratings (Dev View) */}
+                <div className="space-y-2">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            loadActivityFeedbacks();
+                            setShowFeedbacks((prev) => !prev);
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold border transition-all"
+                        style={{
+                            background: 'var(--bg-elevated)',
+                            borderColor: 'var(--border-secondary)',
+                            color: 'var(--text-primary)',
+                        }}
+                    >
+                        <div className="flex items-center gap-2">
+                            <Sparkles size={13} className="text-emerald-500" />
+                            <span>Detection Feedback Ratings ({activityFeedbacks.length})</span>
+                        </div>
+                        {showFeedbacks ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+
+                    {showFeedbacks && (
+                        <div
+                            className="rounded-xl p-3 text-xs space-y-2 border animate-fade-in"
+                            style={{
+                                background: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(0,0,0,0.03)',
+                                borderColor: 'var(--border-secondary)',
+                            }}
+                        >
+                            <div className="flex items-center justify-between font-bold text-[11px]">
+                                <span style={{ color: 'var(--text-primary)' }}>Total Logged: {activityFeedbacks.length}</span>
+                                {activityFeedbacks.length > 0 && (
+                                    <span className="text-emerald-400">
+                                        {Math.round((activityFeedbacks.filter(f => f.userFeedback === 'accurate').length / activityFeedbacks.length) * 100)}% Accurate
+                                    </span>
+                                )}
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => openFeedbackForm()}
+                                className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg text-xs font-semibold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-400 border border-indigo-500/30 transition-all"
+                            >
+                                <ExternalLink size={12} /> Open Google Feedback Form
+                            </button>
+                            {activityFeedbacks.length === 0 ? (
+                                <p className="text-[11px] text-slate-400">No activity feedback submitted yet.</p>
+                            ) : (
+                                <div className="space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+                                    {activityFeedbacks.slice().reverse().map((f, i) => (
+                                        <div key={i} className="p-2 rounded-lg border text-[11px]" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-subtle)' }}>
+                                            <div className="flex items-center justify-between">
+                                                <span className="font-semibold text-slate-200">{f.appName}</span>
+                                                <span className={`px-1.5 py-0.2 rounded font-bold ${f.userFeedback === 'accurate' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+                                                    {f.userFeedback === 'accurate' ? '👍 Accurate' : '👎 Inaccurate'}
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] text-slate-400 truncate mt-0.5">
+                                                Inferred: {f.inferredCategory} {f.correctedCategory ? `→ Corrected: ${f.correctedCategory}` : ''}
+                                            </p>
+                                            <span className="text-[9px] text-slate-500 font-mono">{f.timestampReadable}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

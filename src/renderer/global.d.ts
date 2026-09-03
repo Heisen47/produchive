@@ -70,10 +70,25 @@ declare global {
         tasks: Task[];
         activities: Activity[];
         goal: string | null;
+        ratings?: any[];
+        activityFeedbacks?: any[];
       }>;
       saveGoals: (goals: string[]) => Promise<string[]>;
       saveRating: (rating: any) => Promise<any>;
       getRatingsByDate: (dateStr: string) => Promise<any[]>;
+      saveActivityFeedback: (feedback: {
+        id?: string;
+        eventId?: string;
+        appName: string;
+        windowTitle?: string;
+        inferredCategory: string;
+        userFeedback: 'accurate' | 'inaccurate';
+        correctedCategory?: string | null;
+        correctedTitle?: string | null;
+        durationMinutes?: number;
+        confidence?: number;
+      }) => Promise<{ success: boolean; feedback?: any; error?: string }>;
+      getActivityFeedbacks: () => Promise<any[]>;
       getActivityDataByDate: (dateStr: string) => Promise<any>;
       getActivityDataRange: (
         startDate: string,

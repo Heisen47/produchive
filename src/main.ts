@@ -64,7 +64,7 @@ app.on('open-url', (event, url) => {
 
 app.commandLine.appendSwitch("disable-gpu-watchdog");
 app.commandLine.appendSwitch("force_high_performance_gpu");
-let db: any = { data: { tasks: [], goals: [], ratings: [], focusSessions: [] } };
+let db: any = { data: { tasks: [], goals: [], ratings: [], focusSessions: [], activityFeedbacks: [] } };
 let dbFilePath: string;
 
 // Daily Activity DB
@@ -162,6 +162,7 @@ async function initDB() {
     db.data.goals ||= [];
     db.data.ratings ||= [];
     db.data.focusSessions ||= [];
+    db.data.activityFeedbacks ||= [];
 
     db.data.ratings ||= [];
     await db.write();
@@ -1289,7 +1290,42 @@ function registerIpcHandlers() {
       tasks: db.data.tasks,
       activities: currentActivityDb?.data?.activities || [],
       goals: db.data.goals || [],
+      ratings: db.data.ratings || [],
+      activityFeedbacks: db.data.activityFeedbacks || [],
     };
+  });
+
+  ipcMain.handle("save-activity-feedback", async (_event, feedback: any) => {
+    try {
+      const entry = {
+        id: feedback.id || crypto.randomUUID(),
+        eventId: feedback.eventId || "",
+        appName: feedback.appName || "Unknown",
+        windowTitle: feedback.windowTitle || "",
+        inferredCategory: feedback.inferredCategory || "other",
+        userFeedback: feedback.userFeedback || "accurate", // 'accurate' | 'inaccurate'
+        correctedCategory: feedback.correctedCategory || null,
+        correctedTitle: feedback.correctedTitle || null,
+        durationMinutes: feedback.durationMinutes || 0,
+        confidence: feedback.confidence || 0,
+        timestamp: Date.now(),
+        timestampReadable: new Date().toLocaleString(),
+      };
+      db.data.activityFeedbacks ||= [];
+      db.data.activityFeedbacks.push(entry);
+      await db.write();
+      logger.info(
+        `[ActivityFeedback] Saved rating: ${entry.appName} -> ${entry.userFeedback} (Total: ${db.data.activityFeedbacks.length})`
+      );
+      return { success: true, feedback: entry };
+    } catch (e: any) {
+      logger.error("Failed to save activity feedback:", e);
+      return { success: false, error: e?.message };
+    }
+  });
+
+  ipcMain.handle("get-activity-feedbacks", async () => {
+    return db.data.activityFeedbacks || [];
   });
 
   ipcMain.handle("start-monitoring", async () => {

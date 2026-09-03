@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, ExternalLink, RefreshCw, ChevronDown, ChevronUp, X, Monitor } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
+import { activityAutoTracker } from '../lib/activityAutoTracker';
 
 interface ScreenPermissionBannerProps {
     /** Called when the user manually dismisses the banner */
@@ -26,9 +27,13 @@ export const ScreenPermissionBanner: React.FC<ScreenPermissionBannerProps> = ({ 
             try {
                 const perm = await window.electronAPI.getScreenPermission();
                 setStatus(perm);
+                if (perm === 'granted') {
+                    activityAutoTracker.checkPermissionAndStart();
+                }
             } catch {
                 // Not macOS or API unavailable
                 setStatus('granted');
+                activityAutoTracker.checkPermissionAndStart();
             }
         })();
     }, []);
@@ -39,11 +44,13 @@ export const ScreenPermissionBanner: React.FC<ScreenPermissionBannerProps> = ({ 
             const perm = await window.electronAPI.getScreenPermission();
             setStatus(perm);
             if (perm === 'granted') {
+                await activityAutoTracker.checkPermissionAndStart();
                 // Auto-dismiss after a brief celebration
                 setTimeout(() => handleDismiss(), 1500);
             }
         } catch {
             setStatus('granted');
+            await activityAutoTracker.checkPermissionAndStart();
         } finally {
             setChecking(false);
         }

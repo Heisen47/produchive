@@ -10,6 +10,7 @@ import { Dashboard } from './components/Dashboard';
 import { UsageCharts } from './components/UsageCharts';
 import { WelcomeModal } from './components/WelcomeModal';
 import { ActivityConfirmationPopup } from './components/ActivityConfirmationPopup';
+import { Toaster } from 'sonner';
 import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
@@ -19,6 +20,7 @@ import { useStore } from './lib/store';
 import { apiClient } from './lib/api';
 import { syncEngine } from './lib/services';
 import { setGoogleAuthToken } from './lib/googleCalendar';
+import { activityAutoTracker } from './lib/activityAutoTracker';
 import {
     Loader2,
     Sparkles,
@@ -87,6 +89,7 @@ const AppContent = () => {
     // Listen for activity updates and deep link auth tokens
     useEffect(() => {
         syncEngine.start();
+        activityAutoTracker.init();
 
         window.electronAPI.onActivityUpdate((activity) => {
             addActivity(activity);
@@ -239,6 +242,19 @@ const AppContent = () => {
         <div className="h-screen w-screen flex overflow-hidden font-sans selection:bg-blue-500/30" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
             <ErrorModal />
             <ActivityConfirmationPopup />
+            <Toaster
+                position="bottom-right"
+                theme={isDark ? 'dark' : 'light'}
+                toastOptions={{
+                    style: {
+                        background: 'var(--bg-card-solid)',
+                        color: 'var(--text-primary)',
+                        border: '1px solid var(--border-card)',
+                        boxShadow: 'var(--shadow-card)',
+                        borderRadius: '16px',
+                    },
+                }}
+            />
             <DebugPanel />
             {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
             {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}

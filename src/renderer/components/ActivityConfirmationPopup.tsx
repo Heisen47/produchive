@@ -196,13 +196,13 @@ export const ActivityConfirmationPopup: React.FC = () => {
         return () => clearInterval(timer);
     }, [isMonitoring, activities, promptedIds, activePrompt, markPrompted]);
 
-    // Auto-dismiss popup after 10 seconds and keep in Debug Panel notifications
+    // Auto-dismiss popup after 5 seconds and keep in Notification & Debug Center
     useEffect(() => {
         if (!activePrompt) return;
         const timer = setTimeout(() => {
             markPrompted(activePrompt.id);
             setActivePrompt(null);
-        }, 10000);
+        }, 5000);
         return () => clearTimeout(timer);
     }, [activePrompt, markPrompted]);
 

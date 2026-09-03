@@ -196,7 +196,21 @@ const getRatingColor = (rating: number) => {
 export const UsageCharts = () => {
     const { activities, ratings, routines } = useStore();
     const { isDark } = useTheme();
-    const [period, setPeriod] = useState<TimePeriod>('today');
+    const [period, setPeriod] = useState<TimePeriod>(() => {
+        const initial = sessionStorage.getItem('analytics_initial_period');
+        if (initial === 'live' || initial === 'today' || initial === 'yesterday' || initial === '7days' || initial === '30days') {
+            sessionStorage.removeItem('analytics_initial_period');
+            return initial as TimePeriod;
+        }
+        return 'today';
+    });
+
+    useEffect(() => {
+        const handleOpenLive = () => setPeriod('live');
+        window.addEventListener('produchive_open_live_monitor', handleOpenLive);
+        return () => window.removeEventListener('produchive_open_live_monitor', handleOpenLive);
+    }, []);
+
     const [rangeData, setRangeData] = useState<Record<string, { activities: Activity[] }>>({});
     const [loading, setLoading] = useState(false);
     const [expandedRating, setExpandedRating] = useState<number | null>(null);

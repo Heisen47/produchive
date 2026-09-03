@@ -145,6 +145,46 @@ describe('activityAutoTracker', () => {
             expect(stored.length).toBe(1);
             expect(stored[0].id).toBe('auto-figma-1');
         });
+
+        it('groups toggled sessions for the same app in the same hour into a single event', () => {
+            const firstSession: ActiveSession = {
+                id: 'sess-code-1',
+                appName: 'Antigravity IDE',
+                windowTitle: 'App.tsx',
+                category: 'development',
+                title: 'Dev • App.tsx',
+                subtitle: 'Active in Antigravity IDE',
+                confidence: 95,
+                startTime: new Date('2026-09-03T21:05:00').getTime(),
+                lastActiveTime: new Date('2026-09-03T21:10:00').getTime(),
+                totalSeconds: 300,
+                routineId: 'auto-code-1',
+                dateStr: '2026-09-03',
+            };
+            upsertAutoDetectedCalendarEvent(firstSession);
+
+            // User switches to Chrome and back to Antigravity IDE in the same hour
+            const secondSession: ActiveSession = {
+                id: 'sess-code-2',
+                appName: 'Antigravity IDE',
+                windowTitle: 'UsageCharts.tsx',
+                category: 'development',
+                title: 'Dev • UsageCharts.tsx',
+                subtitle: 'Active in Antigravity IDE',
+                confidence: 95,
+                startTime: new Date('2026-09-03T21:20:00').getTime(),
+                lastActiveTime: new Date('2026-09-03T21:25:00').getTime(),
+                totalSeconds: 600,
+                routineId: 'auto-code-2',
+                dateStr: '2026-09-03',
+            };
+            upsertAutoDetectedCalendarEvent(secondSession);
+
+            const stored = JSON.parse(mockStorage['produchive_master_routines']);
+            expect(stored.length).toBe(1);
+            expect(stored[0].id).toBe('auto-code-1');
+            expect(stored[0].detectedApp).toBe('Antigravity IDE');
+        });
     });
 
     describe('submitActivityFeedback', () => {

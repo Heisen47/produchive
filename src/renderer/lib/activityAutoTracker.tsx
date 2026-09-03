@@ -204,12 +204,64 @@ export const inferActivityDetails = (appName: string, rawTitle: string): Inferre
 };
 
 /**
+ * Deduplicates and consolidates auto-detected events for the same app in the same hour slot.
+ * Ensures that toggling back and forth between apps groups time into a single event instead of creating duplicates.
+ */
+export const consolidateDuplicateAutoEvents = (items: PlannedRoutineItem[]): PlannedRoutineItem[] => {
+    if (!Array.isArray(items)) return [];
+    const result: PlannedRoutineItem[] = [];
+    const autoEventMap = new Map<string, PlannedRoutineItem>();
+
+    for (const item of items) {
+        if (!item.isAutoDetected || !item.detectedApp) {
+            result.push(item);
+            continue;
+        }
+
+        const appKey = `${item.dateStr}_${item.startHour}_${item.detectedApp.toLowerCase()}`;
+        const existing = autoEventMap.get(appKey);
+
+        if (!existing) {
+            const rawSec = item.actualDurationSeconds || (item.durationMinutes ? item.durationMinutes * 60 : 300);
+            const cappedSec = Math.min(3600, Math.max(30, rawSec));
+            const cappedMins = Math.min(60, Math.max(15, Math.ceil(cappedSec / 60 / 5) * 5));
+
+            const sanitizedItem: PlannedRoutineItem = {
+                ...item,
+                actualDurationSeconds: cappedSec,
+                durationMinutes: cappedMins,
+            };
+            autoEventMap.set(appKey, sanitizedItem);
+            result.push(sanitizedItem);
+        } else {
+            const rawSec = item.actualDurationSeconds || (item.durationMinutes ? item.durationMinutes * 60 : 300);
+            const combinedSec = Math.min(3600, (existing.actualDurationSeconds || 0) + rawSec);
+            existing.actualDurationSeconds = combinedSec;
+            existing.durationMinutes = Math.min(60, Math.max(15, Math.ceil(combinedSec / 60 / 5) * 5));
+
+            if (item.detectionFeedback && !existing.detectionFeedback) {
+                existing.detectionFeedback = item.detectionFeedback;
+                existing.feedbackAt = item.feedbackAt;
+            }
+            if (item.detectedTitle && !existing.detectedTitle) {
+                existing.detectedTitle = item.detectedTitle;
+            }
+        }
+    }
+
+    return result;
+};
+
+/**
  * Helper to get current routines from localStorage
  */
 export const getStoredMasterRoutines = (): PlannedRoutineItem[] => {
     try {
         const saved = localStorage.getItem('produchive_master_routines');
-        if (saved) return JSON.parse(saved);
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            return consolidateDuplicateAutoEvents(parsed);
+        }
     } catch (e) {
         console.error('Failed to read produchive_master_routines:', e);
     }
@@ -221,7 +273,8 @@ export const getStoredMasterRoutines = (): PlannedRoutineItem[] => {
  */
 export const saveStoredMasterRoutines = (items: PlannedRoutineItem[]) => {
     try {
-        localStorage.setItem('produchive_master_routines', JSON.stringify(items));
+        const consolidated = consolidateDuplicateAutoEvents(items);
+        localStorage.setItem('produchive_master_routines', JSON.stringify(consolidated));
         window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
     } catch (e) {
         console.error('Failed to save produchive_master_routines:', e);
@@ -237,8 +290,7 @@ export const upsertAutoDetectedCalendarEvent = (session: ActiveSession): Planned
         return null;
     }
 
-    const routines = getStoredMasterRoutines();
-    const existingIndex = routines.findIndex((r) => r.id === session.routineId);
+    let routines = getStoredMasterRoutines();
 
     const startDate = new Date(session.startTime);
     const startHour = startDate.getHours();
@@ -246,9 +298,24 @@ export const upsertAutoDetectedCalendarEvent = (session: ActiveSession): Planned
     // Snap startMinute to nearest 15-minute mark (0, 15, 30, 45)
     const startMinute = (Math.floor(rawMinutes / 15) * 15) as 0 | 15 | 30 | 45;
 
-    // Minimum display duration is 15 minutes for calendar visual block,
-    // otherwise round up to nearest 5 minutes
-    const calculatedDuration = Math.max(15, Math.ceil(session.totalSeconds / 60 / 5) * 5);
+    // Look for existing routine by routineId OR by matching app in same hour slot (groups toggled activity)
+    let existingIndex = routines.findIndex((r) => r.id === session.routineId);
+    if (existingIndex < 0) {
+        existingIndex = routines.findIndex((r) =>
+            r.isAutoDetected &&
+            r.dateStr === session.dateStr &&
+            r.startHour === startHour &&
+            r.detectedApp &&
+            r.detectedApp.toLowerCase() === session.appName.toLowerCase()
+        );
+        if (existingIndex >= 0) {
+            session.routineId = routines[existingIndex].id;
+        }
+    }
+
+    // Realistic duration: clamp to max 60m for single hour slot
+    const cappedSeconds = Math.min(3600, Math.round(session.totalSeconds));
+    const calculatedDuration = Math.min(60, Math.max(15, Math.ceil(cappedSeconds / 60 / 5) * 5));
 
     const updatedEvent: PlannedRoutineItem = {
         id: session.routineId,
@@ -266,7 +333,7 @@ export const upsertAutoDetectedCalendarEvent = (session: ActiveSession): Planned
         detectedApp: session.appName,
         detectedTitle: session.windowTitle,
         detectionConfidence: session.confidence,
-        actualDurationSeconds: Math.round(session.totalSeconds),
+        actualDurationSeconds: cappedSeconds,
         detectionFeedback: existingIndex >= 0 ? routines[existingIndex].detectionFeedback : null,
         detectionFeedbackComment: existingIndex >= 0 ? routines[existingIndex].detectionFeedbackComment : undefined,
         feedbackAt: existingIndex >= 0 ? routines[existingIndex].feedbackAt : undefined,
@@ -277,10 +344,8 @@ export const upsertAutoDetectedCalendarEvent = (session: ActiveSession): Planned
         // Update in-place
         newRoutines = routines.map((r, idx) => (idx === existingIndex ? { ...r, ...updatedEvent } : r));
     } else {
-        // Add new
+        // Add new (quietly logged without intrusive toasts; accessible via Debug Center / Dashboard)
         newRoutines = [...routines, updatedEvent];
-        // Show sonner toast styled for Produchive
-        showAutoActivityToast(updatedEvent);
         // Dispatch event for any other listeners
         window.dispatchEvent(
             new CustomEvent('produchive_auto_event_created', {
@@ -289,6 +354,7 @@ export const upsertAutoDetectedCalendarEvent = (session: ActiveSession): Planned
         );
     }
 
+    newRoutines = consolidateDuplicateAutoEvents(newRoutines);
     saveStoredMasterRoutines(newRoutines);
     return updatedEvent;
 };
@@ -427,6 +493,7 @@ export const showAutoActivityToast = (routine: PlannedRoutineItem) => {
  */
 class ActivityAutoTrackerEngine {
     private currentSession: ActiveSession | null = null;
+    private lastTickTime: number = Date.now();
     private initialized = false;
     private isPermissionGranted = false;
 
@@ -477,19 +544,22 @@ class ActivityAutoTrackerEngine {
 
         const rawTitle = act.title || '';
         const now = Date.now();
-        const durationSec = act.duration ? act.duration / 1000 : 1;
+        // Measure real elapsed seconds between ticks (clamped 1-5s) instead of database cumulative duration
+        const deltaSec = this.lastTickTime ? Math.min(5, Math.max(1, (now - this.lastTickTime) / 1000)) : 1;
+        this.lastTickTime = now;
         const todayStr = formatDateStr(new Date());
+        const currentHour = new Date().getHours();
 
         // Check if continuing same app or switching
         if (this.currentSession && this.currentSession.appName.toLowerCase() === appName.toLowerCase()) {
             // Continuation of same app
-            this.currentSession.totalSeconds += durationSec;
+            this.currentSession.totalSeconds += deltaSec;
             this.currentSession.lastActiveTime = now;
             if (rawTitle && rawTitle !== this.currentSession.windowTitle) {
                 this.currentSession.windowTitle = rawTitle;
             }
 
-            // Sync to calendar once we hit milestones (e.g., 30s, 60s, then every 60s)
+            // Sync to calendar once we hit milestones (e.g., 30s, 60s, then every 30s)
             if (this.currentSession.totalSeconds >= 30 && Math.floor(this.currentSession.totalSeconds) % 30 === 0) {
                 upsertAutoDetectedCalendarEvent(this.currentSession);
             }
@@ -499,24 +569,55 @@ class ActivityAutoTrackerEngine {
                 upsertAutoDetectedCalendarEvent(this.currentSession);
             }
 
-            // Start new session
-            const details = inferActivityDetails(appName, rawTitle);
-            const sessionId = `auto-${now}-${Math.random().toString(36).substr(2, 6)}`;
+            // Toggling back to the same app within the current hour slot?
+            // Group them together rather than creating a separate new event!
+            const routines = getStoredMasterRoutines();
+            const existingMatch = routines.find((r) =>
+                r.isAutoDetected &&
+                r.dateStr === todayStr &&
+                r.startHour === currentHour &&
+                r.detectedApp &&
+                r.detectedApp.toLowerCase() === appName.toLowerCase()
+            );
 
-            this.currentSession = {
-                id: sessionId,
-                appName,
-                windowTitle: rawTitle,
-                category: details.category,
-                title: details.title,
-                subtitle: details.subtitle,
-                confidence: details.confidence,
-                startTime: now,
-                lastActiveTime: now,
-                totalSeconds: durationSec,
-                routineId: sessionId,
-                dateStr: todayStr,
-            };
+            if (existingMatch) {
+                // Resume existing routine and accumulate time into it
+                const details = inferActivityDetails(appName, rawTitle);
+                const prevSeconds = existingMatch.actualDurationSeconds || existingMatch.durationMinutes * 60;
+                this.currentSession = {
+                    id: existingMatch.id,
+                    appName,
+                    windowTitle: rawTitle || existingMatch.detectedTitle || '',
+                    category: existingMatch.category || details.category,
+                    title: existingMatch.title || details.title,
+                    subtitle: existingMatch.subtitle || details.subtitle,
+                    confidence: existingMatch.detectionConfidence || details.confidence,
+                    startTime: new Date(`${existingMatch.dateStr}T${String(existingMatch.startHour).padStart(2, '0')}:${String(existingMatch.startMinute).padStart(2, '0')}:00`).getTime() || now,
+                    lastActiveTime: now,
+                    totalSeconds: prevSeconds + deltaSec,
+                    routineId: existingMatch.id,
+                    dateStr: todayStr,
+                };
+            } else {
+                // Start new session
+                const details = inferActivityDetails(appName, rawTitle);
+                const sessionId = `auto-${now}-${Math.random().toString(36).substr(2, 6)}`;
+
+                this.currentSession = {
+                    id: sessionId,
+                    appName,
+                    windowTitle: rawTitle,
+                    category: details.category,
+                    title: details.title,
+                    subtitle: details.subtitle,
+                    confidence: details.confidence,
+                    startTime: now,
+                    lastActiveTime: now,
+                    totalSeconds: deltaSec,
+                    routineId: sessionId,
+                    dateStr: todayStr,
+                };
+            }
         }
     }
 

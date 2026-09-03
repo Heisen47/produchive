@@ -16,11 +16,16 @@ import started from "electron-squirrel-startup";
 import { createLogger, getLogPath } from "./lib/logger";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { execSync, exec } from "node:child_process";
 import { getAutoUpdater } from "./lib/autoUpdater";
 
 app.setName("Produchive");
 app.name = "Produchive";
+
+if (process.platform === "win32") {
+  app.setAppUserModelId(app.isPackaged ? "com.produchive.app" : process.execPath);
+}
 
 const logger = createLogger("Main");
 
@@ -1388,7 +1393,30 @@ function registerIpcHandlers() {
   ipcMain.handle("show-notification", async (_event, { title, body }: { title: string; body: string }) => {
     try {
       if (Notification.isSupported()) {
-        new Notification({ title, body }).show();
+        const notiIconPath =
+          process.platform === "win32"
+            ? app.isPackaged
+              ? path.join(process.resourcesPath, "icon.ico")
+              : path.join(__dirname, "../../resources/icon.ico")
+            : app.isPackaged
+              ? path.join(process.resourcesPath, "icon.png")
+              : path.join(__dirname, "../../resources/icon.png");
+
+        const notification = new Notification({
+          title,
+          body,
+          icon: existsSync(notiIconPath) ? notiIconPath : undefined,
+        });
+
+        notification.on("click", () => {
+          if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        });
+
+        notification.show();
       }
     } catch (err) {
       logger.error("Failed to show native notification", err);

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import {
     Clock,
     Activity as ActivityIcon,
@@ -11,7 +11,10 @@ import {
     ArrowRight,
     ThumbsUp,
     ThumbsDown,
-    Target
+    Target,
+    Layers,
+    ChevronDown,
+    ChevronUp
 } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
@@ -36,7 +39,7 @@ const formatDuration = (seconds: number) => {
 };
 
 // Interactive Metric Card with tilt + shimmer
-const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any) => {
+const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0, onClick }: any) => {
     const { isDark } = useTheme();
     const cardRef = useRef<HTMLDivElement>(null);
     const shimmerRef = useRef<HTMLDivElement>(null);
@@ -78,14 +81,18 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any
     return (
         <div
             ref={cardRef}
+            onClick={onClick}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
-            className="glass-card rounded-2xl p-6 cursor-default animate-fade-in-up relative overflow-hidden"
+            className={`glass-card rounded-2xl p-6 ${
+                onClick ? 'cursor-pointer group hover:border-indigo-500/40 hover:shadow-lg' : 'cursor-default'
+            } animate-fade-in-up relative overflow-hidden`}
             style={{
                 animationDelay: `${delay}ms`,
-                transition: 'transform 0.15s ease-out, box-shadow 0.3s ease',
+                transition: 'transform 0.15s ease-out, box-shadow 0.3s ease, border-color 0.2s ease',
                 willChange: 'transform',
             }}
+            title={onClick ? 'Click to open Live Monitor' : undefined}
         >
             {BgComponent && <BgComponent className="opacity-30 dark:opacity-20 transition-opacity duration-500 group-hover:opacity-40 dark:group-hover:opacity-30" />}
 
@@ -118,6 +125,12 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any
                             <ArrowUpRight size={12} />
                             {trend}
                         </div>
+                    )}
+                    {onClick && !trend && (
+                        <span className="text-[10px] font-semibold text-indigo-400 group-hover:text-indigo-300 flex items-center gap-1 transition-colors opacity-80 group-hover:opacity-100">
+                            Live Monitor
+                            <ArrowRight size={11} className="transition-transform group-hover:translate-x-0.5" />
+                        </span>
                     )}
                 </div>
                 <div>
@@ -174,6 +187,14 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
         const autoDetected = todayRoutines.filter((r) => r.isAutoDetected);
         return { total, completed, percent, autoDetected };
     }, [todayRoutines]);
+
+    const [isAutoTrayExpanded, setIsAutoTrayExpanded] = useState(false);
+
+    const openLiveMonitor = () => {
+        sessionStorage.setItem('analytics_initial_period', 'live');
+        if (onNavigate) onNavigate('analytics');
+        window.dispatchEvent(new CustomEvent('produchive_open_live_monitor'));
+    };
 
     const usageStats = useMemo(() => {
         const appUsage: Record<string, number> = {};
@@ -326,6 +347,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     subtext="Today's activity"
                     icon={Clock}
                     delay={0}
+                    onClick={openLiveMonitor}
                 />
                 <MetricCard
                     title="Most Used App"
@@ -333,6 +355,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     subtext={usageStats.mostUsed ? formatDuration(usageStats.mostUsed.duration) : 'No data'}
                     icon={Zap}
                     delay={80}
+                    onClick={openLiveMonitor}
                 />
                 <MetricCard
                     title="Active Sessions"
@@ -340,6 +363,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     subtext="Distinct activities logged"
                     icon={ActivityIcon}
                     delay={160}
+                    onClick={openLiveMonitor}
                 />
                 <MetricCard
                     title="Focus Score"
@@ -530,69 +554,92 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     </div>
                 </div>
 
-                {/* Auto-Detected Activity Feed (Unified Telemetry) */}
+                {/* Auto-Detected Activity Collapsible Tray (Bottom Right) */}
                 {routineStats.autoDetected.length > 0 && (
-                    <div className="pt-4" style={{ borderTop: '1px solid var(--border-secondary)' }}>
-                        <div className="flex items-center justify-between mb-3">
-                            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-secondary)' }}>
-                                Auto-Detected Screen Activity (Logged to Calendar)
-                            </span>
-                            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                                {routineStats.autoDetected.length} detected event{routineStats.autoDetected.length > 1 ? 's' : ''}
-                            </span>
-                        </div>
+                    <div className="pt-3 mt-1 flex flex-col items-end" style={{ borderTop: '1px solid var(--border-secondary)' }}>
+                        <button
+                            type="button"
+                            onClick={() => setIsAutoTrayExpanded((prev) => !prev)}
+                            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer shadow-sm"
+                            style={{
+                                background: isAutoTrayExpanded ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-elevated)',
+                                borderColor: isAutoTrayExpanded ? 'rgba(99, 102, 241, 0.35)' : 'var(--border-secondary)',
+                                color: isAutoTrayExpanded ? '#818cf8' : 'var(--text-secondary)',
+                            }}
+                            title={isAutoTrayExpanded ? 'Collapse auto-detected activity tray' : 'Expand auto-detected activity tray'}
+                        >
+                            <Layers size={13} className="text-emerald-400" />
+                            <span>Auto-Detected Activity ({routineStats.autoDetected.length})</span>
+                            {isAutoTrayExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                        </button>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {routineStats.autoDetected.slice(-3).reverse().map((autoItem) => (
-                                <div
-                                    key={autoItem.id}
-                                    className="p-3 rounded-xl flex items-center justify-between gap-3 text-xs"
-                                    style={{
-                                        background: 'var(--bg-elevated)',
-                                        border: '1px solid var(--border-secondary)',
-                                    }}
-                                >
-                                    <div className="min-w-0 flex-1">
-                                        <p className="font-medium truncate" style={{ color: 'var(--text-primary)' }}>
-                                            {autoItem.title}
-                                        </p>
-                                        <p className="text-[11px] truncate opacity-70" style={{ color: 'var(--text-muted)' }}>
-                                            {autoItem.detectedApp || 'Screen'} • {autoItem.durationMinutes}m
-                                        </p>
-                                    </div>
+                        {/* Expanded Tray Content */}
+                        {isAutoTrayExpanded && (
+                            <div className="w-full mt-3 space-y-2 animate-fade-in">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                                        Logged to Calendar
+                                    </span>
+                                    <span className="text-[11px] text-slate-500">
+                                        Click thumbs to submit accuracy feedback
+                                    </span>
+                                </div>
 
-                                    {/* Feedback state */}
-                                    {autoItem.detectionFeedback ? (
-                                        <span
-                                            className="px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                                    {routineStats.autoDetected.slice(-6).reverse().map((autoItem) => (
+                                        <div
+                                            key={autoItem.id}
+                                            className="p-3 rounded-xl flex items-center justify-between gap-2.5 text-xs border transition-all"
                                             style={{
-                                                background: autoItem.detectionFeedback === 'accurate' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                                                color: autoItem.detectionFeedback === 'accurate' ? '#4ade80' : '#f87171',
+                                                background: 'var(--bg-elevated)',
+                                                borderColor: 'var(--border-secondary)',
                                             }}
                                         >
-                                            {autoItem.detectionFeedback === 'accurate' ? '✓ Verified' : '✕ Corrected'}
-                                        </span>
-                                    ) : (
-                                        <div className="flex items-center gap-1 shrink-0">
-                                            <button
-                                                onClick={() => submitActivityFeedback(autoItem.id, 'accurate')}
-                                                className="p-1 rounded hover:bg-emerald-500/20 text-emerald-400 transition-colors"
-                                                title="Confirm accurate detection"
-                                            >
-                                                <ThumbsUp size={13} />
-                                            </button>
-                                            <button
-                                                onClick={() => submitActivityFeedback(autoItem.id, 'inaccurate')}
-                                                className="p-1 rounded hover:bg-rose-500/20 text-rose-400 transition-colors"
-                                                title="Report inaccurate detection"
-                                            >
-                                                <ThumbsDown size={13} />
-                                            </button>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                                    {autoItem.title}
+                                                </p>
+                                                <p className="text-[10px] truncate opacity-70 font-mono" style={{ color: 'var(--text-muted)' }}>
+                                                    {autoItem.detectedApp || 'Screen'} • {autoItem.durationMinutes}m
+                                                </p>
+                                            </div>
+
+                                            {/* Feedback state */}
+                                            {autoItem.detectionFeedback ? (
+                                                <span
+                                                    className="px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"
+                                                    style={{
+                                                        background: autoItem.detectionFeedback === 'accurate' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                                        color: autoItem.detectionFeedback === 'accurate' ? '#4ade80' : '#f87171',
+                                                    }}
+                                                >
+                                                    {autoItem.detectionFeedback === 'accurate' ? 'Verified' : 'Corrected'}
+                                                </span>
+                                            ) : (
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => submitActivityFeedback(autoItem.id, 'accurate')}
+                                                        className="p-1 rounded hover:bg-emerald-500/20 text-emerald-400 transition-colors"
+                                                        title="Confirm accurate detection"
+                                                    >
+                                                        <ThumbsUp size={12} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => submitActivityFeedback(autoItem.id, 'inaccurate')}
+                                                        className="p-1 rounded hover:bg-rose-500/20 text-rose-400 transition-colors"
+                                                        title="Report inaccurate detection"
+                                                    >
+                                                        <ThumbsDown size={12} />
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
-                                    )}
+                                    ))}
                                 </div>
-                            ))}
-                        </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

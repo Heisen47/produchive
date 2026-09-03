@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Calendar as CalendarIcon,
     Clock,
     Plus,
-    Sparkles,
+    Layers,
     Lightbulb,
     ChevronLeft,
     ChevronRight,
@@ -30,7 +31,7 @@ import {
     Target,
     Quote
 } from 'lucide-react';
-import { submitActivityFeedback } from '../lib/activityAutoTracker';
+import { submitActivityFeedback, consolidateDuplicateAutoEvents } from '../lib/activityAutoTracker';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { Activity } from '../global';
@@ -433,7 +434,10 @@ export const Routine = () => {
     const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
         try {
             const saved = localStorage.getItem('produchive_master_routines');
-            if (saved) return JSON.parse(saved);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                return consolidateDuplicateAutoEvents(parsed);
+            }
         } catch (e) {
             console.error('Failed to load master routines:', e);
         }
@@ -483,7 +487,7 @@ export const Routine = () => {
             try {
                 const saved = localStorage.getItem('produchive_master_routines');
                 if (saved) {
-                    setAllRoutines(JSON.parse(saved));
+                    setAllRoutines(consolidateDuplicateAutoEvents(JSON.parse(saved)));
                 }
             } catch (e) {
                 console.error(e);
@@ -532,6 +536,38 @@ export const Routine = () => {
         }
         return map;
     }, [allRoutines]);
+
+    // ─── Context Menu State (Right-click quick edit / delete) ───
+    const [contextMenu, setContextMenu] = useState<{
+        x: number;
+        y: number;
+        item: PlannedRoutineItem;
+    } | null>(null);
+
+    const handleContextMenu = (e: React.MouseEvent, item: PlannedRoutineItem) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const menuWidth = 180;
+        const menuHeight = 150;
+        const x = Math.max(12, Math.min(e.clientX, window.innerWidth - menuWidth - 16));
+        const y = Math.max(12, Math.min(e.clientY, window.innerHeight - menuHeight - 16));
+        setContextMenu({ x, y, item });
+    };
+
+    useEffect(() => {
+        const handleClose = () => setContextMenu(null);
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setContextMenu(null);
+        };
+        if (contextMenu) {
+            window.addEventListener('click', handleClose);
+            window.addEventListener('keydown', handleKeyDown);
+        }
+        return () => {
+            window.removeEventListener('click', handleClose);
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [contextMenu]);
 
     // ─── Routine Maker Form State (Day vs Week Planner) ───
     const [planScope, setPlanScope] = useState<'day' | 'week'>('day');
@@ -798,13 +834,18 @@ export const Routine = () => {
             return;
         }
 
+        // Snap to 30-min intervals: top half of cell = :00, bottom half = :30
+        const cellRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const yInCell = e.clientY - cellRect.top;
+        const targetMinute = yInCell > cellRect.height / 2 ? 30 : 0;
+
         const updated = allRoutines.map((item) => {
             if (item.id === draggedItem.id) {
                 return {
                     ...item,
                     dateStr: targetDateStr,
                     startHour: targetHour,
-                    startMinute: 0,
+                    startMinute: targetMinute,
                 };
             }
             return item;
@@ -1304,14 +1345,19 @@ export const Routine = () => {
                                         (r) => r.dateStr === dateStr && r.startHour === hour
                                     );
 
-                                    // Handle CSS overflow: if > 2 auto-detected apps in same slot, collapse excess into "+N apps detected"
-                                    const regularRoutines = cellRoutines.filter((r) => !r.isAutoDetected);
-                                    const autoRoutines = cellRoutines.filter((r) => r.isAutoDetected);
-                                    const shouldCollapseAuto = autoRoutines.length > 2;
-                                    const visibleRoutines = shouldCollapseAuto
-                                        ? [...regularRoutines, autoRoutines[0]]
-                                        : cellRoutines;
-                                    const hiddenAutoCount = shouldCollapseAuto ? autoRoutines.length - 1 : 0;
+                                    // Sort routines in this slot: user-planned first, then auto-detected, by start minute
+                                    const sortedCellRoutines = [...cellRoutines].sort((a, b) => {
+                                        if (a.isAutoDetected !== b.isAutoDetected) {
+                                            return a.isAutoDetected ? 1 : -1;
+                                        }
+                                        if (a.startMinute !== b.startMinute) return a.startMinute - b.startMinute;
+                                        return (b.durationMinutes || 0) - (a.durationMinutes || 0);
+                                    });
+
+                                    // Display at most 2 events as clean full-width rows; collapse the rest into "+X events detected"
+                                    const MAX_VISIBLE_EVENTS = 2;
+                                    const visibleRoutines = sortedCellRoutines.slice(0, MAX_VISIBLE_EVENTS);
+                                    const hiddenCount = Math.max(0, sortedCellRoutines.length - MAX_VISIBLE_EVENTS);
 
                                     const dayActs = isDayToday
                                         ? activities
@@ -1329,52 +1375,47 @@ export const Routine = () => {
                                             key={colIdx}
                                             onDragOver={(e) => handleDragOver(e, hour, dateStr)}
                                             onDrop={(e) => handleDrop(e, hour, dateStr)}
-                                            className={`p-1.5 border-r transition-colors relative flex flex-col gap-1.5 ${
+                                            className={`p-1.5 border-r transition-colors relative flex flex-col gap-1.5 min-h-[90px] ${
                                                 isDayToday ? 'bg-indigo-500/[0.03]' : ''
                                             } hover:bg-black/[0.02] dark:hover:bg-white/[0.02]`}
-                                            style={{ borderColor: 'var(--border-secondary)' }}
+                                            style={{ borderColor: 'var(--border-secondary)', overflow: 'visible' }}
                                         >
-                                            {/* Draggable Routine Cards */}
-                                            {visibleRoutines.map((item) => {
+                                            {/* Draggable Routine Cards: Clean full-width horizontal rows */}
+                                            {visibleRoutines.map((item, idx) => {
                                                 const colors = getEventColors(item.category, isDark);
                                                 const isPastTask = item.dateStr < todayStr || (item.dateStr === todayStr && item.startHour < currentHour);
-                                                const collisionInfo = collisionsByDate.get(dateStr)?.get(item.id) || { colIndex: 0, totalCols: 1 };
-                                                const { colIndex, totalCols } = collisionInfo;
-                                                const isColliding = totalCols > 1;
-
                                                 const duration = Math.max(15, item.durationMinutes || 30);
-                                                const rawHeight = Math.round((duration / 60) * 90) - 6;
-                                                // 15m events use 18px height so they fit cleanly without overflowing into the next :15 start
-                                                const calculatedHeight = duration <= 15 ? 18 : Math.max(30, rawHeight);
-                                                const isCompact = calculatedHeight <= 26;
-
                                                 const endMinTotal = item.startHour * 60 + item.startMinute + duration;
                                                 const endH = Math.floor(endMinTotal / 60) % 24;
                                                 const endM = endMinTotal % 60;
                                                 const timeRangeString = `${formatTimeSlot(item.startHour, item.startMinute)} - ${formatTimeSlot(endH, endM)} (${duration}m)`;
 
-                                                const colWidthPercent = 100 / totalCols;
-                                                const colLeftPercent = (colIndex * 100) / totalCols;
-                                                const widthStyle = isColliding ? `calc(${colWidthPercent}% - 6px)` : 'calc(100% - 12px)';
-                                                const leftStyle = isColliding ? `calc(${colLeftPercent}% + ${colIndex === 0 ? 4 : 2}px)` : '6px';
-                                                const topOffset = Math.round((item.startMinute / 60) * 90) + 4;
+                                                const isSingle = visibleRoutines.length === 1 && hiddenCount === 0;
+                                                const rawMultiHeight = Math.round((duration / 60) * 90) - 6;
+                                                const cardHeight = isSingle ? (duration > 60 ? rawMultiHeight : 38) : 28;
+                                                const isTallCard = isSingle && cardHeight >= 56;
+                                                const minuteOffset = Math.round((item.startMinute / 60) * 90);
+                                                const topOffset = isSingle
+                                                    ? (item.startMinute === 0 ? 4 : minuteOffset)
+                                                    : (item.startMinute >= 30 ? Math.max(36, minuteOffset) : (idx === 0 ? 4 : 36));
 
                                                 return (
                                                     <div
                                                         key={item.id}
                                                         draggable={!isPastTask}
                                                         onDragStart={(e) => handleDragStart(e, item)}
+                                                        onContextMenu={(e) => handleContextMenu(e, item)}
                                                         onDoubleClick={(e) => {
                                                             e.stopPropagation();
                                                             setSelectedRoutineDetails({ ...item });
                                                         }}
-                                                        className={`rounded-xl border shadow-md transition-all group overflow-hidden flex flex-col justify-between ${
-                                                            isCompact ? 'px-2 py-0.5' : 'p-2'
+                                                        className={`rounded-xl border shadow-sm transition-all group overflow-hidden select-none ${
+                                                            isTallCard ? 'flex flex-col justify-between p-2.5' : 'flex items-center justify-between px-2.5 py-1'
                                                         } ${
                                                             isPastTask
                                                                 ? 'cursor-default opacity-60'
-                                                                : 'cursor-grab active:cursor-grabbing hover:scale-[1.01]'
-                                                        } ${item.completed ? 'line-through' : ''}`}
+                                                                : 'cursor-grab active:cursor-grabbing hover:scale-[1.01] hover:shadow-md'
+                                                        } ${item.completed ? 'line-through opacity-70' : ''}`}
                                                         style={{
                                                             background: colors.bg,
                                                             borderColor: colors.border,
@@ -1383,73 +1424,63 @@ export const Routine = () => {
                                                                 : '0 2px 8px rgba(0,0,0,0.06)',
                                                             position: 'absolute',
                                                             top: `${topOffset}px`,
-                                                            height: `${calculatedHeight}px`,
-                                                            left: leftStyle,
-                                                            width: widthStyle,
-                                                            zIndex: 20 + colIndex,
+                                                            height: `${cardHeight}px`,
+                                                            left: '4px',
+                                                            width: 'calc(100% - 8px)',
+                                                            zIndex: isTallCard ? 30 : 20 + idx,
                                                         }}
+                                                        title="Double-click to open event details"
                                                     >
-                                                        {isCompact ? (
-                                                            <div className="flex items-center justify-between gap-1 w-full h-full">
-                                                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                                                                    {item.isAutoDetected && (
+                                                        {isTallCard ? (
+                                                            <>
+                                                                {/* Top: Badges, Title, Subtitle */}
+                                                                <div className="flex-1 min-w-0 pr-0.5">
+                                                                    <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                                                                        {item.isAutoDetected && (
+                                                                            <span
+                                                                                className="text-[8px] px-1 py-0.2 rounded font-bold uppercase tracking-wider shrink-0 bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
+                                                                                title={`Auto-detected: ${item.detectedApp || 'Screen activity'}`}
+                                                                            >
+                                                                                Auto
+                                                                            </span>
+                                                                        )}
                                                                         <span
-                                                                            className="text-[8px] px-1 py-0.2 rounded font-bold uppercase shrink-0 bg-emerald-500/20 text-emerald-400"
-                                                                            title={`Auto-detected: ${item.detectedApp}`}
+                                                                            className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-black/15 dark:bg-white/10 font-bold shrink-0"
+                                                                            style={{ color: colors.subtext }}
                                                                         >
-                                                                            🤖 Auto
+                                                                            {timeRangeString}
                                                                         </span>
-                                                                    )}
+                                                                        <span
+                                                                            className="text-[8px] px-1 py-0.2 rounded uppercase font-bold tracking-wider shrink-0"
+                                                                            style={{ background: colors.accent + '20', color: colors.accent }}
+                                                                        >
+                                                                            {item.category}
+                                                                        </span>
+                                                                    </div>
+
                                                                     <h4
-                                                                        className="font-semibold text-[11px] leading-none truncate"
+                                                                        className="font-semibold text-xs leading-snug break-words line-clamp-3 text-left"
                                                                         style={{ color: colors.text }}
+                                                                        title={item.title}
                                                                     >
                                                                         {item.title}
                                                                     </h4>
-                                                                    <span className="text-[9px] font-mono opacity-80 shrink-0" style={{ color: colors.subtext }}>
-                                                                        {formatTimeSlot(item.startHour, item.startMinute)}
-                                                                    </span>
-                                                                    {isPastTask && (
-                                                                        <span
-                                                                            className="text-[9px] px-1 py-0.2 rounded font-medium shrink-0"
-                                                                            style={{
-                                                                                background: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.08)',
-                                                                                color: colors.subtext,
-                                                                            }}
+
+                                                                    {(item.subtitle || item.detectedTitle) && (
+                                                                        <p
+                                                                            className="text-[10px] mt-1 line-clamp-2 leading-tight text-left font-normal"
+                                                                            style={{ color: colors.subtext }}
+                                                                            title={item.subtitle || item.detectedTitle}
                                                                         >
-                                                                            Past
-                                                                        </span>
-                                                                    )}
-                                                                    {item.isAutoDetected && (
-                                                                        <div className="flex items-center gap-0.5 shrink-0 ml-auto" onClick={(e) => e.stopPropagation()}>
-                                                                            {!item.detectionFeedback ? (
-                                                                                <>
-                                                                                    <button
-                                                                                        onClick={(e) => handleRateActivity(e, item, 'accurate')}
-                                                                                        className="hover:scale-125 transition-transform text-[9px]"
-                                                                                        title="Detection accurate"
-                                                                                    >
-                                                                                        👍
-                                                                                    </button>
-                                                                                    <button
-                                                                                        onClick={(e) => handleRateActivity(e, item, 'inaccurate')}
-                                                                                        className="hover:scale-125 transition-transform text-[9px]"
-                                                                                        title="Detection inaccurate"
-                                                                                    >
-                                                                                        👎
-                                                                                    </button>
-                                                                                </>
-                                                                            ) : item.detectionFeedback === 'accurate' ? (
-                                                                                <span className="text-[8px] font-bold text-emerald-500">✓</span>
-                                                                            ) : (
-                                                                                <span className="text-[8px] font-bold text-amber-500">⚠️</span>
-                                                                            )}
-                                                                        </div>
+                                                                            {item.subtitle || item.detectedTitle}
+                                                                        </p>
                                                                     )}
                                                                 </div>
 
-                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                {/* Bottom Right: Action buttons */}
+                                                                <div className="flex items-center justify-end gap-1 pt-1 mt-auto border-t border-black/5 dark:border-white/5">
                                                                     <button
+                                                                        type="button"
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
                                                                             saveMasterRoutines(
@@ -1458,8 +1489,79 @@ export const Routine = () => {
                                                                                 )
                                                                             );
                                                                         }}
-                                                                        className="hover:text-emerald-500 transition-colors"
-                                                                        title="Mark done"
+                                                                        className="p-1 rounded-md text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/15 transition-colors cursor-pointer"
+                                                                        title={item.completed ? 'Mark incomplete' : 'Mark done'}
+                                                                    >
+                                                                        {item.completed ? (
+                                                                            <CheckCircle2 size={13} className="text-emerald-500" />
+                                                                        ) : (
+                                                                            <Circle size={13} />
+                                                                        )}
+                                                                    </button>
+
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setSelectedRoutineDetails({ ...item });
+                                                                        }}
+                                                                        className="p-1 rounded-md text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/15 transition-all cursor-pointer"
+                                                                        title="Edit details (or double-click)"
+                                                                    >
+                                                                        <Edit3 size={12} />
+                                                                    </button>
+
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            saveMasterRoutines(allRoutines.filter((r) => r.id !== item.id));
+                                                                        }}
+                                                                        className="p-1 rounded-md text-slate-400 hover:text-red-400 hover:bg-red-500/15 transition-all cursor-pointer"
+                                                                        title="Delete event"
+                                                                    >
+                                                                        <Trash2 size={12} />
+                                                                    </button>
+                                                                </div>
+                                                            </>
+                                                        ) : (
+                                                            <div className="flex items-center justify-between w-full h-full">
+                                                                {/* Content row */}
+                                                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                                                    {item.isAutoDetected && (
+                                                                        <span
+                                                                            className="text-[8px] px-1 py-0.2 rounded font-bold uppercase tracking-wider shrink-0 bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
+                                                                            title={`Auto-detected: ${item.detectedApp || 'Screen activity'}`}
+                                                                        >
+                                                                            Auto
+                                                                        </span>
+                                                                    )}
+                                                                    <h4
+                                                                        className="font-semibold text-xs leading-none truncate"
+                                                                        style={{ color: colors.text }}
+                                                                        title={item.title}
+                                                                    >
+                                                                        {item.title}
+                                                                    </h4>
+                                                                    <span className="text-[9px] font-mono opacity-70 shrink-0" style={{ color: colors.subtext }}>
+                                                                        {duration}m
+                                                                    </span>
+                                                                </div>
+
+                                                                {/* Quick Action Icons */}
+                                                                <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            saveMasterRoutines(
+                                                                                allRoutines.map((r) =>
+                                                                                    r.id === item.id ? { ...r, completed: !r.completed } : r
+                                                                                )
+                                                                            );
+                                                                        }}
+                                                                        className="p-0.5 rounded text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer"
+                                                                        title={item.completed ? 'Mark incomplete' : 'Mark done'}
                                                                     >
                                                                         {item.completed ? (
                                                                             <CheckCircle2 size={12} className="text-emerald-500" />
@@ -1467,211 +1569,100 @@ export const Routine = () => {
                                                                             <Circle size={12} />
                                                                         )}
                                                                     </button>
+
                                                                     <button
+                                                                        type="button"
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
                                                                             setSelectedRoutineDetails({ ...item });
                                                                         }}
-                                                                        className="opacity-0 group-hover:opacity-100 hover:text-indigo-500 transition-all"
-                                                                        title="Edit Details"
+                                                                        className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all text-slate-400 cursor-pointer"
+                                                                        title="Edit details (or double-click)"
                                                                     >
                                                                         <Edit3 size={11} />
                                                                     </button>
+
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            saveMasterRoutines(allRoutines.filter((r) => r.id !== item.id));
+                                                                        }}
+                                                                        className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-red-500/10 transition-all text-slate-400 cursor-pointer"
+                                                                        title="Delete event"
+                                                                    >
+                                                                        <Trash2 size={11} />
+                                                                    </button>
                                                                 </div>
                                                             </div>
-                                                        ) : (
-                                                            <>
-                                                                <div>
-                                                                    <div className="flex items-start justify-between gap-1.5">
-                                                                        <div className="flex items-center gap-1.5 min-w-0">
-                                                                            {item.isAutoDetected && (
-                                                                                <span
-                                                                                    className="text-[9px] px-1.5 py-0.5 rounded font-bold uppercase shrink-0 bg-emerald-500/20 text-emerald-400"
-                                                                                    title={`Auto-detected: ${item.detectedApp}`}
-                                                                                >
-                                                                                    🤖 Auto
-                                                                                </span>
-                                                                            )}
-                                                                            <h4
-                                                                                className="font-semibold text-xs leading-tight truncate"
-                                                                                style={{ color: colors.text }}
-                                                                            >
-                                                                                {item.title}
-                                                                            </h4>
-                                                                            {isPastTask && (
-                                                                                <span
-                                                                                    className="text-[9px] px-1 py-0.2 rounded font-medium shrink-0"
-                                                                                    style={{
-                                                                                        background: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.08)',
-                                                                                        color: colors.subtext,
-                                                                                    }}
-                                                                                >
-                                                                                    Past
-                                                                                </span>
-                                                                            )}
-                                                                        </div>
-                                                                        {!isPastTask && (
-                                                                            <GripVertical
-                                                                                size={12}
-                                                                                style={{ color: colors.subtext }}
-                                                                                className="opacity-0 group-hover:opacity-100 shrink-0 cursor-grab"
-                                                                            />
-                                                                        )}
-                                                                    </div>
-
-                                                                    {item.subtitle && (
-                                                                        <p
-                                                                            className="text-[11px] mt-1 truncate"
-                                                                            style={{ color: colors.subtext }}
-                                                                        >
-                                                                            {item.subtitle}
-                                                                        </p>
-                                                                    )}
-                                                                </div>
-
-                                                                <div
-                                                                    className="flex items-center justify-between mt-2 pt-1.5 border-t text-[10px]"
-                                                                    style={{
-                                                                        borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                                                                        color: colors.subtext,
-                                                                    }}
-                                                                >
-                                                                    <span className="font-medium truncate">
-                                                                        {timeRangeString}
-                                                                    </span>
-
-                                                                    {/* Accuracy rating buttons for auto-detected events */}
-                                                                    {item.isAutoDetected && (
-                                                                        <div className="flex items-center gap-1 shrink-0 ml-1" onClick={(e) => e.stopPropagation()}>
-                                                                            {!item.detectionFeedback ? (
-                                                                                <div className="flex items-center gap-1 text-[9px] bg-black/10 dark:bg-white/5 px-1.5 py-0.5 rounded-lg">
-                                                                                    <span className="opacity-75">Accurate?</span>
-                                                                                    <button
-                                                                                        onClick={(e) => handleRateActivity(e, item, 'accurate')}
-                                                                                        className="hover:scale-125 transition-transform"
-                                                                                        title="Mark detection accurate"
-                                                                                    >
-                                                                                        👍
-                                                                                    </button>
-                                                                                    <button
-                                                                                        onClick={(e) => handleRateActivity(e, item, 'inaccurate')}
-                                                                                        className="hover:scale-125 transition-transform"
-                                                                                        title="Mark detection inaccurate"
-                                                                                    >
-                                                                                        👎
-                                                                                    </button>
-                                                                                </div>
-                                                                            ) : item.detectionFeedback === 'accurate' ? (
-                                                                                <span className="text-[9px] text-emerald-400 font-bold flex items-center gap-0.5">
-                                                                                    ✓ Accurate
-                                                                                </span>
-                                                                            ) : (
-                                                                                <span className="text-[9px] text-amber-400 font-bold flex items-center gap-0.5">
-                                                                                    ⚠️ Inaccurate
-                                                                                </span>
-                                                                            )}
-                                                                        </div>
-                                                                    )}
-
-                                                                    <div className="flex items-center gap-1.5 shrink-0 ml-1">
-                                                                        <button
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                saveMasterRoutines(
-                                                                                    allRoutines.map((r) =>
-                                                                                        r.id === item.id ? { ...r, completed: !r.completed } : r
-                                                                                    )
-                                                                                );
-                                                                            }}
-                                                                            className="hover:text-emerald-500 transition-colors"
-                                                                            title="Mark done"
-                                                                        >
-                                                                            {item.completed ? (
-                                                                                <CheckCircle2 size={13} className="text-emerald-500" />
-                                                                            ) : (
-                                                                                <Circle size={13} />
-                                                                            )}
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                setSelectedRoutineDetails({ ...item });
-                                                                            }}
-                                                                            className="opacity-0 group-hover:opacity-100 hover:text-indigo-500 transition-all"
-                                                                            title="Edit Details"
-                                                                        >
-                                                                            <Edit3 size={12} />
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                saveMasterRoutines(allRoutines.filter((r) => r.id !== item.id));
-                                                                            }}
-                                                                            className="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"
-                                                                            title="Delete"
-                                                                        >
-                                                                            <Trash2 size={12} />
-                                                                        </button>
-                                                                    </div>
-                                                                </div>
-                                                            </>
                                                         )}
                                                     </div>
                                                 );
                                             })}
 
-                                            {/* Overflow badge if more than 2 auto-detected apps in this slot */}
-                                            {hiddenAutoCount > 0 && (
-                                                <div
+                                            {/* +X Events Detected Button: cleanly placed as 3rd row */}
+                                            {hiddenCount > 0 && (
+                                                <button
+                                                    type="button"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         setSlotAppsModal({
                                                             dateStr,
                                                             hour,
-                                                            items: autoRoutines,
+                                                            items: sortedCellRoutines,
                                                         });
                                                     }}
-                                                    className="rounded-lg border shadow-sm px-2 py-1 transition-all hover:scale-[1.02] cursor-pointer flex items-center justify-between text-[11px] font-semibold animate-fade-in group"
+                                                    onDoubleClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSlotAppsModal({
+                                                            dateStr,
+                                                            hour,
+                                                            items: sortedCellRoutines,
+                                                        });
+                                                    }}
+                                                    className="rounded-lg border shadow-sm px-2.5 py-0.5 transition-all hover:scale-[1.01] active:scale-95 cursor-pointer flex items-center justify-between text-[11px] font-semibold animate-fade-in group"
                                                     style={{
-                                                        background: isDark ? 'rgba(30, 41, 59, 0.95)' : '#f8fafc',
-                                                        borderColor: isDark ? 'rgba(99, 102, 241, 0.5)' : '#cbd5e1',
+                                                        background: isDark ? 'rgba(30, 41, 59, 0.95)' : '#f1f5f9',
+                                                        borderColor: isDark ? 'rgba(99, 102, 241, 0.45)' : '#cbd5e1',
                                                         position: 'absolute',
-                                                        bottom: '2px',
+                                                        top: '68px',
                                                         left: '4px',
-                                                        right: '4px',
+                                                        width: 'calc(100% - 8px)',
+                                                        height: '22px',
                                                         zIndex: 35,
                                                     }}
-                                                    title="Click to view all detected apps"
+                                                    title={`Double-click or click to view all ${sortedCellRoutines.length} events`}
                                                 >
                                                     <div className="flex items-center gap-1.5 truncate">
-                                                        <Sparkles size={11} className="text-indigo-400 shrink-0" />
+                                                        <Layers size={11} className="text-indigo-400 shrink-0" />
                                                         <span className="text-indigo-400 truncate text-[10px] font-bold">
-                                                            +{hiddenAutoCount} apps detected
+                                                            +{hiddenCount} event{hiddenCount > 1 ? 's' : ''} detected
                                                         </span>
                                                     </div>
                                                     <span className="text-[9px] text-slate-400 group-hover:text-indigo-300 shrink-0 font-medium">
                                                         View all →
                                                     </span>
-                                                </div>
+                                                </button>
                                             )}
 
-                                            {/* Tracked Activity Guess Card */}
-                                            {guess && (
+                                            {/* Tracked Activity Guess Card (only shown when NO routines exist in this slot and activity is >= 2 minutes) */}
+                                            {guess && cellRoutines.length === 0 && guess.totalSeconds >= 120 && (
                                                 <div
                                                     onDoubleClick={(e) => {
                                                         e.stopPropagation();
                                                         setSelectedActivityDetails({ dateStr, hour, guess });
                                                     }}
-                                                    className="p-2 rounded-xl border text-xs shadow-md cursor-pointer transition-all hover:scale-[1.02]"
+                                                    className="p-2.5 rounded-xl border border-dashed text-xs shadow-sm cursor-pointer transition-all hover:scale-[1.01]"
                                                     style={{
-                                                        background: isDark ? 'rgba(15, 23, 42, 0.85)' : '#f0fdf4',
-                                                        borderColor: isDark ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.4)',
+                                                        background: isDark ? 'rgba(15, 23, 42, 0.45)' : '#f0fdf4',
+                                                        borderColor: isDark ? 'rgba(16, 185, 129, 0.25)' : 'rgba(16, 185, 129, 0.35)',
                                                     }}
-                                                    title={`Double-click for details. Tracked: ${guess.topApp} (${Math.round(guess.totalSeconds / 60)}m)`}
+                                                    title={`Double-click for details. Untracked activity: ${guess.topApp} (${Math.round(guess.totalSeconds / 60)}m)`}
                                                 >
                                                     <div className="flex items-center justify-between gap-1">
-                                                        <span className="font-bold text-[11px] text-emerald-600 dark:text-emerald-400 truncate">
-                                                            🤖 {guess.label}
+                                                        <span className="font-semibold text-[11px] text-emerald-600 dark:text-emerald-400 truncate flex items-center gap-1.5">
+                                                            <ActivityIcon size={12} className="shrink-0" />
+                                                            <span>{guess.label}</span>
                                                         </span>
                                                         <span
                                                             className="text-[10px] font-mono"
@@ -1681,7 +1672,7 @@ export const Routine = () => {
                                                         </span>
                                                     </div>
                                                     <p
-                                                        className="text-[10px] truncate mt-0.5"
+                                                        className="text-[10px] truncate mt-0.5 font-mono"
                                                         style={{ color: 'var(--text-secondary)' }}
                                                     >
                                                         {guess.topApp}: {guess.topTitle}
@@ -1926,7 +1917,7 @@ export const Routine = () => {
                                 >
                                     <div className="flex items-center justify-between mb-2">
                                         <span className="text-xs font-bold flex items-center gap-1.5 text-emerald-500">
-                                            <Sparkles size={13} /> Screen Activity Detection
+                                            <ActivityIcon size={13} /> Screen Activity Detection
                                         </span>
                                         {selectedRoutineDetails.detectionConfidence && (
                                             <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 font-semibold">
@@ -2129,8 +2120,9 @@ export const Routine = () => {
                                 }}
                             >
                                 <div className="flex items-center justify-between mb-1">
-                                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                                        🤖 {selectedActivityDetails.guess.label}
+                                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                                        <ActivityIcon size={13} className="shrink-0" />
+                                        <span>{selectedActivityDetails.guess.label}</span>
                                     </span>
                                     <span className="text-xs font-mono text-emerald-600 dark:text-emerald-300">
                                         {selectedActivityDetails.guess.confidence}% Confidence
@@ -2249,14 +2241,14 @@ export const Routine = () => {
                         <div className="flex items-center justify-between pb-4 border-b mb-5" style={{ borderColor: 'var(--border-secondary)' }}>
                             <div className="flex items-center gap-3">
                                 <div className="p-2.5 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                                    <Sparkles size={18} />
+                                    <Layers size={18} />
                                 </div>
                                 <div>
                                     <h3 className="text-base font-display font-bold" style={{ color: 'var(--text-primary)' }}>
-                                        Detected Apps at {formatHourLabel(slotAppsModal.hour)}
+                                        Events at {formatHourLabel(slotAppsModal.hour)}
                                     </h3>
                                     <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                                        {slotAppsModal.dateStr} • {slotAppsModal.items.length} separate events tracked
+                                        {slotAppsModal.dateStr} • {slotAppsModal.items.length} event{slotAppsModal.items.length > 1 ? 's' : ''} • Double-click any event to open full details
                                     </p>
                                 </div>
                             </div>
@@ -2274,7 +2266,11 @@ export const Routine = () => {
                                 return (
                                     <div
                                         key={appItem.id}
-                                        className="p-3.5 rounded-2xl border transition-all"
+                                        onDoubleClick={() => {
+                                            setSlotAppsModal(null);
+                                            setSelectedRoutineDetails(appItem);
+                                        }}
+                                        className="p-3.5 rounded-2xl border transition-all cursor-pointer hover:scale-[1.01]"
                                         style={{
                                             background: colors.bg,
                                             borderColor: colors.border,
@@ -2488,43 +2484,58 @@ export const Routine = () => {
                                         </span>
                                     </div>
                                     <div className="flex items-center gap-1.5 flex-wrap">
-                                        {(planScope === 'day' ? [2, 4, 6, 8, 10] : [10, 15, 20, 30, 40]).map((h) => {
-                                            const isSelected = planScope === 'day' ? allottedHours === h : weeklyTotalHours === h;
+                                        {(() => {
+                                            const activeDaysCount = Math.max(1, activeWeekDates.length);
+                                            const maxWeeklyHours = Math.max(40, activeDaysCount * 16);
+                                            const maxCustomHours = planScope === 'day' ? 16 : maxWeeklyHours;
+                                            const presets = planScope === 'day'
+                                                ? [2, 4, 6, 8, 10]
+                                                : activeDaysCount >= 6
+                                                ? [20, 40, 60, 80, 100]
+                                                : [15, 25, 40, 60, 80];
+
                                             return (
-                                                <button
-                                                    key={h}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        if (planScope === 'day') setAllottedHours(h);
-                                                        else setWeeklyTotalHours(h);
-                                                    }}
-                                                    className={`px-3 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                                                        isSelected
-                                                            ? 'bg-[#5b5fc7] text-white border-[#5b5fc7] shadow-sm shadow-[#5b5fc7]/30'
-                                                            : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white hover:border-slate-500'
-                                                    }`}
-                                                >
-                                                    {h} hrs
-                                                </button>
+                                                <>
+                                                    {presets.map((h) => {
+                                                        const isSelected = planScope === 'day' ? allottedHours === h : weeklyTotalHours === h;
+                                                        return (
+                                                            <button
+                                                                key={h}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (planScope === 'day') setAllottedHours(h);
+                                                                    else setWeeklyTotalHours(h);
+                                                                }}
+                                                                className={`px-3 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                                                                    isSelected
+                                                                        ? 'bg-[#5b5fc7] text-white border-[#5b5fc7] shadow-sm shadow-[#5b5fc7]/30'
+                                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white hover:border-slate-500'
+                                                                }`}
+                                                            >
+                                                                {h} hrs
+                                                            </button>
+                                                        );
+                                                    })}
+                                                    <div className="flex items-center gap-1.5 ml-auto text-xs text-slate-400">
+                                                        <span>Custom:</span>
+                                                        <input
+                                                            type="number"
+                                                            min={1}
+                                                            max={maxCustomHours}
+                                                            value={planScope === 'day' ? allottedHours : weeklyTotalHours}
+                                                            onChange={(e) => {
+                                                                const val = Math.max(1, Math.min(maxCustomHours, Number(e.target.value) || 1));
+                                                                if (planScope === 'day') setAllottedHours(val);
+                                                                else setWeeklyTotalHours(val);
+                                                            }}
+                                                            className="w-14 px-1.5 py-0.5 rounded-lg text-xs font-semibold border bg-black/20 dark:bg-white/5 text-center focus:outline-none focus:border-[#5b5fc7]"
+                                                            style={{ color: 'var(--text-primary)', borderColor: 'rgba(255, 255, 255, 0.12)' }}
+                                                        />
+                                                        <span>h</span>
+                                                    </div>
+                                                </>
                                             );
-                                        })}
-                                        <div className="flex items-center gap-1.5 ml-auto text-xs text-slate-400">
-                                            <span>Custom:</span>
-                                            <input
-                                                type="number"
-                                                min={1}
-                                                max={planScope === 'day' ? 16 : 80}
-                                                value={planScope === 'day' ? allottedHours : weeklyTotalHours}
-                                                onChange={(e) => {
-                                                    const val = Math.max(1, Math.min(planScope === 'day' ? 16 : 80, Number(e.target.value) || 1));
-                                                    if (planScope === 'day') setAllottedHours(val);
-                                                    else setWeeklyTotalHours(val);
-                                                }}
-                                                className="w-12 px-1.5 py-0.5 rounded-lg text-xs font-semibold border bg-black/20 dark:bg-white/5 text-center focus:outline-none focus:border-[#5b5fc7]"
-                                                style={{ color: 'var(--text-primary)', borderColor: 'rgba(255, 255, 255, 0.12)' }}
-                                            />
-                                            <span>h</span>
-                                        </div>
+                                        })()}
                                     </div>
                                 </div>
 
@@ -3096,6 +3107,80 @@ export const Routine = () => {
             {isLoginModalOpen && (
                 <LoginModal onClose={() => setIsLoginModalOpen(false)} />
             )}
+
+            {/* 9. Right-Click Context Menu for Routine Events (Portaled to document.body to avoid parent transform offsets & scrollbars) */}
+            {contextMenu &&
+                createPortal(
+                    <div
+                        className="fixed z-[99999] min-w-[175px] rounded-2xl border p-1.5 shadow-2xl animate-scale-in text-xs font-medium backdrop-blur-xl"
+                        style={{
+                            top: `${contextMenu.y}px`,
+                            left: `${contextMenu.x}px`,
+                            background: isDark ? 'rgba(15, 23, 42, 0.96)' : 'rgba(255, 255, 255, 0.98)',
+                            borderColor: 'var(--border-card)',
+                            boxShadow: isDark
+                                ? '0 12px 30px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06)'
+                                : '0 12px 25px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 truncate max-w-[190px] border-b mb-1 border-black/5 dark:border-white/5">
+                            {contextMenu.item.title}
+                        </div>
+
+                        <button
+                            onClick={() => {
+                                const item = contextMenu.item;
+                                setContextMenu(null);
+                                setSelectedRoutineDetails({ ...item });
+                            }}
+                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-left transition-colors hover:bg-indigo-500/10 hover:text-indigo-400 text-slate-700 dark:text-slate-200 cursor-pointer"
+                        >
+                            <Edit3 size={13} className="text-indigo-400 shrink-0" />
+                            <span>Edit Event</span>
+                        </button>
+
+                        <button
+                            onClick={() => {
+                                const item = contextMenu.item;
+                                setContextMenu(null);
+                                saveMasterRoutines(
+                                    allRoutines.map((r) =>
+                                        r.id === item.id ? { ...r, completed: !r.completed } : r
+                                    )
+                                );
+                            }}
+                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-left transition-colors hover:bg-black/5 dark:hover:bg-white/5 text-slate-700 dark:text-slate-200 cursor-pointer"
+                        >
+                            {contextMenu.item.completed ? (
+                                <>
+                                    <Circle size={13} className="text-slate-400 shrink-0" />
+                                    <span>Mark Incomplete</span>
+                                </>
+                            ) : (
+                                <>
+                                    <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                                    <span>Mark Done</span>
+                                </>
+                            )}
+                        </button>
+
+                        <div className="my-1 border-t border-black/5 dark:border-white/5" />
+
+                        <button
+                            onClick={() => {
+                                const item = contextMenu.item;
+                                setContextMenu(null);
+                                saveMasterRoutines(allRoutines.filter((r) => r.id !== item.id));
+                            }}
+                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-left transition-colors text-red-500 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                        >
+                            <Trash2 size={13} className="shrink-0" />
+                            <span>Delete Event</span>
+                        </button>
+                    </div>,
+                    document.body
+                )}
         </div>
     );
 };

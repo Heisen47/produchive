@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Github, Bug, FileQuestionIcon, Ghost } from 'lucide-react';
+import { Github, Bug, BellRing, FileQuestionIcon, Ghost } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import Lottie from 'lottie-react';
 import catAnimation from '../assets/cat.json';
@@ -106,8 +106,20 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                 </div>
 
                 <div className="flex items-center gap-3 sm:gap-4 order-1 sm:order-2 z-10">
+                    <button
+                        type="button"
+                        onClick={() => window.dispatchEvent(new CustomEvent('produchive_toggle_debug'))}
+                        className="flex items-center gap-1.5 sm:gap-2 transition-all duration-200 cursor-pointer"
+                        style={{ color: 'var(--text-muted)' }}
+                        title="Open Notification Center & Diagnostics"
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--accent)'; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = 'var(--text-muted)'; }}
+                    >
+                        <BellRing size={14} className="sm:w-4 sm:h-4" />
+                        <span className="hidden xs:inline">Notification Center</span>
+                    </button>
+
                     {[
-                        { href: issuesUrl, icon: Bug, label: 'Report an Issue' },
                         { href: repoUrl, icon: Github, label: 'GitHub'},
                         { href: howToUseItUrl, icon: FileQuestionIcon, label: 'How to use it?'},
                     ].map((link, i) => (

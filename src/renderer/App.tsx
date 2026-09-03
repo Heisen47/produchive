@@ -9,6 +9,7 @@ import { Dashboard } from './components/Dashboard';
 import { UsageCharts } from './components/UsageCharts';
 import { WelcomeModal } from './components/WelcomeModal';
 import { ActivityConfirmationPopup } from './components/ActivityConfirmationPopup';
+import { DebugPanel } from './components/DebugPanel';
 import { Toaster } from 'sonner';
 import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
@@ -273,10 +274,13 @@ const AppContent = () => {
         <div className="h-screen w-screen flex overflow-hidden font-sans selection:bg-blue-500/30" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
             <ErrorModal />
             <ActivityConfirmationPopup />
+            <DebugPanel />
             <Toaster
                 position="bottom-right"
                 theme={isDark ? 'dark' : 'light'}
+                duration={5000}
                 toastOptions={{
+                    duration: 5000,
                     style: {
                         background: 'var(--bg-card-solid)',
                         color: 'var(--text-primary)',
@@ -459,7 +463,7 @@ const AppContent = () => {
                 </header>
 
                 {/* Content Area */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+                <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar p-8">
                     <div className="max-w-6xl mx-auto space-y-8">
                         {/* Loading State */}
                         {loading && (

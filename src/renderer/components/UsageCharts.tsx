@@ -7,7 +7,8 @@ import {
 import {
     Clock, Zap, Monitor, TrendingUp,
     Hourglass, BarChart3, Loader2, Brain,
-    Star, ChevronDown, ChevronUp
+    Star, ChevronDown, ChevronUp,
+    Calendar as CalendarIcon, CheckCircle2, Target
 } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
@@ -193,12 +194,59 @@ const getRatingColor = (rating: number) => {
 // MAIN COMPONENT
 // ═══════════════════════════════════════
 export const UsageCharts = () => {
-    const { activities, ratings } = useStore();
+    const { activities, ratings, routines } = useStore();
     const { isDark } = useTheme();
     const [period, setPeriod] = useState<TimePeriod>('today');
     const [rangeData, setRangeData] = useState<Record<string, { activities: Activity[] }>>({});
     const [loading, setLoading] = useState(false);
     const [expandedRating, setExpandedRating] = useState<number | null>(null);
+
+    // ─── Routine Calendar Analytics for Selected Period ───
+    const calendarStats = useMemo(() => {
+        const datesInPeriod = new Set<string>();
+
+        if (period === 'today') {
+            datesInPeriod.add(getDateStr(0));
+        } else if (period === 'yesterday') {
+            datesInPeriod.add(getDateStr(1));
+        } else if (period === '7days') {
+            for (let i = 0; i < 7; i++) datesInPeriod.add(getDateStr(i));
+        } else if (period === '30days') {
+            for (let i = 0; i < 30; i++) datesInPeriod.add(getDateStr(i));
+        }
+
+        const periodRoutines = (routines || []).filter((r) => datesInPeriod.has(r.dateStr));
+        const plannedRoutines = periodRoutines.filter((r) => !r.isAutoDetected);
+        const plannedMinutes = plannedRoutines.reduce((sum, r) => sum + r.durationMinutes, 0);
+        const completedRoutines = plannedRoutines.filter((r) => r.completed);
+        const adherencePercent =
+            plannedRoutines.length > 0
+                ? Math.round((completedRoutines.length / plannedRoutines.length) * 100)
+                : 0;
+
+        const catMap: Record<string, number> = {};
+        periodRoutines.forEach((r) => {
+            const cat = r.category || 'other';
+            catMap[cat] = (catMap[cat] || 0) + r.durationMinutes;
+        });
+
+        const autoDetected = periodRoutines.filter((r) => r.isAutoDetected);
+        const ratedItems = autoDetected.filter((r) => r.detectionFeedback);
+        const accurateCount = ratedItems.filter((r) => r.detectionFeedback === 'accurate').length;
+        const accuracyRate = ratedItems.length > 0 ? Math.round((accurateCount / ratedItems.length) * 100) : null;
+
+        return {
+            totalItems: periodRoutines.length,
+            plannedCount: plannedRoutines.length,
+            completedCount: completedRoutines.length,
+            plannedMinutes,
+            adherencePercent,
+            catMap,
+            autoCount: autoDetected.length,
+            accuracyRate,
+            ratedCount: ratedItems.length,
+        };
+    }, [routines, period]);
 
     // ─── Fetch data for the selected period ───
     const fetchData = useCallback(async (p: TimePeriod) => {
@@ -645,6 +693,113 @@ export const UsageCharts = () => {
                             </p>
                         </div>
                     )}
+
+                    {/* ═══════════════════════════════════ */}
+                    {/* Calendar & Routine Adherence Card */}
+                    {/* ═══════════════════════════════════ */}
+                    <div className="glass-card-static rounded-2xl p-6 animate-fade-in-up" style={{ animationDelay: '250ms' }}>
+                        <div className="flex items-center justify-between mb-6 pb-4" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
+                            <div className="flex items-center gap-3">
+                                <div
+                                    className="p-2.5 rounded-xl"
+                                    style={{
+                                        background: 'rgba(91, 95, 199, 0.15)',
+                                        color: '#5b5fc7',
+                                        border: '1px solid rgba(91, 95, 199, 0.25)',
+                                    }}
+                                >
+                                    <CalendarIcon size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="font-display font-bold text-lg" style={{ color: 'var(--text-primary)' }}>
+                                        Routine Calendar & Adherence
+                                    </h3>
+                                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                        Planned schedule vs actual tracked activity for {PERIOD_LABELS[period].toLowerCase()}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <span
+                                className="text-xs px-3 py-1 rounded-full font-semibold"
+                                style={{
+                                    background: calendarStats.adherencePercent >= 75 ? 'rgba(34, 197, 94, 0.15)' : 'rgba(91, 95, 199, 0.15)',
+                                    color: calendarStats.adherencePercent >= 75 ? '#4ade80' : '#818cf8',
+                                    border: `1px solid ${calendarStats.adherencePercent >= 75 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(91, 95, 199, 0.3)'}`,
+                                }}
+                            >
+                                {calendarStats.adherencePercent}% Adherence
+                            </span>
+                        </div>
+
+                        {/* Metrics Grid */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                            <div className="p-3.5 rounded-xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-secondary)' }}>
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Planned Routine</p>
+                                <p className="text-xl font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
+                                    {formatMinutes(calendarStats.plannedMinutes)}
+                                </p>
+                                <p className="text-[11px] mt-0.5 opacity-70" style={{ color: 'var(--text-muted)' }}>
+                                    {calendarStats.plannedCount} scheduled block{calendarStats.plannedCount !== 1 ? 's' : ''}
+                                </p>
+                            </div>
+
+                            <div className="p-3.5 rounded-xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-secondary)' }}>
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Actual Tracked</p>
+                                <p className="text-xl font-bold mt-1" style={{ color: 'var(--text-primary)' }}>
+                                    {formatDuration(totalDuration)}
+                                </p>
+                                <p className="text-[11px] mt-0.5 opacity-70" style={{ color: 'var(--text-muted)' }}>
+                                    Via screen monitoring
+                                </p>
+                            </div>
+
+                            <div className="p-3.5 rounded-xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-secondary)' }}>
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Completed Blocks</p>
+                                <p className="text-xl font-bold mt-1" style={{ color: '#4ade80' }}>
+                                    {calendarStats.completedCount}/{calendarStats.plannedCount}
+                                </p>
+                                <p className="text-[11px] mt-0.5 opacity-70" style={{ color: 'var(--text-muted)' }}>
+                                    Checklist adherence
+                                </p>
+                            </div>
+
+                            <div className="p-3.5 rounded-xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-secondary)' }}>
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Detection Accuracy</p>
+                                <p className="text-xl font-bold mt-1" style={{ color: calendarStats.accuracyRate !== null ? '#60a5fa' : 'var(--text-muted)' }}>
+                                    {calendarStats.accuracyRate !== null ? `${calendarStats.accuracyRate}%` : 'N/A'}
+                                </p>
+                                <p className="text-[11px] mt-0.5 opacity-70" style={{ color: 'var(--text-muted)' }}>
+                                    {calendarStats.ratedCount} feedback rating{calendarStats.ratedCount !== 1 ? 's' : ''}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Calendar Category Breakdown */}
+                        {Object.keys(calendarStats.catMap).length > 0 && (
+                            <div>
+                                <h4 className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: 'var(--text-secondary)' }}>
+                                    Calendar Hours by Category
+                                </h4>
+                                <div className="flex flex-wrap gap-2">
+                                    {Object.entries(calendarStats.catMap).map(([cat, mins]) => (
+                                        <div
+                                            key={cat}
+                                            className="px-3 py-1.5 rounded-xl flex items-center gap-2 text-xs font-medium"
+                                            style={{
+                                                background: 'var(--bg-elevated)',
+                                                border: '1px solid var(--border-secondary)',
+                                            }}
+                                        >
+                                            <span className="w-2 h-2 rounded-full" style={{ background: '#5b5fc7' }} />
+                                            <span className="capitalize" style={{ color: 'var(--text-primary)' }}>{cat}:</span>
+                                            <span style={{ color: 'var(--text-muted)' }}>{formatMinutes(mins)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
                     {/* ═══════════════════════════════════ */}
                     {/* AI Ratings Section */}

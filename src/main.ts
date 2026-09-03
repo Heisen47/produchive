@@ -9,6 +9,7 @@ import {
   Menu,
   nativeImage,
   net,
+  Notification,
 } from "electron";
 import path from "node:path";
 import started from "electron-squirrel-startup";
@@ -1284,17 +1285,6 @@ function registerIpcHandlers() {
     return logPath;
   });
 
-  ipcMain.handle("get-db-contents", async () => {
-    const currentActivityDb = await getActivityDb();
-    return {
-      tasks: db.data.tasks,
-      activities: currentActivityDb?.data?.activities || [],
-      goals: db.data.goals || [],
-      ratings: db.data.ratings || [],
-      activityFeedbacks: db.data.activityFeedbacks || [],
-    };
-  });
-
   ipcMain.handle("save-activity-feedback", async (_event, feedback: any) => {
     try {
       const entry = {
@@ -1393,6 +1383,16 @@ function registerIpcHandlers() {
     await db.write();
     logger.info(`Setting updated: ${key} = ${JSON.stringify(value)}`);
     return db.data.settings;
+  });
+
+  ipcMain.handle("show-notification", async (_event, { title, body }: { title: string; body: string }) => {
+    try {
+      if (Notification.isSupported()) {
+        new Notification({ title, body }).show();
+      }
+    } catch (err) {
+      logger.error("Failed to show native notification", err);
+    }
   });
 
   logger.info("All IPC handlers registered successfully");

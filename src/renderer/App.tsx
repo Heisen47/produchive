@@ -5,7 +5,6 @@ import { PremiumPaywall } from './components/PremiumPaywall';
 import { GoalSetter } from './components/GoalSetter';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { ProductivityJudge } from './components/ProductivityJudge';
-import { DebugPanel } from './components/DebugPanel';
 import { Dashboard } from './components/Dashboard';
 import { UsageCharts } from './components/UsageCharts';
 import { WelcomeModal } from './components/WelcomeModal';
@@ -21,6 +20,8 @@ import { apiClient } from './lib/api';
 import { syncEngine } from './lib/services';
 import { setGoogleAuthToken } from './lib/googleCalendar';
 import { activityAutoTracker } from './lib/activityAutoTracker';
+import { aiNudgeService } from './lib/aiNudgeService';
+import { studyAssistantService } from './lib/studyAssistantService';
 import {
     Loader2,
     Sparkles,
@@ -90,10 +91,38 @@ const AppContent = () => {
     useEffect(() => {
         syncEngine.start();
         activityAutoTracker.init();
+        studyAssistantService.init();
 
         window.electronAPI.onActivityUpdate((activity) => {
             addActivity(activity);
             syncEngine.enqueueActivity(activity);
+            aiNudgeService.handleActivity(activity);
+
+            // Trigger Pomodoro technique strictly when user is studying
+            const appLower = (activity.owner?.name || '').toLowerCase();
+            const titleLower = (activity.title || '').toLowerCase();
+            const isStudyApp =
+                appLower.includes('pdf') ||
+                appLower.includes('preview') ||
+                appLower.includes('acrobat') ||
+                appLower.includes('anki') ||
+                appLower.includes('quizlet') ||
+                appLower.includes('coursera') ||
+                appLower.includes('khan') ||
+                titleLower.includes('photosynthesis') ||
+                titleLower.includes('.pdf') ||
+                titleLower.includes('textbook') ||
+                titleLower.includes('lecture') ||
+                titleLower.includes('chapter');
+
+            if (isStudyApp) {
+                let topic = 'General Study';
+                if (titleLower.includes('photosynthesis')) topic = 'Photosynthesis';
+                else if (activity.title && activity.title.length > 3) {
+                    topic = activity.title.split(/[-—|]/)[0].trim().substring(0, 35);
+                }
+                studyAssistantService.startStudy(topic);
+            }
         });
 
 
@@ -206,6 +235,7 @@ const AppContent = () => {
             if (loadingRef.current) {
                 setEngine(result.engine);
                 setModelName(result.modelName);
+                aiNudgeService.setEngine(result.engine);
                 setLoading(false);
             }
         } catch (err: any) {
@@ -218,6 +248,7 @@ const AppContent = () => {
 
     const cancelEngine = () => {
         loadingRef.current = false;
+        aiNudgeService.setEngine(null);
         setLoading(false);
         setProgress({ text: '' });
     };
@@ -255,7 +286,6 @@ const AppContent = () => {
                     },
                 }}
             />
-            <DebugPanel />
             {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
             {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
             {showPromptEditor && <PromptEditorModal onClose={() => setShowPromptEditor(false)} />}

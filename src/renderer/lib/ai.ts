@@ -99,6 +99,20 @@ export const hasModelInCache = async (modelId: string): Promise<boolean> => {
     }
 };
 
+export const hasAnyDownloadedModel = async (): Promise<string | null> => {
+    try {
+        if (typeof caches === 'undefined') return null;
+        const selected = typeof localStorage !== 'undefined' ? localStorage.getItem('selectedModelId') : null;
+        if (selected && (await hasModelInCache(selected))) return selected;
+        for (const m of AVAILABLE_MODELS) {
+            if (await hasModelInCache(m.id)) return m.id;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+};
+
 export const deleteModelFromCache = async (modelId: string): Promise<void> => {
     try {
         log('info', `Attempting to delete model: ${modelId}`);

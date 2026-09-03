@@ -26,7 +26,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSystemInfo: () => ipcRenderer.invoke("get-system-info"),
   openUserDataFolder: () => ipcRenderer.invoke("open-user-data-folder"),
   openLogFile: () => ipcRenderer.invoke("open-log-file"),
-  getDbContents: () => ipcRenderer.invoke("get-db-contents"),
   saveGoals: (goals: string[]) => ipcRenderer.invoke("save-goals", goals),
   saveRating: (rating: any) => ipcRenderer.invoke("save-rating", rating),
   getRatingsByDate: (dateStr: string) =>
@@ -82,5 +81,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.removeAllListeners("on-gcal-token");
     ipcRenderer.on("on-gcal-token", (_event, value) => callback(value));
   },
+  showNotification: (options: { title: string; body: string }) => ipcRenderer.invoke("show-notification", options),
 });
 

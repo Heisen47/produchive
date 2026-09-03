@@ -72,3 +72,55 @@ export const syncMultipleGoalsToRoutineCalendar = (goals: string[]) => {
         console.error('Failed to distribute goals to Routine calendar:', e);
     }
 };
+
+/**
+ * Synchronizes a completed Focus Room study session into the Routine calendar.
+ * Automatically slots as a completed calendar block with exact duration and time.
+ */
+export const syncFocusSessionToRoutineCalendar = (
+    scene: string,
+    durationSeconds: number,
+    startedAt: string
+) => {
+    if (!scene || durationSeconds < 30) return;
+
+    try {
+        const saved = localStorage.getItem('produchive_master_routines');
+        const routines: PlannedRoutineItem[] = saved ? JSON.parse(saved) : [];
+
+        const startDate = new Date(startedAt);
+        const dateStr = formatDateStr(startDate);
+        const startHour = startDate.getHours();
+        const rawMinutes = startDate.getMinutes();
+        const startMinute = (Math.floor(rawMinutes / 15) * 15) as 0 | 15 | 30 | 45;
+        const durationMinutes = Math.max(15, Math.ceil(durationSeconds / 60 / 5) * 5);
+
+        const sceneLabels: Record<string, string> = {
+            classroom: 'Classroom',
+            cafe: 'Café',
+            library: 'Library',
+        };
+        const label = sceneLabels[scene.toLowerCase()] || scene;
+
+        const newRoutine: PlannedRoutineItem = {
+            id: `focus-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+            title: `Focus Room • ${label}`,
+            category: 'development',
+            priority: 'medium',
+            dayIndex: startDate.getDay(),
+            dateStr,
+            startHour,
+            startMinute,
+            durationMinutes,
+            completed: true,
+            subtitle: `Completed ${Math.round(durationSeconds / 60)} min session in ${label}`,
+            actualDurationSeconds: durationSeconds,
+        };
+
+        routines.push(newRoutine);
+        localStorage.setItem('produchive_master_routines', JSON.stringify(routines));
+        window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
+    } catch (e) {
+        console.error('Failed to sync focus session to Routine calendar:', e);
+    }
+};

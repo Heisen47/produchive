@@ -26,7 +26,9 @@ import {
     Moon,
     Loader2,
     ThumbsUp,
-    ThumbsDown
+    ThumbsDown,
+    Target,
+    Quote
 } from 'lucide-react';
 import { submitActivityFeedback } from '../lib/activityAutoTracker';
 import { useStore } from '../lib/store';
@@ -51,38 +53,8 @@ import {
 } from '../lib/smartScheduler';
 
 // ─── Types ───
-export interface PlannedRoutineItem {
-    id: string;
-    title: string;
-    category: 'development' | 'research' | 'meeting' | 'design' | 'writing' | 'break' | 'meal' | 'sleep' | 'other';
-    priority: 'high' | 'medium' | 'low';
-    dayIndex: number; // 0 (Mon) - 6 (Sun)
-    dateStr: string; // YYYY-MM-DD
-    startHour: number; // 0 - 23
-    startMinute: number; // 0, 15, 30, 45
-    durationMinutes: number; // e.g. 30, 60, 90, 120
-    completed: boolean;
-    subtitle?: string;
-    attendees?: string;
-    isAutoDetected?: boolean;
-    detectedApp?: string;
-    detectedTitle?: string;
-    detectionConfidence?: number;
-    actualDurationSeconds?: number;
-    detectionFeedback?: 'accurate' | 'inaccurate' | null;
-    detectionFeedbackComment?: string;
-    feedbackAt?: number;
-}
-
-export interface ActivityGuess {
-    category: string;
-    label: string;
-    confidence: number;
-    topApp: string;
-    topTitle: string;
-    totalSeconds: number;
-    appBreakdown: Array<{ name: string; seconds: number }>;
-}
+import type { PlannedRoutineItem, ActivityGuess } from '../types/routine';
+export type { PlannedRoutineItem, ActivityGuess };
 
 // ─── Categories & Styling with Proper Contrast for Light & Dark Mode ───
 const getEventColors = (category: string, isDark: boolean) => {
@@ -458,66 +430,50 @@ export const Routine = () => {
     // ─── Routine Storage ───
     // Track if all local routine items are in sync with Google Calendar
     // (Disables the sync button when up to date, re-enables on any change)
-const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
+    const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
         try {
             const saved = localStorage.getItem('produchive_master_routines');
             if (saved) return JSON.parse(saved);
         } catch (e) {
             console.error('Failed to load master routines:', e);
         }
-        return [
-            {
-                id: 'demo-1',
-                title: 'Weekly check-in with Engineers',
-                category: 'meeting',
-                priority: 'high',
-                dayIndex: 0,
-                dateStr: formatDateStr(now),
-                startHour: 14,
-                startMinute: 0,
-                durationMinutes: 90,
-                completed: false,
-                subtitle: 'Engineering lab',
-                attendees: 'Core Dev Team',
-            },
-            {
-                id: 'demo-2',
-                title: 'Deep Focus: Architecture & Core API',
-                category: 'development',
-                priority: 'high',
-                dayIndex: 0,
-                dateStr: formatDateStr(now),
-                startHour: 10,
-                startMinute: 0,
-                durationMinutes: 120,
-                completed: false,
-                subtitle: 'VS Code — main.ts',
-            },
-            {
-                id: 'demo-3',
-                title: 'Lunch & Recharge Break 🥗',
-                category: 'meal',
-                priority: 'medium',
-                dayIndex: 0,
-                dateStr: formatDateStr(now),
-                startHour: 13,
-                startMinute: 0,
-                durationMinutes: 60,
-                completed: false,
-                subtitle: 'Healthy meal & fresh air',
-            },
-        ];
+        return [];
     });
 
     const isSynced = isGoogleLoggedIn && isCalendarSyncUpToDate(allRoutines);
 
     const saveMasterRoutines = (items: PlannedRoutineItem[]) => {
+        const previousRoutines = allRoutines;
         setAllRoutines(items);
         try {
             localStorage.setItem('produchive_master_routines', JSON.stringify(items));
             window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
         } catch (e) {
             console.error('Failed to save master routines:', e);
+        }
+
+        // Bidirectional sync: sync completion state with tasks in store & DB
+        try {
+            const currentTasks = useStore.getState().tasks;
+            items.forEach((item) => {
+                const prev = previousRoutines.find((r) => r.id === item.id);
+                if (prev && prev.completed !== item.completed) {
+                    const itemTitle = item.title.trim().toLowerCase();
+                    const matchingTask = currentTasks.find(
+                        (t) =>
+                            item.taskId === t.id ||
+                            t.text.trim().toLowerCase() === itemTitle ||
+                            itemTitle.includes(t.text.trim().toLowerCase())
+                    );
+                    if (matchingTask && matchingTask.completed !== item.completed && window.electronAPI?.updateTask) {
+                        window.electronAPI.updateTask({ ...matchingTask, completed: item.completed }).then((tasks) => {
+                            useStore.setState({ tasks });
+                        }).catch(console.error);
+                    }
+                }
+            });
+        } catch (err) {
+            console.error('Error syncing routine with tasks:', err);
         }
     };
 
@@ -2200,7 +2156,7 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                 </h4>
 
                                 <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
-                                    {selectedActivityDetails.guess.appBreakdown.map((app, i) => {
+                                    {selectedActivityDetails.guess.appBreakdown.map((app: { name: string; seconds: number }, i: number) => {
                                         const pct = Math.round(
                                             (app.seconds / (selectedActivityDetails.guess.totalSeconds || 1)) * 100
                                         );
@@ -2441,7 +2397,7 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                         <div className="flex items-center justify-between pb-3 border-b" style={{ borderColor: 'var(--border-secondary)' }}>
                             <div className="flex items-center gap-2.5 min-w-0">
                                 <div className="p-2 rounded-xl bg-[#5b5fc7]/15 text-[#5b5fc7] dark:text-[#7b83eb] shrink-0">
-                                    <Sparkles size={18} />
+                                    <CalendarIcon size={18} />
                                 </div>
                                 <div className="min-w-0">
                                     <h3 className="text-base font-bold truncate" style={{ color: 'var(--text-primary)' }}>
@@ -2876,10 +2832,10 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                             : startHourInput;
 
                                         return (
-                                            <div className="p-3.5 rounded-2xl border space-y-2 bg-[#5b5fc7]/10 border-[#5b5fc7]/30">
+                                            <div className="p-3.5 rounded-2xl border space-y-2.5 bg-[#5b5fc7]/10 border-[#5b5fc7]/30">
                                                 <div className="flex items-center justify-between text-xs font-semibold">
                                                     <span className="text-[#5b5fc7] dark:text-[#7b83eb] flex items-center gap-1.5 font-bold">
-                                                        <Sparkles size={13} /> {planScope === 'day' ? `${formatHourLabel(previewSchedule[0]?.startHour || startHourInput)} → ${formatHourLabel(endHour)} Routine` : `${scheduledDaysCount}-Day Weekly Plan (${previewSchedule.length} total blocks)`}
+                                                        <Clock size={13} /> {planScope === 'day' ? `${formatHourLabel(previewSchedule[0]?.startHour || startHourInput)} → ${formatHourLabel(endHour)} Routine` : `${scheduledDaysCount}-Day Weekly Plan (${previewSchedule.length} total blocks)`}
                                                     </span>
                                                     <span className="font-mono text-emerald-400 text-xs font-bold">
                                                         {(productiveMins / 60).toFixed(1)}h {planScope === 'day' ? `/ ${allottedHours}h Work Time` : `/ ${weeklyTotalHours}h Weekly Total (~${(productiveMins / 60 / Math.max(1, scheduledDaysCount)).toFixed(1)}h/day)`}
@@ -2888,14 +2844,14 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
 
                                                 <div className="w-full h-2 rounded-full bg-slate-800/60 overflow-hidden">
                                                     <div
-                                                        className="h-full transition-all duration-300 rounded-full bg-gradient-to-r from-[#5b5fc7] via-indigo-400 to-emerald-400 w-full"
+                                                        className="h-full transition-all duration-300 rounded-full bg-[#5b5fc7] w-full"
                                                     />
                                                 </div>
                                             </div>
                                         );
                                     })()}
 
-                                    {/* Mindset & Focus / Recovery Card */}
+                                    {/* Mindset & Focus / Recovery Card - Prominently Highlighted Sections */}
                                     {(() => {
                                         const budgetForMindset = planScope === 'day' ? allottedHours : Math.round(weeklyTotalHours / Math.max(1, activeWeekDates.length));
                                         const mindsetData = getMindsetCardData(previewSchedule, budgetForMindset, startHourInput);
@@ -2903,36 +2859,80 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
 
                                         return (
                                             <div
-                                                className={`p-3.5 rounded-2xl border space-y-1.5 backdrop-blur-sm ${
-                                                    isSleepType
-                                                        ? 'bg-gradient-to-br from-indigo-950/40 via-purple-950/20 to-slate-900/60 border-indigo-500/20'
-                                                        : 'bg-gradient-to-br from-blue-950/40 via-indigo-950/20 to-slate-900/60 border-blue-500/20'
-                                                }`}
+                                                className="p-4 rounded-2xl border space-y-3 backdrop-blur-md shadow-sm transition-all"
+                                                style={{
+                                                    background: isDark
+                                                        ? 'rgba(91, 95, 199, 0.08)'
+                                                        : 'rgba(91, 95, 199, 0.04)',
+                                                    borderColor: isDark
+                                                        ? 'rgba(91, 95, 199, 0.28)'
+                                                        : 'rgba(91, 95, 199, 0.22)',
+                                                }}
                                             >
-                                                <div className="flex items-center justify-between text-xs">
-                                                    <div className={`flex items-center gap-1.5 font-bold ${isSleepType ? 'text-indigo-400' : 'text-blue-400'}`}>
-                                                        {isSleepType ? <Moon size={14} className="text-indigo-400" /> : <Sparkles size={14} className="text-blue-400" />}
-                                                        <span>{mindsetData.title}</span>
+                                                {/* 1. Header Section: Title & Badge */}
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2 font-bold text-xs text-[#5b5fc7] dark:text-[#8b92f7]">
+                                                        {isSleepType ? <Moon size={15} /> : <Target size={15} />}
+                                                        <span className="tracking-tight text-sm font-display">{mindsetData.title}</span>
                                                     </div>
                                                     <span
-                                                        className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border ${
-                                                            isSleepType
-                                                                ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/25'
-                                                                : 'bg-blue-500/15 text-blue-300 border-blue-500/25'
-                                                        }`}
+                                                        className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border shadow-sm"
+                                                        style={{
+                                                            background: isSleepType
+                                                                ? 'rgba(129, 140, 248, 0.15)'
+                                                                : 'rgba(91, 95, 199, 0.2)',
+                                                            borderColor: isSleepType
+                                                                ? 'rgba(129, 140, 248, 0.3)'
+                                                                : 'rgba(91, 95, 199, 0.4)',
+                                                            color: isSleepType ? '#a5b4fc' : '#8b92f7',
+                                                        }}
                                                     >
                                                         {mindsetData.badge}
                                                     </span>
                                                 </div>
-                                                <p className="text-xs italic text-slate-300 leading-relaxed pt-0.5">
-                                                    “{mindsetData.quote}”
-                                                </p>
-                                                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-700/30">
-                                                    <span className="font-medium text-slate-400">— {mindsetData.author}</span>
-                                                    <span className={isSleepType ? 'text-amber-300/90 font-medium' : 'text-emerald-300/90 font-medium'}>
-                                                        {mindsetData.tip}
-                                                    </span>
+
+                                                {/* 2. Highlighted Quote Block */}
+                                                <div
+                                                    className="p-3.5 rounded-xl border relative overflow-hidden"
+                                                    style={{
+                                                        background: isDark ? 'rgba(0, 0, 0, 0.35)' : 'rgba(255, 255, 255, 0.6)',
+                                                        borderColor: 'rgba(91, 95, 199, 0.25)',
+                                                        borderLeft: '4px solid #5b5fc7',
+                                                    }}
+                                                >
+                                                    <div className="flex items-start gap-2.5">
+                                                        <Quote size={18} className="text-[#5b5fc7] shrink-0 mt-0.5 opacity-80" />
+                                                        <div className="space-y-1.5 flex-1 min-w-0">
+                                                            <p className="text-[13px] font-medium leading-snug" style={{ color: 'var(--text-primary)' }}>
+                                                                “{mindsetData.quote}”
+                                                            </p>
+                                                            <div className="flex items-center gap-2 pt-0.5">
+                                                                <span className="text-[11px] font-semibold text-[#5b5fc7] dark:text-[#a5b4fc]">
+                                                                    — {mindsetData.author}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
+
+                                                {/* 3. Highlighted Insight / Strategy Tip */}
+                                                {mindsetData.tip && (
+                                                    <div
+                                                        className="flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold"
+                                                        style={{
+                                                            background: isSleepType
+                                                                ? 'rgba(245, 158, 11, 0.1)'
+                                                                : 'rgba(16, 185, 129, 0.1)',
+                                                            borderColor: isSleepType
+                                                                ? 'rgba(245, 158, 11, 0.25)'
+                                                                : 'rgba(16, 185, 129, 0.25)',
+                                                            color: isSleepType ? '#fbbf24' : '#34d399',
+                                                        }}
+                                                    >
+                                                        <span className="text-sm shrink-0">{isSleepType ? '🌙' : '⚡'}</span>
+                                                        <span className="leading-snug">{mindsetData.tip}</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })()}

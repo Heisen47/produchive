@@ -72,21 +72,23 @@ const config = {
                 const certFile = path.join(process.cwd(), 'dev-cert.pfx');
                 if (!fs.existsSync(certFile) && !process.env.CI) {
                     console.log('Generating self-signed dev certificate for MSIX...');
-                    try {
-                        execSync(
-                            `powershell -Command "$cert = New-SelfSignedCertificate -Type Custom -Subject 'CN=Rishi' -KeyUsage DigitalSignature -FriendlyName 'Produchive Dev Cert' -CertStoreLocation 'Cert:\\CurrentUser\\My' -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}'); $pwd = ConvertTo-SecureString -String 'devpass123' -Force -AsPlainText; Export-PfxCertificate -Cert $cert -FilePath '${certFile}' -Password $pwd"`,
-                            { stdio: 'inherit' }
-                        );
-                        console.log('Dev certificate generated: dev-cert.pfx');
-                    } catch (e) {
-                        console.warn('Could not generate dev cert (may need to run as Administrator once):', e.message);
+                    const certPassword = process.env.WINDOWS_CERTIFICATE_PASSWORD || '';
+                    if (certPassword) {
+                        try {
+                            execSync(
+                                `powershell -Command "$cert = New-SelfSignedCertificate -Type Custom -Subject 'CN=Rishi' -KeyUsage DigitalSignature -FriendlyName 'Produchive Dev Cert' -CertStoreLocation 'Cert:\\CurrentUser\\My' -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}'); $pwd = ConvertTo-SecureString -String '${certPassword}' -Force -AsPlainText; Export-PfxCertificate -Cert $cert -FilePath '${certFile}' -Password $pwd"`,
+                                { stdio: 'inherit' }
+                            );
+                            console.log('Dev certificate generated: dev-cert.pfx');
+                        } catch (e) {
+                            console.warn('Could not generate dev cert (may need to run as Administrator once):', e.message);
+                        }
                     }
                 }
 
                 // Pass the certificate file and password to the MSIX maker only if it exists
-                if (fs.existsSync(certFile)) {
+                if (fs.existsSync(certFile) && process.env.WINDOWS_CERTIFICATE_PASSWORD) {
                     process.env.WINDOWS_CERTIFICATE_FILE = certFile;
-                    process.env.WINDOWS_CERTIFICATE_PASSWORD = 'devpass123';
                 }
             }
         },

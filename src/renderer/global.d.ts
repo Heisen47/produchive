@@ -66,13 +66,6 @@ declare global {
       getSystemInfo: () => Promise<SystemInfo>;
       openUserDataFolder: () => Promise<string>;
       openLogFile: () => Promise<string>;
-      getDbContents: () => Promise<{
-        tasks: Task[];
-        activities: Activity[];
-        goal: string | null;
-        ratings?: any[];
-        activityFeedbacks?: any[];
-      }>;
       saveGoals: (goals: string[]) => Promise<string[]>;
       saveRating: (rating: any) => Promise<any>;
       getRatingsByDate: (dateStr: string) => Promise<any[]>;
@@ -139,6 +132,7 @@ declare global {
       getPendingToken: () => Promise<string | null>;
       onAuthToken: (callback: (token: string) => void) => void;
       onGcalToken: (callback: (data: { gcalToken: string; gcalEmail: string }) => void) => void;
+      showNotification: (options: { title: string; body: string }) => Promise<void>;
     };
   }
 }

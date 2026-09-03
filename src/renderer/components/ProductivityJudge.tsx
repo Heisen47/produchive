@@ -23,7 +23,7 @@ interface ProductivityAnalysis {
 }
 
 export const ProductivityJudge = ({ engine }: { engine: any }) => {
-    const { goals, activities, addRating, selectedRole, customPrompt } = useStore();
+    const { goals, activities, addRating, selectedRole, customPrompt, routines } = useStore();
     const { isDark } = useTheme();
     const goal = goals.length > 0 ? goals[0] : null;
     const [analyzing, setAnalyzing] = useState(false);
@@ -127,19 +127,36 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
                 focusSessionText = `\n\nFocus Room Study Sessions (Total: ${formatDuration(totalFocusSec * 1000)}):\n${dayLines}`;
             }
 
+            // Build Routine Calendar Summary (Planned schedule vs Actual adherence)
+            let routineSummaryText = '';
+            const todayStr = new Date().toISOString().split('T')[0];
+            const todayRoutines = (routines || []).filter((r) => r.dateStr === todayStr);
+            if (todayRoutines.length > 0) {
+                const scheduled = todayRoutines.filter((r) => !r.isAutoDetected);
+                const autoDetected = todayRoutines.filter((r) => r.isAutoDetected);
+
+                const scheduledLines = scheduled
+                    .map((r) => `- [${r.completed ? 'COMPLETED' : 'PENDING'}] ${r.title} (${r.durationMinutes}m) [${r.category}]`)
+                    .join('\n');
+
+                const autoLines = autoDetected
+                    .slice(-5)
+                    .map((r) => `- [Auto-Logged] ${r.title} (${r.durationMinutes}m) [App: ${r.detectedApp || 'Screen'}]`)
+                    .join('\n');
+
+                routineSummaryText = `Scheduled Routine Calendar (Today):\n${scheduledLines || '- None'}\n\nAuto-Detected Calendar Events:\n${autoLines || '- None'}`;
+            }
+
             console.log('[ProductivityJudge] Sending to LLM:');
             console.log('  Goals:', goalsText);
             console.log('  Activity Summary:', activitySummary);
-
-            // const prompti = `User Goals:\n${goalsText}\n\nActivities Log (App - Title (Duration)):\n${activitySummary}\n\nAnalyze the user's productivity for the day based on their stated goals.\n\nIMPORTANT: Goals like "Coding", "Study", "Work", "Exercise", "Reading", "Learning" are VALID goals - they are common productivity objectives. Only reject goals if they are literal gibberish like "asdfgh", "aaaaa", or random keyboard mashes.\n\nDISTINCTION GUIDANCE:\n- Prioritize ACTIVE work (e.g. IDEs like VS Code, LeetCode, writing documents ,) over PASSIVE consumption (e.g. YouTube tutorials, social media).\n- Watching coding tutorials on YouTube is OKAY but should be scored lower than actual coding practice. Entertainment YouTube is DISTRACTING unless "Relax" is a goal.\n- Be specific in your verdict justification.\n\nProvide the output in STRICT JSON format:\n{\n  "rating": <number 1-10> (use string "NA" if invalid),\n  "verdict": "<productive|neutral|unproductive|NA>",\n  "explanation": "<2-3 sentence summary>",\n  "tips": ["<actionable advice 1>", "<actionable advice 2>", "<actionable advice 3>"],\n  "categorization": {\n    "productive": ["<app name 1>", ...],\n    "neutral": ["<app name 1>", ...],\n    "distracting": ["<app name 1>", ...]\n  }\n}\nDo not include any markdown formatting or text outside the JSON.`;
-
+            if (routineSummaryText) console.log('  Routine Calendar:', routineSummaryText);
 
             const basePrompt = customPrompt.replace('{role}', selectedRole || 'General Student');
             const prompt = `${basePrompt}
 
 Student input:
-Goal: \n${goalsText}\n\n
-Activity: \n${activitySummary}\n\n${focusSessionText ? `Focus Study Sessions: \n${focusSessionText}\n\n` : ''}`;
+Goal: \n${goalsText}\n\n${routineSummaryText ? `Calendar Schedule & Routine Adherence:\n${routineSummaryText}\n\n` : ''}Activity: \n${activitySummary}\n\n${focusSessionText ? `Focus Study Sessions: \n${focusSessionText}\n\n` : ''}`;
 
             const isTechRole = selectedRole?.toLowerCase().includes('engineer') || selectedRole?.toLowerCase().includes('computer');
             

@@ -1,10 +1,66 @@
+# Produchive Release Notes
+
+---
+
+## Produchive v3.0.2
+
+A landmark release introducing the Smart Routine Calendar, Automatic Screen Activity Detection, On-Device AI Distraction Nudges, and Study-Triggered Pomodoro & Spaced Revision.
+
+### Smart Routine and Calendar Scheduler
+- **7-Day Master Visual Calendar**: Plan your week with visual timeline slots, color-coded categories, and day-by-day circadian rhythm budgeting (Deep Work, Meetings, Meals, Breaks, Sleep).
+- **Intelligent Auto-Scheduler**: Algorithm-driven weekly planning (`generateWeeklySmartSchedule`) with automatic workload balancing and sequential rescheduling.
+- **Bidirectional Task & Routine Sync**: Toggling task completion in the task list or goals immediately updates matching calendar blocks and synchronizes with LowDB persistence.
+
+### Automatic Activity Tracking and Calendar Event Logging
+- **Real-Time Activity Auto-Tracking**: Tracks foreground window usage and automatically creates completed calendar blocks with exact session durations.
+- **Multi-App Overflow Grouping**: When switching between multiple apps within a time block, cleanly groups items with a `+N apps detected` collapse button and full breakdown modal.
+- **Developer Accuracy Feedback**: In-app feedback ratings stored to database, with direct integration to Google Forms for continuous accuracy improvement.
+
+### On-Device AI Distraction Judge and Native Nudges
+- **Local Model Judge**: Checks if a local LLM is downloaded in cache. Evaluates active windows against active goals and scheduled routine blocks.
+- **Native Desktop Notifications & Sonner Alerts**: Dispatches gentle, polite native desktop notifications when you stay on non-goal apps (e.g. YouTube, social media) for $\ge 60$ seconds.
+- **Spam Protection**: 10-minute cooldown timer ensures notifications remain helpful and never intrusive.
+
+### Study-Only Pomodoro and Spaced Revision Assistant
+- **Study-Triggered Pomodoro**: 25-minute focus / 5-minute break cycles trigger *strictly* while actively studying (in 3D Focus Rooms, study apps, reading PDFs/notes).
+- **Spaced Repetition Topic Check-In**: Gentle reminders for topics unstudied for 4–5 days (e.g., *Photosynthesis*), capped at max 1 per day.
+- **3-Action Interactive Response**:
+  - `Yes, Revise`: Slots a 25-min revision block into the calendar and updates study timestamp.
+  - `Not Today`: Snoozes reminder for 24 hours.
+  - `Never give me reminder for this`: Permanently mutes reminders for that specific topic.
+- **5-Minute Ahead Activity Warnings**: Scans routines every 30 seconds and delivers proactive reminders 5 minutes before scheduled calendar blocks begin.
+
+### 3D Virtual Focus Rooms (Three.js)
+- **Immersive Sanctuaries**: Choose between Classroom, Café, and Library environments with ambient audio.
+- **Study Session Auto-Logging**: Completed study sessions ($\ge 30$s) automatically log to your master routine calendar with exact duration and timestamp.
+
+---
+
+## Produchive v3.0.1
+
+Focus telemetry integration, customizable AI personas, and cross-platform native improvements.
+
+### Real-Time Focus Telemetry and Analytics
+- **Context Switch Tracking**: Real-time monitoring of app-switching frequency to quantify attention fragmentation.
+- **Daily Focus Score**: Evaluates productive vs unproductive active time.
+- **Category Hour Breakdown**: Visual categorization across Development, Design, Writing, Research, and Meetings.
+
+### Custom AI Prompt Editor
+- **Prompt Editor Modal**: Users can customize the system prompt used by the local AI Judge to personalize tone, strictness, and evaluation criteria.
+
+### Native Platform and Installer Modernization
+- **Node 22 Compatibility**: Migrated native modules to `@napi-ffi` scope (`ffi-napi`, `ref-napi`) for seamless stability.
+- **Windows NSIS Installer**: Added standard Windows wizard installer (`setup.exe`) alongside portable `.zip` builds.
+
+---
+
 # Produchive v3.0.0 Release Notes
 
 Welcome to **Produchive v3.0.0**! This is a major release featuring real-time multiplayer focus rooms, premium subscription features, an overhauled navigation sidebar, and significant performance and developer improvements.
 
 ---
 
-## 🌐 Real-Time Multiplayer Focus & Study Rooms
+## Real-Time Multiplayer Focus and Study Rooms
 
 Bring your study group to Produchive! Work together in our newly introduced multiplayer focus environments.
 
@@ -18,7 +74,7 @@ Bring your study group to Produchive! Work together in our newly introduced mult
 
 ---
 
-## 🔐 Redesigned Auth, Login, & Premium Features
+## Redesigned Authentication, Login, and Premium Features
 
 We have upgraded our user accounts system to support custom experiences and secure access.
 
@@ -29,7 +85,7 @@ We have upgraded our user accounts system to support custom experiences and secu
 
 ---
 
-## 🧭 Apple-Style Glassmorphic Navigation Sidebar
+## Apple-Style Glassmorphic Navigation Sidebar
 
 We have overhauled the layout to maximize screen space while keeping the app accessible.
 
@@ -39,7 +95,7 @@ We have overhauled the layout to maximize screen space while keeping the app acc
 
 ---
 
-## 🛠️ Technical & Developer Improvements
+## Technical and Developer Improvements
 
 Under-the-hood upgrades to ensure the app is faster, more stable, and easier to build.
 

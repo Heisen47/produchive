@@ -95,7 +95,7 @@ describe('activityAutoTracker', () => {
     });
 
     describe('upsertAutoDetectedCalendarEvent', () => {
-        it('skips sessions under 30 seconds to prevent clutter', () => {
+        it('skips sessions under 5 minutes to prevent clutter', () => {
             const shortSession: ActiveSession = {
                 id: 'sess-1',
                 appName: 'Code',
@@ -105,14 +105,53 @@ describe('activityAutoTracker', () => {
                 subtitle: 'Active in Code',
                 confidence: 94,
                 startTime: new Date('2026-09-03T10:10:00').getTime(),
-                lastActiveTime: new Date('2026-09-03T10:10:20').getTime(),
-                totalSeconds: 20,
+                lastActiveTime: new Date('2026-09-03T10:12:00').getTime(),
+                totalSeconds: 120, // 2 minutes (under 5m threshold)
                 routineId: 'auto-test-1',
                 dateStr: '2026-09-03',
             };
 
             const result = upsertAutoDetectedCalendarEvent(shortSession);
             expect(result).toBeNull();
+        });
+
+        it('rejects snipping tool and system overlay utilities', () => {
+            const snipSession: ActiveSession = {
+                id: 'sess-snip',
+                appName: 'SnippingTool.exe',
+                windowTitle: 'Snipping Tool Overlay',
+                category: 'other',
+                title: 'SnippingTool.exe • Overlay',
+                subtitle: 'Active in SnippingTool',
+                confidence: 80,
+                startTime: new Date('2026-09-03T10:10:00').getTime(),
+                lastActiveTime: new Date('2026-09-03T10:20:00').getTime(),
+                totalSeconds: 600,
+                routineId: 'auto-snip-1',
+                dateStr: '2026-09-03',
+            };
+            const result = upsertAutoDetectedCalendarEvent(snipSession);
+            expect(result).toBeNull();
+        });
+
+        it('calculates accurate duration in minutes without artificial 15m inflating', () => {
+            const session: ActiveSession = {
+                id: 'sess-accurate',
+                appName: 'Code',
+                windowTitle: 'index.ts',
+                category: 'development',
+                title: 'Dev • index.ts',
+                subtitle: 'Active in Code',
+                confidence: 90,
+                startTime: new Date('2026-09-03T10:00:00').getTime(),
+                lastActiveTime: new Date('2026-09-03T10:07:00').getTime(),
+                totalSeconds: 420, // 7 minutes
+                routineId: 'auto-accurate-1',
+                dateStr: '2026-09-03',
+            };
+            const event = upsertAutoDetectedCalendarEvent(session);
+            expect(event).not.toBeNull();
+            expect(event?.durationMinutes).toBe(7);
         });
 
         it('creates an auto-detected calendar event with correct time duration', () => {

@@ -15,7 +15,7 @@ import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { initEngine } from './lib/ai';
+import { initEngine, parseAIErrorMessage } from './lib/ai';
 import { useStore } from './lib/store';
 import { apiClient } from './lib/api';
 import { syncEngine } from './lib/services';
@@ -88,11 +88,49 @@ const AppContent = () => {
         setViewKey(prev => prev + 1);
     };
 
+    // Forcibly clear any orphaned or stuck 'Logged to Calendar' toasts and purge SnippingTool events
+    useEffect(() => {
+        const cleanupLegacy = () => {
+            try {
+                toast.dismiss();
+                const toasts = document.querySelectorAll('[data-sonner-toast]');
+                toasts.forEach((el) => {
+                    const txt = el.textContent || '';
+                    if (txt.includes('Logged to Calendar') || txt.includes('Accurate detection?')) {
+                        el.remove();
+                    }
+                });
+
+                const raw = localStorage.getItem('produchive_master_routines');
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    const filtered = parsed.filter((r: any) => {
+                        if (!r.isAutoDetected) return true;
+                        const app = (r.detectedApp || '').toLowerCase();
+                        const title = (r.title || '').toLowerCase();
+                        if (app.includes('snippingtool') || title.includes('snippingtool') || app.includes('screenclipping')) {
+                            return false;
+                        }
+                        if ((r.durationMinutes || 0) < 5 && (r.actualDurationSeconds || 0) < 300) {
+                            return false;
+                        }
+                        return true;
+                    });
+                    if (filtered.length !== parsed.length) {
+                        localStorage.setItem('produchive_master_routines', JSON.stringify(filtered));
+                        window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
+                    }
+                }
+            } catch (_) {}
+        };
+
+        cleanupLegacy();
+        const interval = setInterval(cleanupLegacy, 2000);
+        return () => clearInterval(interval);
+    }, []);
+
     // Listen for activity updates and deep link auth tokens
     useEffect(() => {
-        try {
-            toast.dismiss('auto-activity-logged');
-        } catch (_) {}
         syncEngine.start();
         activityAutoTracker.init();
         studyAssistantService.init();
@@ -244,7 +282,7 @@ const AppContent = () => {
             }
         } catch (err: any) {
             if (loadingRef.current) {
-                setError(err.message || "Failed to initialize AI");
+                setError(parseAIErrorMessage(err, selectedModelId || undefined));
                 setLoading(false);
             }
         }

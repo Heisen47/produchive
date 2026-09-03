@@ -131,6 +131,51 @@ export const deleteModelFromCache = async (modelId: string): Promise<void> => {
     }
 };
 
+export const parseModelSizeToMB = (sizeStr: string): number => {
+    const num = parseFloat(sizeStr);
+    if (isNaN(num)) return 1000;
+    if (sizeStr.toLowerCase().includes('gb')) return Math.round(num * 1024);
+    if (sizeStr.toLowerCase().includes('mb')) return Math.round(num);
+    return 1000;
+};
+
+export const getAvailableStorageEstimate = async (): Promise<{ freeMB: number; totalMB: number } | null> => {
+    try {
+        if (navigator.storage && navigator.storage.estimate) {
+            const est = await navigator.storage.estimate();
+            const quota = est.quota || 0;
+            const usage = est.usage || 0;
+            return {
+                freeMB: Math.max(0, Math.round((quota - usage) / (1024 * 1024))),
+                totalMB: Math.round(quota / (1024 * 1024)),
+            };
+        }
+    } catch {}
+    return null;
+};
+
+export const parseAIErrorMessage = (error: any, modelName?: string): string => {
+    const raw = error?.message || String(error || '');
+    const msg = raw.toLowerCase();
+
+    if (msg.includes('insufficient disk space')) {
+        return raw;
+    }
+    if (msg.includes('quota') || msg.includes('storage') || msg.includes('disk') || msg.includes('exceeded')) {
+        return `Insufficient Disk Space: Your drive does not have enough storage space to download this AI model${modelName ? ` (${modelName})` : ''}. Please free up disk space on your primary drive (C:) or choose a smaller model (such as Llama 3.2 1B).`;
+    }
+    if (msg.includes('failed to fetch') || msg.includes('network') || msg.includes('offline') || msg.includes('timeout') || msg.includes('err_connection')) {
+        return `Network Connection Error: The download was interrupted. Please verify your internet connection and try again.`;
+    }
+    if (msg.includes('webgpu is not supported') || msg.includes('navigator.gpu')) {
+        return `WebGPU Not Supported: Your system or graphics card does not currently support WebGPU. Please ensure graphics drivers are up to date and hardware acceleration is enabled.`;
+    }
+    if (msg.includes('instance dropped') || msg.includes('device lost')) {
+        return `GPU Context Reset: Your graphics card ran out of VRAM while initializing the model. Please select a smaller model with lower memory requirements.`;
+    }
+    return raw || 'Failed to initialize AI model. Please try again or select a smaller model.';
+};
+
 export const initEngine = async (
     progressCallback: (report: any) => void,
     selectedModelId?: string
@@ -142,7 +187,25 @@ export const initEngine = async (
     // Check if WebGPU is available
     if (!navigator.gpu) {
         log('error', 'WebGPU is NOT supported on this device');
-        throw new Error("WebGPU is not supported on this device.");
+        throw new Error("WebGPU is not supported on this device. Please verify your graphics drivers and hardware acceleration.");
+    }
+
+    // Pre-flight disk space check before starting large multi-GB downloads
+    if (selectedModelId) {
+        const isCached = await hasModelInCache(selectedModelId);
+        if (!isCached) {
+            const targetModel = AVAILABLE_MODELS.find(m => m.id === selectedModelId);
+            if (targetModel) {
+                const requiredMB = parseModelSizeToMB(targetModel.size);
+                const storageEst = await getAvailableStorageEstimate();
+                if (storageEst && storageEst.freeMB < requiredMB) {
+                    const freeGB = (storageEst.freeMB / 1024).toFixed(1);
+                    throw new Error(
+                        `Insufficient Disk Space: ${targetModel.name} requires approx ${targetModel.size}, but only ~${freeGB}GB is available in your app storage. Please free up space on drive C: or choose a smaller model.`
+                    );
+                }
+            }
+        }
     }
 
     // Determine which models to try
@@ -199,9 +262,9 @@ export const initEngine = async (
                     }
                 }
                 
-                // If specific model was requested and failed, throw immediately
+                // If specific model was requested and failed, throw immediately with friendly message
                 if (selectedModelId) {
-                    throw new Error(`Failed to load ${currentModel}: ${errorMsg}`);
+                    throw new Error(parseAIErrorMessage(e, currentModel));
                 }
             }
         }
@@ -209,7 +272,7 @@ export const initEngine = async (
 
     // All models failed
     log('error', '❌ All models failed to load');
-    throw new Error("Failed to initialize AI engine. Please check your connection or try a different model.");
+    throw new Error("Failed to initialize AI engine. Please check your internet connection, free disk space, or try a smaller model.");
 };
 
 export const generateCompletion = async (

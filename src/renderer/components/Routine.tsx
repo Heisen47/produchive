@@ -1390,14 +1390,14 @@ export const Routine = () => {
                                             {visibleRoutines.map((item, idx) => {
                                                 const colors = getEventColors(item.category, isDark);
                                                 const isPastTask = item.dateStr < todayStr || (item.dateStr === todayStr && item.startHour < currentHour);
-                                                const duration = Math.max(15, item.durationMinutes || 30);
+                                                const duration = Math.max(5, item.durationMinutes || 30);
                                                 const endMinTotal = item.startHour * 60 + item.startMinute + duration;
                                                 const endH = Math.floor(endMinTotal / 60) % 24;
                                                 const endM = endMinTotal % 60;
                                                 const timeRangeString = `${formatTimeSlot(item.startHour, item.startMinute)} - ${formatTimeSlot(endH, endM)} (${duration}m)`;
 
                                                 const isSingle = visibleRoutines.length === 1 && hiddenCount === 0;
-                                                const rawMultiHeight = Math.round((duration / 60) * 90) - 6;
+                                                const rawMultiHeight = Math.max(26, Math.round((duration / 60) * 90) - 6);
                                                 const cardHeight = isSingle ? (duration > 60 ? rawMultiHeight : 38) : 28;
                                                 const isTallCard = isSingle && cardHeight >= 56;
                                                 const minuteOffset = Math.round((item.startMinute / 60) * 90);

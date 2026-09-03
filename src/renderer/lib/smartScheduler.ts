@@ -1036,7 +1036,7 @@ export const resolveCollisionsSequentially = (
 
         const sH = Math.floor(itemStartMins / 60) % 24;
         const sM = itemStartMins % 60;
-        const duration = Math.max(15, item.durationMinutes || 30);
+        const duration = Math.max(5, item.durationMinutes || 30);
 
         resolved.push({
             ...item,

@@ -204,9 +204,22 @@ export const inferActivityDetails = (appName: string, rawTitle: string): Inferre
     };
 };
 
+export const MIN_AUTO_LOG_SECONDS = 300; // 5 minutes minimum: activities under 5m are not logged
+
+export const IGNORED_SYSTEM_APPS = [
+    'produchive', 'electron',
+    'snippingtool', 'screenclippinghost', 'snip & sketch', 'screenshot',
+    'explorer', 'taskmgr', 'task manager',
+    'searchapp', 'searchhost', 'startmenuexperiencehost',
+    'shellexperiencehost', 'systemsettings', 'applicationframehost',
+    'textinputhost', 'lockapp', 'securityhealthsystray', 'ctfmon',
+    'idle', 'unknown', 'system', 'dwm',
+];
+
 /**
  * Deduplicates and consolidates auto-detected events for the same app in the same hour slot.
  * Ensures that toggling back and forth between apps groups time into a single event instead of creating duplicates.
+ * Filters out system utilities (like Snipping Tool) and activities lasting less than 5 minutes.
  */
 export const consolidateDuplicateAutoEvents = (items: PlannedRoutineItem[]): PlannedRoutineItem[] => {
     if (!Array.isArray(items)) return [];
@@ -219,26 +232,39 @@ export const consolidateDuplicateAutoEvents = (items: PlannedRoutineItem[]): Pla
             continue;
         }
 
-        const appKey = `${item.dateStr}_${item.startHour}_${item.detectedApp.toLowerCase()}`;
+        const lowerApp = item.detectedApp.toLowerCase();
+        const lowerTitle = (item.detectedTitle || item.title || '').toLowerCase();
+
+        // Purge ignored system utilities (like SnippingTool, ScreenClippingHost, Windows shell)
+        if (IGNORED_SYSTEM_APPS.some((ignored) => lowerApp.includes(ignored) || lowerTitle.includes(ignored))) {
+            continue;
+        }
+
+        // Purge any auto-activity that was used for less than 5 minutes (300 seconds)
+        const rawSec = item.actualDurationSeconds || (item.durationMinutes ? item.durationMinutes * 60 : 0);
+        if (rawSec < MIN_AUTO_LOG_SECONDS && (item.durationMinutes || 0) < 5) {
+            continue;
+        }
+
+        const appKey = `${item.dateStr}_${item.startHour}_${lowerApp}`;
         const existing = autoEventMap.get(appKey);
 
         if (!existing) {
-            const rawSec = item.actualDurationSeconds || (item.durationMinutes ? item.durationMinutes * 60 : 300);
-            const cappedSec = Math.min(3600, Math.max(30, rawSec));
-            const cappedMins = Math.min(60, Math.max(15, Math.ceil(cappedSec / 60 / 5) * 5));
+            const cappedSec = Math.min(3600, Math.max(MIN_AUTO_LOG_SECONDS, rawSec));
+            // Accurate duration: actual minutes calculated from real seconds (min 5m since only >5m is logged)
+            const accurateMins = Math.min(60, Math.max(5, Math.round(cappedSec / 60)));
 
             const sanitizedItem: PlannedRoutineItem = {
                 ...item,
                 actualDurationSeconds: cappedSec,
-                durationMinutes: cappedMins,
+                durationMinutes: accurateMins,
             };
             autoEventMap.set(appKey, sanitizedItem);
             result.push(sanitizedItem);
         } else {
-            const rawSec = item.actualDurationSeconds || (item.durationMinutes ? item.durationMinutes * 60 : 300);
             const combinedSec = Math.min(3600, (existing.actualDurationSeconds || 0) + rawSec);
             existing.actualDurationSeconds = combinedSec;
-            existing.durationMinutes = Math.min(60, Math.max(15, Math.ceil(combinedSec / 60 / 5) * 5));
+            existing.durationMinutes = Math.min(60, Math.max(5, Math.round(combinedSec / 60)));
 
             if (item.detectionFeedback && !existing.detectionFeedback) {
                 existing.detectionFeedback = item.detectionFeedback;
@@ -283,11 +309,18 @@ export const saveStoredMasterRoutines = (items: PlannedRoutineItem[]) => {
 };
 
 /**
- * Creates or updates an automatic calendar event from an active session
+ * Creates or updates an automatic calendar event from an active session.
+ * Only logs activities used for more than 5 minutes (300 seconds), displaying accurate minutes.
  */
 export const upsertAutoDetectedCalendarEvent = (session: ActiveSession): PlannedRoutineItem | null => {
-    if (!session || session.totalSeconds < 30) {
-        // Less than 30 seconds -> do not clutter calendar yet
+    // Only log activities used for at least 5 minutes (300 seconds)
+    if (!session || session.totalSeconds < MIN_AUTO_LOG_SECONDS) {
+        return null;
+    }
+
+    const lowerApp = (session.appName || '').toLowerCase();
+    const lowerTitle = (session.windowTitle || '').toLowerCase();
+    if (IGNORED_SYSTEM_APPS.some((ignored) => lowerApp.includes(ignored) || lowerTitle.includes(ignored))) {
         return null;
     }
 
@@ -296,8 +329,8 @@ export const upsertAutoDetectedCalendarEvent = (session: ActiveSession): Planned
     const startDate = new Date(session.startTime);
     const startHour = startDate.getHours();
     const rawMinutes = startDate.getMinutes();
-    // Snap startMinute to nearest 15-minute mark (0, 15, 30, 45)
-    const startMinute = (Math.floor(rawMinutes / 15) * 15) as 0 | 15 | 30 | 45;
+    // Snap startMinute to nearest 5-minute mark
+    const startMinute = (Math.floor(rawMinutes / 5) * 5) as number;
 
     // Look for existing routine by routineId OR by matching app in same hour slot (groups toggled activity)
     let existingIndex = routines.findIndex((r) => r.id === session.routineId);
@@ -314,9 +347,9 @@ export const upsertAutoDetectedCalendarEvent = (session: ActiveSession): Planned
         }
     }
 
-    // Realistic duration: clamp to max 60m for single hour slot
+    // Accurate duration: real elapsed minutes clamped to 60m per single hour slot
     const cappedSeconds = Math.min(3600, Math.round(session.totalSeconds));
-    const calculatedDuration = Math.min(60, Math.max(15, Math.ceil(cappedSeconds / 60 / 5) * 5));
+    const calculatedDuration = Math.min(60, Math.max(5, Math.round(cappedSeconds / 60)));
 
     const updatedEvent: PlannedRoutineItem = {
         id: session.routineId,
@@ -449,9 +482,9 @@ class ActivityAutoTrackerEngine {
             });
         }
 
-        // Periodic flush of current active session (e.g. every 30 seconds) ONLY if actively monitoring
+        // Periodic flush of current active session ONLY if actively monitoring AND duration >= 5 mins (300s)
         setInterval(() => {
-            if (this.currentSession && useStore.getState().isMonitoring) {
+            if (this.currentSession && this.currentSession.totalSeconds >= MIN_AUTO_LOG_SECONDS && useStore.getState().isMonitoring) {
                 upsertAutoDetectedCalendarEvent(this.currentSession);
             }
         }, 30000);
@@ -485,16 +518,6 @@ class ActivityAutoTrackerEngine {
         const lowerTitle = (act.title || '').toLowerCase();
 
         // Ignore Produchive's own window, system overlays, screenshot utilities, and Windows shells
-        const IGNORED_SYSTEM_APPS = [
-            'produchive', 'electron',
-            'snippingtool', 'screenclippinghost', 'snip & sketch', 'screenshot',
-            'explorer', 'taskmgr', 'task manager',
-            'searchapp', 'searchhost', 'startmenuexperiencehost',
-            'shellexperiencehost', 'systemsettings', 'applicationframehost',
-            'textinputhost', 'lockapp', 'securityhealthsystray', 'ctfmon',
-            'idle', 'unknown', 'system', 'dwm',
-        ];
-
         if (IGNORED_SYSTEM_APPS.some((ignored) => lowerApp.includes(ignored) || lowerTitle.includes(ignored))) {
             return;
         }
@@ -516,13 +539,13 @@ class ActivityAutoTrackerEngine {
                 this.currentSession.windowTitle = rawTitle;
             }
 
-            // Sync to calendar once we hit milestones (e.g., 30s, 60s, then every 30s)
-            if (this.currentSession.totalSeconds >= 30 && Math.floor(this.currentSession.totalSeconds) % 30 === 0) {
+            // Sync to calendar once session hits >= 5 minutes (300s), and every 30s thereafter
+            if (this.currentSession.totalSeconds >= MIN_AUTO_LOG_SECONDS && Math.floor(this.currentSession.totalSeconds) % 30 === 0) {
                 upsertAutoDetectedCalendarEvent(this.currentSession);
             }
         } else {
-            // Switching app: finalize previous session if valid
-            if (this.currentSession && this.currentSession.totalSeconds >= 30) {
+            // Switching app: finalize previous session ONLY if it lasted at least 5 minutes (300s)
+            if (this.currentSession && this.currentSession.totalSeconds >= MIN_AUTO_LOG_SECONDS) {
                 upsertAutoDetectedCalendarEvent(this.currentSession);
             }
 

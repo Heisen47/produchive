@@ -5,8 +5,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   addTask: (task: any) => ipcRenderer.invoke("add-task", task),
   updateTask: (task: any) => ipcRenderer.invoke("update-task", task),
   getTask: (id: string) => ipcRenderer.invoke("get-task", id),
-  onActivityUpdate: (callback: (activity: any) => void) =>
-    ipcRenderer.on("activity-update", (_event, value) => callback(value)),
+  onActivityUpdate: (callback: (activity: any) => void) => {
+    ipcRenderer.removeAllListeners("activity-update");
+    ipcRenderer.on("activity-update", (_event, value) => callback(value));
+  },
 
   // Monitoring Control
   startMonitoring: () => ipcRenderer.invoke("start-monitoring"),

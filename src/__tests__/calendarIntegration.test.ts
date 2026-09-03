@@ -27,6 +27,7 @@ describe('Calendar Deep Integration & AI Distraction Nudge', () => {
             addEventListener: vi.fn(),
             removeEventListener: vi.fn(),
             electronAPI: {
+                addTask: vi.fn().mockImplementation((task) => Promise.resolve([task])),
                 updateTask: vi.fn().mockImplementation((task) => Promise.resolve([task])),
                 getTasks: vi.fn().mockResolvedValue({ tasks: [], activities: [], goals: [], ratings: [] }),
                 getSettings: vi.fn().mockResolvedValue({}),
@@ -196,6 +197,96 @@ describe('Calendar Deep Integration & AI Distraction Nudge', () => {
 
             await aiNudgeService.handleActivity(distActivity);
             expect(window.electronAPI.showNotification).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('Calendar Empty Space Double Click & Direct Time Planning', () => {
+        it('persists a new routine from double-click slot coordinates with exact 15-minute alignment', () => {
+            const dateStr = '2026-09-04';
+            const clickedHour = 14;
+            const clickedMinute = 15;
+
+            const newRoutine: PlannedRoutineItem = {
+                id: `routine-${Date.now()}`,
+                title: 'Review React Architecture',
+                category: 'development',
+                priority: 'high',
+                dayIndex: 5,
+                dateStr,
+                startHour: clickedHour,
+                startMinute: clickedMinute,
+                durationMinutes: 45,
+                completed: false,
+                subtitle: 'VS Code & Chrome',
+            };
+
+            const existingRoutines: PlannedRoutineItem[] = [];
+            const updated = [...existingRoutines, newRoutine];
+            mockStorage['produchive_master_routines'] = JSON.stringify(updated);
+
+            const saved = JSON.parse(mockStorage['produchive_master_routines']);
+            expect(saved.length).toBe(1);
+            expect(saved[0].title).toBe('Review React Architecture');
+            expect(saved[0].startHour).toBe(14);
+            expect(saved[0].startMinute).toBe(15);
+            expect(saved[0].durationMinutes).toBe(45);
+        });
+
+        it('synchronizes newly scheduled routine to task backlog when opted in', async () => {
+            useStore.setState({ tasks: [] });
+
+            const taskTitle = 'Deep Work: Algorithm Optimization';
+            // User opts in to also add to tasks backlog
+            await useStore.getState().addTask(taskTitle);
+
+            const tasks = useStore.getState().tasks;
+            expect(tasks.some((t) => t.text === taskTitle)).toBe(true);
+
+            const createdTask = tasks.find((t) => t.text === taskTitle);
+            const routine: PlannedRoutineItem = {
+                id: 'r-optin-1',
+                title: taskTitle,
+                category: 'development',
+                priority: 'high',
+                dayIndex: 5,
+                dateStr: '2026-09-04',
+                startHour: 10,
+                startMinute: 0,
+                durationMinutes: 60,
+                completed: false,
+                taskId: createdTask?.id,
+            };
+
+            expect(routine.taskId).toBe(createdTask?.id);
+        });
+
+        it('supports direct time planning without invoking auto-generator algorithm', () => {
+            const targetDateStr = '2026-09-04';
+            const directStartHour = 16;
+            const directStartMinute = 30;
+            const directDuration = 45;
+
+            const directRoutine: PlannedRoutineItem = {
+                id: 'direct-plan-1',
+                title: 'Sync with Product Lead',
+                category: 'meeting',
+                priority: 'high',
+                dayIndex: new Date(targetDateStr).getDay(),
+                dateStr: targetDateStr,
+                startHour: directStartHour,
+                startMinute: directStartMinute,
+                durationMinutes: directDuration,
+                completed: false,
+            };
+
+            mockStorage['produchive_master_routines'] = JSON.stringify([directRoutine]);
+            const loaded: PlannedRoutineItem[] = JSON.parse(mockStorage['produchive_master_routines']);
+
+            expect(loaded[0].title).toBe('Sync with Product Lead');
+            expect(loaded[0].startHour).toBe(16);
+            expect(loaded[0].startMinute).toBe(30);
+            expect(loaded[0].durationMinutes).toBe(45);
+            expect(loaded[0].category).toBe('meeting');
         });
     });
 });

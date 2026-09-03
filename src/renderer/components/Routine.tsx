@@ -29,7 +29,8 @@ import {
     ThumbsUp,
     ThumbsDown,
     Target,
-    Quote
+    Quote,
+    Sparkles
 } from 'lucide-react';
 import { submitActivityFeedback, consolidateDuplicateAutoEvents } from '../lib/activityAutoTracker';
 import { useStore } from '../lib/store';
@@ -370,6 +371,19 @@ export const Routine = () => {
         guess: ActivityGuess;
     } | null>(null);
 
+    // ─── Double-Click Empty Space Quick Create Modal ───
+    const [quickCreateModal, setQuickCreateModal] = useState<{
+        dateStr: string;
+        startHour: number;
+        startMinute: number;
+        title: string;
+        category: PlannedRoutineItem['category'];
+        priority: PlannedRoutineItem['priority'];
+        durationMinutes: number;
+        subtitle?: string;
+        addToTasks?: boolean;
+    } | null>(null);
+
     // Multi-app overflow collapse modal
     const [slotAppsModal, setSlotAppsModal] = useState<{
         dateStr: string;
@@ -591,6 +605,13 @@ export const Routine = () => {
     const [newTaskTitle, setNewTaskTitle] = useState('');
     const [previewSchedule, setPreviewSchedule] = useState<PlannedRoutineItem[]>([]);
 
+    // Direct Time Planning States (apart from Generate button)
+    const [enableDirectTime, setEnableDirectTime] = useState(false);
+    const [directStartHour, setDirectStartHour] = useState<number>(9);
+    const [directStartMinute, setDirectStartMinute] = useState<number>(0);
+    const [directDuration, setDirectDuration] = useState<number>(60);
+    const [directCategory, setDirectCategory] = useState<PlannedRoutineItem['category']>('development');
+
     // Active week dates (Monday to Friday default; includes Sat/Sun if user opts in)
     const activeWeekDates = useMemo(() => {
         return displayDays
@@ -667,14 +688,92 @@ export const Routine = () => {
     useEffect(() => {
         if (isMakerOpen) {
             const isToday = formatDateStr(selectedDate) === todayStr;
+            const nowHour = new Date().getHours();
             if (isToday) {
-                const nowHour = new Date().getHours();
-                setStartHourInput(Math.min(23, nowHour));
+                const targetH = Math.min(23, nowHour);
+                setStartHourInput(targetH);
+                setDirectStartHour(targetH);
             } else {
                 setStartHourInput(9);
+                setDirectStartHour(9);
             }
         }
     }, [isMakerOpen, selectedDate, todayStr]);
+
+    // Close Quick Create modal on Escape key
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setQuickCreateModal(null);
+        };
+        if (quickCreateModal) {
+            window.addEventListener('keydown', handleKeyDown);
+        }
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [quickCreateModal]);
+
+    // Save Routine from Quick Create Modal (Double click on empty calendar space)
+    const handleSaveQuickCreate = () => {
+        if (!quickCreateModal || !quickCreateModal.title.trim()) return;
+
+        const [y, m, d] = quickCreateModal.dateStr.split('-').map(Number);
+        const dayIndex = new Date(y, m - 1, d).getDay();
+
+        let newTaskId: string | undefined;
+        if (quickCreateModal.addToTasks) {
+            useStore.getState().addTask(quickCreateModal.title.trim());
+            const currentTasks = useStore.getState().tasks;
+            const matching = currentTasks.find((t) => t.text.trim().toLowerCase() === quickCreateModal.title.trim().toLowerCase());
+            if (matching) newTaskId = matching.id;
+        }
+
+        const newRoutine: PlannedRoutineItem = {
+            id: `routine-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            title: quickCreateModal.title.trim(),
+            category: quickCreateModal.category,
+            priority: quickCreateModal.priority,
+            dayIndex,
+            dateStr: quickCreateModal.dateStr,
+            startHour: quickCreateModal.startHour,
+            startMinute: quickCreateModal.startMinute,
+            durationMinutes: Math.max(15, quickCreateModal.durationMinutes || 30),
+            completed: false,
+            subtitle: quickCreateModal.subtitle?.trim() || undefined,
+            taskId: newTaskId,
+        };
+
+        saveMasterRoutines([...allRoutines, newRoutine]);
+        setQuickCreateModal(null);
+        setSyncToast(`"${newRoutine.title}" scheduled for ${formatTimeSlot(newRoutine.startHour, newRoutine.startMinute)}! 🎯`);
+        setTimeout(() => setSyncToast(null), 4000);
+    };
+
+    // Direct Time Planning Handler in "Plan Your Day" modal (apart from Generate button)
+    const handleDirectPlanTask = (overrideTitle?: string, overrideCategory?: PlannedRoutineItem['category']) => {
+        const titleToUse = (overrideTitle || newTaskTitle).trim();
+        if (!titleToUse) return;
+
+        const targetDateStr = formatDateStr(selectedDate);
+        const [y, m, d] = targetDateStr.split('-').map(Number);
+        const dayIndex = new Date(y, m - 1, d).getDay();
+
+        const newRoutine: PlannedRoutineItem = {
+            id: `routine-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            title: titleToUse,
+            category: overrideCategory || directCategory,
+            priority: 'high',
+            dayIndex,
+            dateStr: targetDateStr,
+            startHour: directStartHour,
+            startMinute: directStartMinute,
+            durationMinutes: directDuration,
+            completed: false,
+        };
+
+        saveMasterRoutines([...allRoutines, newRoutine]);
+        if (!overrideTitle) setNewTaskTitle('');
+        setSyncToast(`Directly scheduled "${newRoutine.title}" at ${formatTimeSlot(newRoutine.startHour, newRoutine.startMinute)}! 🎯`);
+        setTimeout(() => setSyncToast(null), 4000);
+    };
 
     // ─── Smart Forward Schedule Generator (Day vs Week Mode) ───
     const handleGenerateSchedule = () => {
@@ -1379,9 +1478,33 @@ export const Routine = () => {
                                     return (
                                         <div
                                             key={colIdx}
+                                            data-calendar-cell="true"
                                             onDragOver={(e) => handleDragOver(e, hour, dateStr)}
                                             onDrop={(e) => handleDrop(e, hour, dateStr)}
-                                            className={`p-1.5 border-r transition-colors relative flex flex-col gap-1.5 min-h-[90px] ${
+                                            onDoubleClick={(e) => {
+                                                const target = e.target as HTMLElement;
+                                                if (target.closest('[data-routine-item]') || target.closest('button')) {
+                                                    return;
+                                                }
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                const offsetY = Math.max(0, e.clientY - rect.top);
+                                                const fraction = Math.max(0, Math.min(0.99, offsetY / rect.height));
+                                                const minute = (Math.floor(fraction * 4) * 15) as 0 | 15 | 30 | 45;
+
+                                                setQuickCreateModal({
+                                                    dateStr,
+                                                    startHour: hour,
+                                                    startMinute: minute,
+                                                    title: '',
+                                                    category: 'development',
+                                                    priority: 'medium',
+                                                    durationMinutes: 30,
+                                                    subtitle: '',
+                                                    addToTasks: false,
+                                                });
+                                            }}
+                                            title="Double-click empty space to schedule an activity"
+                                            className={`p-1.5 border-r transition-colors relative flex flex-col gap-1.5 min-h-[90px] cursor-pointer ${
                                                 isDayToday ? 'bg-indigo-500/[0.03]' : ''
                                             } hover:bg-black/[0.02] dark:hover:bg-white/[0.02]`}
                                             style={{ borderColor: 'var(--border-secondary)', overflow: 'visible' }}
@@ -1408,6 +1531,7 @@ export const Routine = () => {
                                                 return (
                                                     <div
                                                         key={item.id}
+                                                        data-routine-item="true"
                                                         draggable={!isPastTask}
                                                         onDragStart={(e) => handleDragStart(e, item)}
                                                         onContextMenu={(e) => handleContextMenu(e, item)}
@@ -1654,6 +1778,7 @@ export const Routine = () => {
                                             {/* Tracked Activity Guess Card (only shown when NO routines exist in this slot and activity is >= 2 minutes) */}
                                             {guess && cellRoutines.length === 0 && guess.totalSeconds >= 120 && (
                                                 <div
+                                                    data-routine-item="true"
                                                     onDoubleClick={(e) => {
                                                         e.stopPropagation();
                                                         setSelectedActivityDetails({ dateStr, hour, guess });
@@ -1693,6 +1818,307 @@ export const Routine = () => {
                     })}
                 </div>
             </div>
+
+            {/* 3.5 Quick Create "What do you want to do?" Modal */}
+            {quickCreateModal && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in"
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget) setQuickCreateModal(null);
+                    }}
+                >
+                    <div
+                        className="w-full max-w-lg rounded-3xl p-6 shadow-2xl relative border animate-scale-in"
+                        style={{
+                            background: 'var(--bg-card-solid)',
+                            borderColor: 'var(--border-card)',
+                            boxShadow: 'var(--shadow-card)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div
+                            className="flex items-center justify-between pb-4 border-b mb-4"
+                            style={{ borderColor: 'var(--border-secondary)' }}
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-2xl bg-[#5b5fc7]/20 text-[#5b5fc7] dark:text-[#7b83eb] border border-[#5b5fc7]/40">
+                                    <Sparkles size={18} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-display font-bold" style={{ color: 'var(--text-primary)' }}>
+                                        What do you want to do?
+                                    </h3>
+                                    <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+                                        <Clock size={11} />
+                                        <span>
+                                            {quickCreateModal.dateStr} • {formatTimeSlot(quickCreateModal.startHour, quickCreateModal.startMinute)}
+                                        </span>
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setQuickCreateModal(null)}
+                                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-all text-slate-400 hover:text-slate-200 cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                handleSaveQuickCreate();
+                            }}
+                            className="space-y-4"
+                        >
+                            {/* Main Activity Input */}
+                            <div>
+                                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                    Activity / Task Title
+                                </label>
+                                <input
+                                    type="text"
+                                    autoFocus
+                                    value={quickCreateModal.title}
+                                    onChange={(e) => setQuickCreateModal({ ...quickCreateModal, title: e.target.value })}
+                                    placeholder="What are you planning to work on? (e.g. Code review, Study, Gym...)"
+                                    className="w-full px-3.5 py-2.5 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] transition-all"
+                                    style={{
+                                        background: 'var(--bg-input)',
+                                        color: 'var(--text-primary)',
+                                        borderColor: 'var(--border-input)',
+                                    }}
+                                />
+                            </div>
+
+                            {/* Quick Inspiration Chips */}
+                            <div>
+                                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1.5 flex items-center gap-1">
+                                    <Lightbulb size={12} className="text-[#5b5fc7]" /> Quick Suggestions:
+                                </span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    {[
+                                        { label: '💻 Deep Work', title: 'Deep Work Session', category: 'development' },
+                                        { label: '📚 Study & Research', title: 'Research & Study', category: 'research' },
+                                        { label: '👥 Team Meeting', title: 'Team Sync Meeting', category: 'meeting' },
+                                        { label: '🎨 UI Design', title: 'Design & Wireframing', category: 'design' },
+                                        { label: '✍️ Writing', title: 'Documentation & Writing', category: 'writing' },
+                                        { label: '☕ Quick Break', title: 'Coffee & Recharge Break', category: 'break' },
+                                        { label: '🥗 Lunch', title: 'Lunch Break', category: 'meal' },
+                                        { label: '🏃 Workout', title: 'Workout & Fitness', category: 'other' },
+                                    ].map((chip, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onClick={() => {
+                                                setQuickCreateModal({
+                                                    ...quickCreateModal,
+                                                    title: chip.title,
+                                                    category: chip.category as any,
+                                                });
+                                            }}
+                                            className="text-[11px] px-2.5 py-1 rounded-lg border transition-all cursor-pointer hover:scale-[1.02] active:scale-95"
+                                            style={{
+                                                background: quickCreateModal.title === chip.title ? 'rgba(91, 95, 199, 0.25)' : 'var(--bg-input)',
+                                                borderColor: quickCreateModal.title === chip.title ? '#5b5fc7' : 'var(--border-secondary)',
+                                                color: quickCreateModal.title === chip.title ? '#8b92f8' : 'var(--text-secondary)',
+                                            }}
+                                        >
+                                            {chip.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Category & Duration */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                        Category
+                                    </label>
+                                    <select
+                                        value={quickCreateModal.category}
+                                        onChange={(e) => setQuickCreateModal({ ...quickCreateModal, category: e.target.value as any })}
+                                        className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            borderColor: 'var(--border-input)',
+                                        }}
+                                    >
+                                        <option value="development">💻 Development</option>
+                                        <option value="research">📚 Research</option>
+                                        <option value="meeting">👥 Meeting</option>
+                                        <option value="design">🎨 Design</option>
+                                        <option value="writing">✍️ Writing</option>
+                                        <option value="meal">🥗 Meal</option>
+                                        <option value="break">☕ Break</option>
+                                        <option value="sleep">🌙 Sleep</option>
+                                        <option value="other">📦 Other</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                        Duration
+                                    </label>
+                                    <div className="flex items-center gap-1">
+                                        {[15, 30, 45, 60, 90].map((d) => (
+                                            <button
+                                                key={d}
+                                                type="button"
+                                                onClick={() => setQuickCreateModal({ ...quickCreateModal, durationMinutes: d })}
+                                                className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${
+                                                    quickCreateModal.durationMinutes === d
+                                                        ? 'bg-[#5b5fc7] text-white border-[#5b5fc7]'
+                                                        : 'bg-black/5 dark:bg-white/5 border-transparent text-slate-400 hover:text-white'
+                                                }`}
+                                            >
+                                                {d}m
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Date & Start Time Scheduling */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                        Date
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={quickCreateModal.dateStr}
+                                        onChange={(e) => setQuickCreateModal({ ...quickCreateModal, dateStr: e.target.value })}
+                                        className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            borderColor: 'var(--border-input)',
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                            Start Hour
+                                        </label>
+                                        <select
+                                            value={quickCreateModal.startHour}
+                                            onChange={(e) => setQuickCreateModal({ ...quickCreateModal, startHour: Number(e.target.value) })}
+                                            className="w-full px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                color: 'var(--text-primary)',
+                                                borderColor: 'var(--border-input)',
+                                            }}
+                                        >
+                                            {Array.from({ length: 24 }).map((_, h) => (
+                                                <option key={h} value={h}>
+                                                    {formatHourLabel(h)}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                            Minute
+                                        </label>
+                                        <select
+                                            value={quickCreateModal.startMinute}
+                                            onChange={(e) => setQuickCreateModal({ ...quickCreateModal, startMinute: Number(e.target.value) })}
+                                            className="w-full px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                color: 'var(--text-primary)',
+                                                borderColor: 'var(--border-input)',
+                                            }}
+                                        >
+                                            <option value={0}>:00</option>
+                                            <option value={15}>:15</option>
+                                            <option value={30}>:30</option>
+                                            <option value={45}>:45</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Subtitle / Notes */}
+                            <div>
+                                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                    Notes / Location <span className="text-slate-400 font-normal">(Optional)</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={quickCreateModal.subtitle || ''}
+                                    onChange={(e) => setQuickCreateModal({ ...quickCreateModal, subtitle: e.target.value })}
+                                    placeholder="e.g. VS Code, Google Meet link, or notes"
+                                    className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                    style={{
+                                        background: 'var(--bg-input)',
+                                        color: 'var(--text-primary)',
+                                        borderColor: 'var(--border-input)',
+                                    }}
+                                />
+                            </div>
+
+                            {/* Checkbox: Also add to Tasks list */}
+                            <div
+                                className="p-3 rounded-xl border flex items-center justify-between cursor-pointer"
+                                style={{
+                                    background: 'var(--bg-elevated)',
+                                    borderColor: 'var(--border-secondary)',
+                                }}
+                                onClick={() => setQuickCreateModal({ ...quickCreateModal, addToTasks: !quickCreateModal.addToTasks })}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <ListTodo size={14} className="text-[#5b5fc7]" />
+                                    <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                                        Also add to my To-Do Task Backlog
+                                    </span>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    checked={Boolean(quickCreateModal.addToTasks)}
+                                    onChange={(e) => setQuickCreateModal({ ...quickCreateModal, addToTasks: e.target.checked })}
+                                    className="rounded accent-[#5b5fc7] cursor-pointer"
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                            </div>
+
+                            {/* Modal Footer Buttons */}
+                            <div
+                                className="flex items-center justify-end gap-2.5 pt-4 border-t"
+                                style={{ borderColor: 'var(--border-secondary)' }}
+                            >
+                                <button
+                                    type="button"
+                                    onClick={() => setQuickCreateModal(null)}
+                                    className="px-4 py-2 rounded-xl text-xs font-semibold transition-all hover:bg-black/5 dark:hover:bg-white/10"
+                                    style={{ color: 'var(--text-secondary)' }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={!quickCreateModal.title.trim()}
+                                    className="px-5 py-2 rounded-xl text-xs font-bold text-white shadow-md transition-all flex items-center gap-1.5 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                    style={{
+                                        background: 'linear-gradient(135deg, #5b5fc7 0%, #4f52b2 100%)',
+                                    }}
+                                >
+                                    <Plus size={14} /> Schedule Activity
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
 
             {/* 4. Task Details Modal */}
             {selectedRoutineDetails && (
@@ -2787,36 +3213,137 @@ export const Routine = () => {
                                         onSubmit={(e) => {
                                             e.preventDefault();
                                             if (!newTaskTitle.trim()) return;
-                                            setMakerTasks((prev) => [
-                                                ...prev,
-                                                {
-                                                    title: newTaskTitle.trim(),
-                                                    priority: 'high',
-                                                },
-                                            ]);
-                                            setNewTaskTitle('');
+                                            if (enableDirectTime) {
+                                                handleDirectPlanTask();
+                                            } else {
+                                                setMakerTasks((prev) => [
+                                                    ...prev,
+                                                    {
+                                                        title: newTaskTitle.trim(),
+                                                        priority: 'high',
+                                                    },
+                                                ]);
+                                                setNewTaskTitle('');
+                                            }
                                         }}
-                                        className="flex items-center gap-2"
+                                        className="space-y-2"
                                     >
-                                        <input
-                                            type="text"
-                                            placeholder={planScope === 'day' ? "Add task (e.g. Video editing, Leetcode, Build feature)..." : "Add weekly task (e.g. Build auth, Write docs, Deploy staging)..."}
-                                            value={newTaskTitle}
-                                            onChange={(e) => setNewTaskTitle(e.target.value)}
-                                            className="flex-1 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] transition-all bg-black/20 dark:bg-white/5"
-                                            style={{
-                                                color: 'var(--text-primary)',
-                                                borderColor: 'rgba(255, 255, 255, 0.12)',
-                                            }}
-                                        />
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                placeholder={planScope === 'day' ? "Add task (e.g. Video editing, Leetcode, Build feature)..." : "Add weekly task (e.g. Build auth, Write docs, Deploy staging)..."}
+                                                value={newTaskTitle}
+                                                onChange={(e) => setNewTaskTitle(e.target.value)}
+                                                className="flex-1 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] transition-all bg-black/20 dark:bg-white/5"
+                                                style={{
+                                                    color: 'var(--text-primary)',
+                                                    borderColor: 'rgba(255, 255, 255, 0.12)',
+                                                }}
+                                            />
 
-                                        <button
-                                            type="submit"
-                                            disabled={!newTaskTitle.trim()}
-                                            className="py-2 px-3.5 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm shrink-0 cursor-pointer"
-                                        >
-                                            <Plus size={14} /> Add
-                                        </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setEnableDirectTime(!enableDirectTime)}
+                                                className={`px-2.5 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                                                    enableDirectTime
+                                                        ? 'bg-[#5b5fc7]/25 text-[#8b92f8] border-[#5b5fc7]/70 shadow-sm'
+                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-400 hover:text-white hover:border-slate-500'
+                                                }`}
+                                                title="Toggle direct time entry for this task"
+                                            >
+                                                <Clock size={13} />
+                                                <span className="hidden sm:inline">{enableDirectTime ? 'Direct Time On' : 'Set Time'}</span>
+                                            </button>
+
+                                            <button
+                                                type="submit"
+                                                disabled={!newTaskTitle.trim()}
+                                                className="py-2 px-3.5 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm shrink-0 cursor-pointer"
+                                            >
+                                                <Plus size={14} /> {enableDirectTime ? 'Plan at Time' : 'Add'}
+                                            </button>
+                                        </div>
+
+                                        {/* Direct Time Planning Controls */}
+                                        {enableDirectTime && (
+                                            <div
+                                                className="p-2.5 rounded-xl border flex items-center justify-between gap-2 flex-wrap text-xs animate-fade-in"
+                                                style={{
+                                                    background: 'rgba(91, 95, 199, 0.08)',
+                                                    borderColor: 'rgba(91, 95, 199, 0.3)',
+                                                }}
+                                            >
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="text-[11px] font-bold text-[#8b92f8] flex items-center gap-1">
+                                                        <Clock size={12} /> Time:
+                                                    </span>
+                                                    <select
+                                                        value={directStartHour}
+                                                        onChange={(e) => setDirectStartHour(Number(e.target.value))}
+                                                        className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                        style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
+                                                    >
+                                                        {Array.from({ length: 24 }).map((_, h) => (
+                                                            <option key={h} value={h}>
+                                                                {formatHourLabel(h)}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <select
+                                                        value={directStartMinute}
+                                                        onChange={(e) => setDirectStartMinute(Number(e.target.value))}
+                                                        className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                        style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
+                                                    >
+                                                        <option value={0}>:00</option>
+                                                        <option value={15}>:15</option>
+                                                        <option value={30}>:30</option>
+                                                        <option value={45}>:45</option>
+                                                    </select>
+
+                                                    <span className="text-[11px] font-bold text-[#8b92f8] ml-1">Duration:</span>
+                                                    <select
+                                                        value={directDuration}
+                                                        onChange={(e) => setDirectDuration(Number(e.target.value))}
+                                                        className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                        style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
+                                                    >
+                                                        <option value={15}>15m</option>
+                                                        <option value={30}>30m</option>
+                                                        <option value={45}>45m</option>
+                                                        <option value={60}>1 hour</option>
+                                                        <option value={90}>1.5 hours</option>
+                                                        <option value={120}>2 hours</option>
+                                                    </select>
+
+                                                    <span className="text-[11px] font-bold text-[#8b92f8] ml-1">Category:</span>
+                                                    <select
+                                                        value={directCategory}
+                                                        onChange={(e) => setDirectCategory(e.target.value as any)}
+                                                        className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                        style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
+                                                    >
+                                                        <option value="development">💻 Dev</option>
+                                                        <option value="research">📚 Research</option>
+                                                        <option value="meeting">👥 Meeting</option>
+                                                        <option value="design">🎨 Design</option>
+                                                        <option value="writing">✍️ Writing</option>
+                                                        <option value="break">☕ Break</option>
+                                                        <option value="meal">🥗 Meal</option>
+                                                        <option value="other">📦 Other</option>
+                                                    </select>
+                                                </div>
+
+                                                <button
+                                                    type="button"
+                                                    disabled={!newTaskTitle.trim()}
+                                                    onClick={() => handleDirectPlanTask()}
+                                                    className="px-3 py-1 rounded-lg bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer ml-auto"
+                                                >
+                                                    <Check size={12} /> Plan at this Time
+                                                </button>
+                                            </div>
+                                        )}
                                     </form>
 
                                     {/* Personalized Quick Suggestions */}
@@ -2875,13 +3402,37 @@ export const Routine = () => {
                                                         </span>
                                                     </div>
 
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setMakerTasks((prev) => prev.filter((_, i) => i !== idx))}
-                                                        className="p-1 rounded text-slate-400 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
-                                                    >
-                                                        <Trash2 size={13} />
-                                                    </button>
+                                                    <div className="flex items-center gap-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const targetDateStr = formatDateStr(selectedDate);
+                                                                setQuickCreateModal({
+                                                                    dateStr: targetDateStr,
+                                                                    startHour: directStartHour,
+                                                                    startMinute: directStartMinute,
+                                                                    title: t.title,
+                                                                    category: t.category || 'development',
+                                                                    priority: t.priority || 'high',
+                                                                    durationMinutes: directDuration,
+                                                                    subtitle: '',
+                                                                    addToTasks: false,
+                                                                });
+                                                                setIsMakerOpen(false);
+                                                            }}
+                                                            className="p-1 rounded text-slate-400 hover:text-indigo-400 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
+                                                            title="Schedule this task at specific time"
+                                                        >
+                                                            <Clock size={13} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setMakerTasks((prev) => prev.filter((_, i) => i !== idx))}
+                                                            className="p-1 rounded text-slate-400 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             ))
                                         )}
@@ -2905,6 +3456,32 @@ export const Routine = () => {
                                             className="px-3.5 py-2 rounded-xl text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 cursor-pointer"
                                         >
                                             Cancel
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const targetDateStr = formatDateStr(selectedDate);
+                                                const isSelectedToday = targetDateStr === todayStr;
+                                                const currentH = new Date().getHours();
+                                                const actualStartHour = isSelectedToday ? Math.max(directStartHour, currentH) : directStartHour;
+                                                setIsMakerOpen(false);
+                                                setQuickCreateModal({
+                                                    dateStr: targetDateStr,
+                                                    startHour: Math.min(23, actualStartHour),
+                                                    startMinute: directStartMinute,
+                                                    title: newTaskTitle.trim() || (makerTasks[0]?.title || ''),
+                                                    category: directCategory,
+                                                    priority: 'high',
+                                                    durationMinutes: directDuration,
+                                                    subtitle: '',
+                                                    addToTasks: false,
+                                                });
+                                            }}
+                                            className="px-3.5 py-2 rounded-xl border border-[#5b5fc7]/40 bg-[#5b5fc7]/15 hover:bg-[#5b5fc7]/25 text-[#7b83eb] font-semibold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                            title="Plan at a specific time directly without running the auto-generator"
+                                        >
+                                            <Clock size={13} />
+                                            <span>Plan at Specific Time</span>
                                         </button>
                                         <button
                                             type="button"

@@ -19,7 +19,7 @@ import {
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { analyticsService, websocketService } from '../lib/services';
-import { submitActivityFeedback } from '../lib/activityAutoTracker';
+import { submitActivityFeedback, inferActivityDetails } from '../lib/activityAutoTracker';
 
 import { TotoroBg } from './TotoroBg';
 import { NoFaceBg } from './NoFaceBg';
@@ -144,7 +144,7 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0, onCli
 };
 
 export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
-    const { activities, isMonitoring, setMonitoring, stats: userStats, analytics, setAnalytics, routines, toggleRoutineComplete } = useStore();
+    const { activities, isMonitoring, setMonitoring, stats: userStats, analytics, setAnalytics, routines, toggleRoutineComplete, ratings } = useStore();
     const { isDark } = useTheme();
 
     const todayStr = useMemo(() => {
@@ -215,6 +215,100 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
 
         return { totalDuration, topApps: sortedApps, mostUsed: sortedApps[0], activeCount: activities.length };
     }, [activities]);
+
+    const focusScoreData = useMemo(() => {
+        // 1. If remote backend returned a valid focusScore, use it
+        if (analytics?.focusScore && analytics.focusScore > 0) {
+            const val = Math.min(100, Math.round(analytics.focusScore));
+            const label = val >= 80 ? 'Deep Focus' : val >= 50 ? 'Good Focus' : 'Needs Focus';
+            return {
+                value: `${val}/100`,
+                subtext: `${label} · Real-time activity ratio`,
+            };
+        }
+
+        // 2. If an AI evaluation rating exists for today, scale to 100
+        const latestRating = ratings && ratings.length > 0 ? ratings[ratings.length - 1] : null;
+        if (latestRating && typeof latestRating.rating === 'number') {
+            const scaled = Math.min(100, Math.round(latestRating.rating * 10));
+            const verdictLabel = latestRating.verdict ? `${latestRating.verdict.charAt(0).toUpperCase() + latestRating.verdict.slice(1)} Day` : 'AI Evaluated';
+            return {
+                value: `${scaled}/100`,
+                subtext: `${verdictLabel} · AI productivity score`,
+            };
+        }
+
+        // 3. Compute live from local activities & today's planned calendar targets
+        if (!activities || activities.length === 0) {
+            return {
+                value: '—',
+                subtext: isMonitoring ? 'Listening for active window...' : 'Enable monitor to measure focus',
+            };
+        }
+
+        // Extract today's planned calendar targets (exclude meals/breaks/sleep)
+        const plannedTitles = todayRoutines
+            .filter((r) => !r.isAutoDetected && r.category !== 'meal' && r.category !== 'break' && r.category !== 'sleep')
+            .map((r) => r.title.toLowerCase().trim())
+            .filter(Boolean);
+
+        let productiveSec = 0;
+        let distractingSec = 0;
+        let totalSec = 0;
+
+        activities.forEach((act) => {
+            const sec = act.duration ? act.duration / 1000 : 1;
+            totalSec += sec;
+
+            const appName = (act.owner?.name || '').toLowerCase();
+            const winTitle = (act.title || '').toLowerCase();
+
+            // Check if activity matches any planned routine task
+            const matchesPlan = plannedTitles.some((target) =>
+                target && (winTitle.includes(target) || appName.includes(target))
+            );
+
+            const inferred = inferActivityDetails(act.owner?.name || '', act.title || '');
+
+            if (matchesPlan) {
+                productiveSec += sec;
+            } else if (inferred.category === 'break') {
+                distractingSec += sec;
+            } else if (
+                inferred.category === 'development' ||
+                inferred.category === 'research' ||
+                inferred.category === 'writing' ||
+                inferred.category === 'design' ||
+                inferred.category === 'meeting'
+            ) {
+                productiveSec += sec;
+            } else {
+                // Neutral/other: 60% productive weight
+                productiveSec += sec * 0.6;
+            }
+        });
+
+        if (totalSec < 10) {
+            return {
+                value: '—',
+                subtext: 'Gathering active session data...',
+            };
+        }
+
+        const score = Math.min(100, Math.max(10, Math.round((productiveSec / totalSec) * 100)));
+        const productiveMins = Math.round(productiveSec / 60);
+
+        let label = 'Balanced';
+        if (score >= 80) label = 'Deep Focus';
+        else if (score >= 60) label = 'Good Focus';
+        else if (score >= 40) label = 'Moderate Focus';
+        else label = 'Needs Focus';
+
+        return {
+            value: `${score}/100`,
+            subtext: `${label} · ${productiveMins}m productive time`,
+        };
+    }, [analytics?.focusScore, ratings, activities, todayRoutines, isMonitoring]);
 
     const handleToggleMonitoring = async () => {
         if (isMonitoring) {
@@ -367,8 +461,8 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                 />
                 <MetricCard
                     title="Focus Score"
-                    value={analytics?.focusScore ? `${analytics.focusScore}/100` : 'Calculating...'}
-                    subtext={analytics?.productivityDna?.dominantCategory ? `DNA: ${analytics.productivityDna.dominantCategory}` : 'Context & Focus Analytics'}
+                    value={focusScoreData.value}
+                    subtext={focusScoreData.subtext}
                     icon={Hourglass}
                     delay={240}
                 />

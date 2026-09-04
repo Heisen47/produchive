@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StudyRooms } from './components/StudyRooms';
 import { FocusRoom } from './components/FocusRoom';
 import { PremiumPaywall } from './components/PremiumPaywall';
-import { GoalSetter } from './components/GoalSetter';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { ProductivityJudge } from './components/ProductivityJudge';
 import { Dashboard } from './components/Dashboard';
@@ -61,7 +60,7 @@ const viewLabels: Record<string, string> = {
     analytics: 'Analytics',
     routine: 'Routine',
     monitor: 'Routine',
-    ai: 'Goals & AI',
+    ai: 'AI Insights',
     focusroom: 'Focus Rooms ✦',
 };
 
@@ -526,8 +525,7 @@ const AppContent = () => {
 
                             {currentView === 'ai' && (
                                 <div className="space-y-6">
-                                    <GoalSetter />
-                                    <ProductivityJudge engine={engine} />
+                                    <ProductivityJudge engine={engine} onNavigate={handleViewChange} />
                                 </div>
                             )}
 

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle, AlertTriangle, Clock, BookOpen } from 'lucide-react';
+import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle, AlertTriangle, Clock, BookOpen, Calendar, ArrowRight } from 'lucide-react';
 import Lottie from 'lottie-react';
 import { useStore } from '../lib/store';
 import { HistoricalReports } from './HistoricalReports';
@@ -22,15 +22,49 @@ interface ProductivityAnalysis {
     }
 }
 
-export const ProductivityJudge = ({ engine }: { engine: any }) => {
-    const { goals, activities, addRating, selectedRole, customPrompt, routines } = useStore();
+interface ProductivityJudgeProps {
+    engine: any;
+    onNavigate?: (view: string) => void;
+}
+
+export const ProductivityJudge = ({ engine, onNavigate }: ProductivityJudgeProps) => {
+    const { goals, activities, addRating, selectedRole, customPrompt, routines, loadRoutines } = useStore();
     const { isDark } = useTheme();
-    const goal = goals.length > 0 ? goals[0] : null;
+
+    const todayStr = (() => {
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    })();
+
+    // Extract planned tasks from Routine Calendar for today (exclude meal/break/sleep)
+    const todayCalendarItems = (routines || []).filter(
+        (r) => r.dateStr === todayStr && !r.isAutoDetected && r.category !== 'meal' && r.category !== 'break' && r.category !== 'sleep'
+    );
+    const todayCalendarTitles = todayCalendarItems.map((r) => r.title.trim()).filter(Boolean);
+
+    // Primary source: today's planned calendar tasks. Fallback: legacy goals from store
+    const effectiveGoals = todayCalendarTitles.length > 0 ? todayCalendarTitles : goals;
+    const goal = effectiveGoals.length > 0 ? effectiveGoals[0] : null;
+
     const [analyzing, setAnalyzing] = useState(false);
     const [analysis, setAnalysis] = useState<ProductivityAnalysis | null>(null);
     const [error, setError] = useState<string | null>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [focusSessions, setFocusSessions] = useState<any[]>([]);
+
+    // Listen for routine calendar updates to keep today's plan synchronized
+    useEffect(() => {
+        const handleRoutineUpdate = () => {
+            loadRoutines();
+        };
+        window.addEventListener('produchive_routine_updated', handleRoutineUpdate);
+        return () => {
+            window.removeEventListener('produchive_routine_updated', handleRoutineUpdate);
+        };
+    }, [loadRoutines]);
 
     // Load focus sessions on mount
     useEffect(() => {
@@ -67,10 +101,10 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
     const analyzeProductivity = async () => {
         setError(null);
 
-        if (!engine || goals.length === 0 || activities.length === 0) {
+        if (!engine || effectiveGoals.length === 0 || activities.length === 0) {
             console.log('[ProductivityJudge] Cannot generate report:', {
                 hasEngine: !!engine,
-                goalsCount: goals.length,
+                goalsCount: effectiveGoals.length,
                 activitiesCount: activities.length
             });
             return;
@@ -79,8 +113,8 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
         console.log('========================================');
         console.log('[ProductivityJudge] GENERATING AI REPORT');
         console.log('========================================');
-        console.log('[ProductivityJudge] Data source: In-memory store (Zustand)');
-        console.log('[ProductivityJudge] Goals:', goals);
+        console.log('[ProductivityJudge] Data source: In-memory store (Zustand) & Routine Calendar');
+        console.log('[ProductivityJudge] Target Goals/Tasks:', effectiveGoals);
         console.log('[ProductivityJudge] Activities count:', activities.length);
         console.log('[ProductivityJudge] Activities:', activities.map(a => ({
             app: a.owner.name,
@@ -102,7 +136,7 @@ export const ProductivityJudge = ({ engine }: { engine: any }) => {
                 .map(([name, duration]) => `- ${name} (${formatDuration(duration)})`)
                 .join('\n');
 
-            const goalsText = goals.map((g, i) => `Goal ${i + 1}: "${g}"`).join('\n');
+            const goalsText = effectiveGoals.map((g, i) => `Goal ${i + 1}: "${g}"`).join('\n');
 
             // Build focus session summary for the AI (aggregated by day)
             let focusSessionText = '';
@@ -250,47 +284,120 @@ Goal: \n${goalsText}\n\n${routineSummaryText ? `Calendar Schedule & Routine Adhe
 
     return (
         <div className="mt-6 space-y-6">
-            {goals.length > 0 ? (
+            {effectiveGoals.length > 0 ? (
                 <>
-                    <div className="relative">
-                <button
-                    onClick={analyzeProductivity}
-                    disabled={analyzing || !engine || activities.length === 0 || !isEnoughData}
-                    className="w-full px-6 py-4 rounded-2xl font-bold transition-all duration-300 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                    style={{
-                        background: 'linear-gradient(135deg, #6366f1, #8b5cf6, #6366f1)',
-                        backgroundSize: '200% 200%',
-                        color: '#fff',
-                        boxShadow: analyzing || !isEnoughData ? 'none' : '0 8px 30px rgba(99,102,241,0.4)',
-                        animation: !analyzing && isEnoughData ? 'gradientShift 3s ease infinite' : undefined,
-                        filter: !isEnoughData ? 'grayscale(1)' : 'none',
-                    }}
-                >
-                    {analyzing ? (
-                        <>
-                            <Loader2 size={24} className="animate-spin" />
-                            Analyzing Your Day...
-                        </>
-                    ) : (
-                        <>
-                            <Brain size={24} />
-                            Generate AI Report
-                        </>
-                    )}
-                </button>
+                    {/* Today's Planned Target Schedule Summary */}
+                    <div
+                        className="rounded-2xl p-4 md:p-5 border transition-all animate-fade-in"
+                        style={{
+                            background: isDark ? 'rgba(30, 41, 59, 0.35)' : 'rgba(241, 245, 249, 0.7)',
+                            borderColor: isDark ? 'rgba(99, 102, 241, 0.25)' : 'rgba(99, 102, 241, 0.2)',
+                        }}
+                    >
+                        <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2.5">
+                                <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400">
+                                    <Calendar size={16} />
+                                </div>
+                                <div>
+                                    <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                                        Today's Target Schedule ({effectiveGoals.length} {effectiveGoals.length === 1 ? 'task' : 'tasks'})
+                                    </h4>
+                                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                        AI evaluation measures your tracked activity against this schedule
+                                    </p>
+                                </div>
+                            </div>
+                            {onNavigate && (
+                                <button
+                                    type="button"
+                                    onClick={() => onNavigate('routine')}
+                                    className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                                >
+                                    <span>Edit Schedule</span>
+                                    <ArrowRight size={12} />
+                                </button>
+                            )}
+                        </div>
 
-                {!isEnoughData && (
-                    <div className="absolute top-full left-0 right-0 mt-2 text-center animate-fade-in">
-                        <span className="text-xs font-medium px-3 py-1.5 rounded-full inline-block"
-                            style={{
-                                background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
-                                color: 'var(--text-secondary)'
-                            }}>
-                            Please use the app for at least 3 minutes to unlock analysis
-                        </span>
+                        <div className="flex flex-wrap gap-2 pt-1">
+                            {todayCalendarItems.length > 0 ? (
+                                todayCalendarItems.map((item, i) => (
+                                    <div
+                                        key={item.id || i}
+                                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium"
+                                        style={{
+                                            background: isDark ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                                            borderColor: item.completed ? 'rgba(34, 197, 94, 0.4)' : 'var(--border-secondary)',
+                                        }}
+                                    >
+                                        <span className={`w-2 h-2 rounded-full shrink-0 ${item.completed ? 'bg-green-500' : 'bg-indigo-400'}`} />
+                                        <span style={{ color: 'var(--text-primary)' }}>{item.title}</span>
+                                        <span className="text-[10px] text-slate-400 font-mono">({item.durationMinutes}m)</span>
+                                    </div>
+                                ))
+                            ) : (
+                                effectiveGoals.map((g, i) => (
+                                    <div
+                                        key={i}
+                                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium"
+                                        style={{
+                                            background: isDark ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                                            borderColor: 'var(--border-secondary)',
+                                        }}
+                                    >
+                                        <span className="w-2 h-2 rounded-full shrink-0 bg-indigo-400" />
+                                        <span style={{ color: 'var(--text-primary)' }}>{g}</span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </div>
-                )}
-            </div>
+
+                    <div className="relative group">
+                        <button
+                            onClick={analyzeProductivity}
+                            disabled={analyzing || !engine || activities.length === 0 || !isEnoughData}
+                            title={!isEnoughData ? "Please enable monitoring and use the app for at least 3 minutes to unlock analysis" : undefined}
+                            className="w-full px-6 py-4 rounded-2xl font-bold transition-all duration-300 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
+                            style={{
+                                background: 'linear-gradient(135deg, #6366f1, #8b5cf6, #6366f1)',
+                                backgroundSize: '200% 200%',
+                                color: '#fff',
+                                boxShadow: analyzing || !isEnoughData ? 'none' : '0 8px 30px rgba(99,102,241,0.4)',
+                                animation: !analyzing && isEnoughData ? 'gradientShift 3s ease infinite' : undefined,
+                                filter: !isEnoughData ? 'grayscale(1)' : 'none',
+                            }}
+                        >
+                            {analyzing ? (
+                                <>
+                                    <Loader2 size={24} className="animate-spin" />
+                                    Analyzing Your Day...
+                                </>
+                            ) : (
+                                <>
+                                    <Brain size={24} />
+                                    Generate AI Report
+                                </>
+                            )}
+                        </button>
+
+                        {!isEnoughData && (
+                            <div className="absolute top-full left-0 right-0 mt-2 text-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20">
+                                <span
+                                    className="text-xs font-medium px-3.5 py-1.5 rounded-full inline-block shadow-lg"
+                                    style={{
+                                        background: isDark ? 'rgba(30, 41, 59, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                                        color: isDark ? '#cbd5e1' : '#475569',
+                                        border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.1)',
+                                        backdropFilter: 'blur(8px)',
+                                    }}
+                                >
+                                    Please enable monitoring and use the app for at least 3 minutes to unlock analysis
+                                </span>
+                            </div>
+                        )}
+                    </div>
 
 
 
@@ -353,7 +460,7 @@ Goal: \n${goalsText}\n\n${routineSummaryText ? `Calendar Schedule & Routine Adhe
                                 )}
 
                                 {/* Share Button */}
-                                <ShareCard analysis={analysis} goals={goals} />
+                                <ShareCard analysis={analysis} goals={effectiveGoals} />
                             </div>
                         </div>
 
@@ -420,19 +527,33 @@ Goal: \n${goalsText}\n\n${routineSummaryText ? `Calendar Schedule & Routine Adhe
                 </>
             ) : (
                 <div 
-                    className="rounded-2xl p-6 text-center animate-fade-in"
+                    className="rounded-2xl p-8 text-center animate-fade-in space-y-4"
                     style={{
                         background: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.5)',
                         border: '1px solid var(--border-card)',
                     }}
                 >
-                    <Lightbulb size={24} className="mx-auto mb-3" style={{ color: 'var(--accent)' }} />
-                    <h3 className="text-lg font-bold flex items-center justify-center gap-2 mb-1" style={{ color: 'var(--text-primary)' }}>
-                        No Goals Set for Today
-                    </h3>
-                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                        Add goals in the Planner to unlock today's AI productivity analysis.
-                    </p>
+                    <div className="w-12 h-12 rounded-2xl mx-auto flex items-center justify-center bg-indigo-500/15 text-indigo-400">
+                        <Calendar size={24} />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
+                            No Schedule Planned for Today
+                        </h3>
+                        <p className="text-sm max-w-md mx-auto" style={{ color: 'var(--text-secondary)' }}>
+                            Plan tasks in your Routine Calendar to unlock today's AI productivity analysis and scoring.
+                        </p>
+                    </div>
+                    {onNavigate && (
+                        <button
+                            type="button"
+                            onClick={() => onNavigate('routine')}
+                            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs shadow-md shadow-[#5b5fc7]/20 transition-all inline-flex items-center gap-2 cursor-pointer"
+                        >
+                            <Calendar size={14} />
+                            <span>Open Routine Calendar</span>
+                        </button>
+                    )}
                 </div>
             )}
 
@@ -452,29 +573,53 @@ Goal: \n${goalsText}\n\n${routineSummaryText ? `Calendar Schedule & Routine Adhe
                 const totalSec = focusSessions.reduce((sum: number, s: any) => sum + (s.durationSeconds || 0), 0);
 
                 return (
-                    <div className="glass-card rounded-2xl overflow-hidden">
-                        <div className="p-4 flex items-center gap-3" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
-                            <div className="p-2 rounded-xl" style={{ background: 'rgba(167,139,250,0.12)' }}>
-                                <BookOpen size={16} color="#a78bfa" />
+                    <div className="glass-card rounded-2xl overflow-hidden border border-purple-500/20">
+                        <div className="p-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
+                            <div
+                                onClick={() => onNavigate?.('focusroom')}
+                                className="flex items-center gap-3 cursor-pointer group"
+                                title="Click to open Focus Rooms"
+                            >
+                                <div className="p-2 rounded-xl bg-purple-500/15 text-purple-400 group-hover:bg-purple-500/25 transition-colors">
+                                    <BookOpen size={16} />
+                                </div>
+                                <div>
+                                    <h4 className="text-sm font-bold group-hover:text-purple-300 transition-colors" style={{ color: 'var(--text-primary)' }}>
+                                        Focus Room Sessions
+                                    </h4>
+                                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                        {focusSessions.length} session{focusSessions.length !== 1 ? 's' : ''} · {formatDuration(totalSec * 1000)} total
+                                    </p>
+                                </div>
                             </div>
-                            <div>
-                                <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Focus Room Sessions</h4>
-                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                                    {focusSessions.length} session{focusSessions.length !== 1 ? 's' : ''} · {formatDuration(totalSec * 1000)} total
-                                </p>
-                            </div>
+                            {onNavigate && (
+                                <button
+                                    type="button"
+                                    onClick={() => onNavigate('focusroom')}
+                                    className="text-xs font-semibold text-purple-400 hover:text-purple-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                                >
+                                    <span>Enter Rooms</span>
+                                    <ArrowRight size={12} />
+                                </button>
+                            )}
                         </div>
                         <div style={{ maxHeight: 200, overflowY: 'auto' }} className="custom-scrollbar">
                             {days.map((day, i) => {
                                 const roomEntries = Object.entries(day.rooms);
                                 return (
-                                    <div key={day.date} className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-white/5" style={{ borderBottom: i < days.length - 1 ? '1px solid var(--border-secondary)' : 'none' }}>
+                                    <div
+                                        key={day.date}
+                                        onClick={() => onNavigate?.('focusroom')}
+                                        className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-purple-500/10 cursor-pointer group select-none"
+                                        style={{ borderBottom: i < days.length - 1 ? '1px solid var(--border-secondary)' : 'none' }}
+                                        title="Click to enter Focus Rooms"
+                                    >
                                         <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)', minWidth: 85, whiteSpace: 'nowrap' }}>{day.date}</span>
                                         <div className="flex-1 flex gap-1.5 flex-wrap">
                                             {roomEntries.map(([scene, count]) => {
                                                 const color = sceneColors[scene] || '#a78bfa';
                                                 return (
-                                                    <span key={scene} className="text-xs font-semibold px-2 py-0.5 rounded-md" style={{ color, background: `${color}15` }}>
+                                                    <span key={scene} className="text-xs font-semibold px-2 py-0.5 rounded-md transition-transform group-hover:scale-105" style={{ color, background: `${color}15` }}>
                                                         {sceneLabel[scene] || scene}{count > 1 ? ` (×${count})` : ''}
                                                     </span>
                                                 );
@@ -483,6 +628,7 @@ Goal: \n${goalsText}\n\n${routineSummaryText ? `Calendar Schedule & Routine Adhe
                                         <span className="text-xs font-bold px-2 py-0.5 rounded-md" style={{ color: '#a78bfa', background: 'rgba(167,139,250,0.12)' }}>
                                             {formatDuration(day.totalSec * 1000)}
                                         </span>
+                                        <ArrowRight size={12} className="text-purple-400/40 group-hover:text-purple-400 group-hover:translate-x-0.5 transition-all" />
                                     </div>
                                 );
                             })}

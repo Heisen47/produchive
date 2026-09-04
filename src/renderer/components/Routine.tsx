@@ -3449,11 +3449,11 @@ export const Routine = () => {
                                         </span>
                                     </div>
 
-                                    <div className="flex items-center gap-2.5">
+                                    <div className="flex items-center gap-2">
                                         <button
                                             type="button"
                                             onClick={() => setIsMakerOpen(false)}
-                                            className="px-3.5 py-2 rounded-xl text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 cursor-pointer"
+                                            className="px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 cursor-pointer"
                                         >
                                             Cancel
                                         </button>
@@ -3477,25 +3477,25 @@ export const Routine = () => {
                                                     addToTasks: false,
                                                 });
                                             }}
-                                            className="px-3.5 py-2 rounded-xl border border-[#5b5fc7]/40 bg-[#5b5fc7]/15 hover:bg-[#5b5fc7]/25 text-[#7b83eb] font-semibold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                            className="px-3 py-1.5 rounded-lg border border-[#5b5fc7]/40 bg-[#5b5fc7]/15 hover:bg-[#5b5fc7]/25 text-[#7b83eb] font-semibold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
                                             title="Plan at a specific time directly without running the auto-generator"
                                         >
                                             <Clock size={13} />
-                                            <span>Plan at Specific Time</span>
+                                            <span>Plan</span>
                                         </button>
                                         <button
                                             type="button"
                                             onClick={handleGenerateSchedule}
                                             disabled={isGenerating || (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast)}
-                                            className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs shadow-md shadow-[#5b5fc7]/20 transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                                            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs shadow-md shadow-[#5b5fc7]/20 transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                                         >
                                             {isGenerating ? (
                                                 <>
-                                                    <Loader2 size={14} className="animate-spin text-white" />
-                                                    <span>Optimizing Schedule...</span>
+                                                    <Loader2 size={13} className="animate-spin text-white" />
+                                                    <span>Generating...</span>
                                                 </>
                                             ) : (
-                                                <span>Generate Schedule</span>
+                                                <span>Generate</span>
                                             )}
                                         </button>
                                     </div>

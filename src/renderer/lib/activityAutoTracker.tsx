@@ -60,40 +60,64 @@ export const inferActivityDetails = (appName: string, rawTitle: string): Inferre
     const title = (rawTitle || '').toLowerCase();
     const cleaned = cleanWindowTitle(rawTitle, appName);
 
-    // 1. Development & Engineering
-    if (
-        name.includes('code') ||
+    // 1. Development & Engineering (Strictly IDEs, Dev Terminals, and Code files)
+    const isIdeOrTerminal =
+        name.includes('visual studio') ||
+        name.includes('vscode') ||
         name.includes('cursor') ||
         name.includes('xcode') ||
         name.includes('intellij') ||
         name.includes('webstorm') ||
         name.includes('pycharm') ||
-        name.includes('studio') ||
+        name.includes('sublime') ||
         name.includes('terminal') ||
         name.includes('iterm') ||
         name.includes('warp') ||
         name.includes('docker') ||
         name.includes('postman') ||
+        name.includes('neovim') ||
+        name.includes('vim');
+
+    const hasCodeFile =
         title.includes('.ts') ||
         title.includes('.tsx') ||
         title.includes('.js') ||
+        title.includes('.jsx') ||
         title.includes('.py') ||
         title.includes('.go') ||
         title.includes('.rs') ||
         title.includes('.cpp') ||
         title.includes('.java') ||
-        title.includes('github') ||
-        title.includes('localhost')
-    ) {
+        title.includes('.html') ||
+        title.includes('.css');
+
+    if (isIdeOrTerminal || hasCodeFile) {
         return {
             category: 'development',
             title: cleaned && cleaned !== appName ? `Dev • ${cleaned}` : `Software Engineering (${appName})`,
-            subtitle: `Active window in ${appName}`,
+            subtitle: `Active development in ${appName}`,
             confidence: 94,
         };
     }
 
-    // 2. UI / UX Design & Creative
+    // 2. Spreadsheets & Data Analysis
+    if (
+        name.includes('excel') ||
+        name.includes('sheets') ||
+        name.includes('calc') ||
+        name.includes('tableau') ||
+        name.includes('powerbi') ||
+        title.includes('docs.google.com/spreadsheets')
+    ) {
+        return {
+            category: 'writing',
+            title: cleaned && cleaned !== appName ? `Data • ${cleaned}` : `Spreadsheets & Analytics (${appName})`,
+            subtitle: `Data work in ${appName}`,
+            confidence: 92,
+        };
+    }
+
+    // 3. UI / UX Design & Creative Media
     if (
         name.includes('figma') ||
         name.includes('photoshop') ||
@@ -102,17 +126,23 @@ export const inferActivityDetails = (appName: string, rawTitle: string): Inferre
         name.includes('sketch') ||
         name.includes('blender') ||
         name.includes('after effects') ||
-        name.includes('premiere')
+        name.includes('premiere') ||
+        name.includes('final cut') ||
+        name.includes('davinci') ||
+        name.includes('audacity') ||
+        name.includes('logic pro') ||
+        name.includes('fl studio') ||
+        name.includes('ableton')
     ) {
         return {
             category: 'design',
-            title: cleaned && cleaned !== appName ? `Design • ${cleaned}` : `UI / UX Design (${appName})`,
-            subtitle: `Creative design work in ${appName}`,
+            title: cleaned && cleaned !== appName ? `Design • ${cleaned}` : `Creative Design & Media (${appName})`,
+            subtitle: `Creative production in ${appName}`,
             confidence: 92,
         };
     }
 
-    // 3. Team Communication & Meetings
+    // 4. Team Communication & Meetings
     if (
         name.includes('slack') ||
         name.includes('teams') ||
@@ -123,7 +153,8 @@ export const inferActivityDetails = (appName: string, rawTitle: string): Inferre
         name.includes('telegram') ||
         name.includes('whatsapp') ||
         name.includes('outlook') ||
-        name.includes('mail')
+        name.includes('mail') ||
+        title.includes('mail.google')
     ) {
         return {
             category: 'meeting',
@@ -135,25 +166,49 @@ export const inferActivityDetails = (appName: string, rawTitle: string): Inferre
         };
     }
 
-    // 4. Documentation & Writing
+    // 5. Documentation, Notes & Writing
     if (
         name.includes('notion') ||
         name.includes('obsidian') ||
         name.includes('word') ||
         name.includes('notes') ||
         name.includes('typora') ||
-        title.includes('docs.google') ||
+        name.includes('bear') ||
+        title.includes('docs.google.com/document') ||
         title.includes('notion.so')
     ) {
         return {
             category: 'writing',
-            title: cleaned && cleaned !== appName ? `Doc • ${cleaned}` : `Documentation (${appName})`,
-            subtitle: `Writing notes & documentation in ${appName}`,
+            title: cleaned && cleaned !== appName ? `Writing • ${cleaned}` : `Documentation & Notes (${appName})`,
+            subtitle: `Writing in ${appName}`,
             confidence: 90,
         };
     }
 
-    // 5. Web Browsers (Research vs Break)
+    // 6. Study, Reading & PDFs
+    if (
+        name.includes('preview') ||
+        name.includes('acrobat') ||
+        name.includes('reader') ||
+        name.includes('pdf') ||
+        name.includes('kindle') ||
+        name.includes('books') ||
+        title.includes('.pdf') ||
+        title.includes('coursera') ||
+        title.includes('udemy') ||
+        title.includes('edx') ||
+        title.includes('canvas') ||
+        title.includes('blackboard')
+    ) {
+        return {
+            category: 'research',
+            title: cleaned && cleaned !== appName ? `Study • ${cleaned}` : `Study & Reading (${appName})`,
+            subtitle: `Reading and research in ${appName}`,
+            confidence: 90,
+        };
+    }
+
+    // 7. Web Browsers (Contextual detection)
     if (
         name.includes('chrome') ||
         name.includes('safari') ||
@@ -170,7 +225,8 @@ export const inferActivityDetails = (appName: string, rawTitle: string): Inferre
             title.includes('x.com') ||
             title.includes('twitch') ||
             title.includes('tiktok') ||
-            title.includes('instagram')
+            title.includes('instagram') ||
+            title.includes('facebook')
         ) {
             return {
                 category: 'break',
@@ -185,10 +241,17 @@ export const inferActivityDetails = (appName: string, rawTitle: string): Inferre
                 subtitle: `Coding challenges in ${appName}`,
                 confidence: 95,
             };
+        } else if (title.includes('github') || title.includes('stackoverflow')) {
+            return {
+                category: 'development',
+                title: `Code Review • ${cleaned}`,
+                subtitle: `Technical repository in ${appName}`,
+                confidence: 90,
+            };
         } else {
             return {
                 category: 'research',
-                title: cleaned && cleaned !== appName ? `Research • ${cleaned}` : `Technical Research (${appName})`,
+                title: cleaned && cleaned !== appName ? `Research • ${cleaned}` : `Web Browsing (${appName})`,
                 subtitle: `Web research in ${appName}`,
                 confidence: 85,
             };

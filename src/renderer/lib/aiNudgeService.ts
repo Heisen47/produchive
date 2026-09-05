@@ -2,6 +2,7 @@ import { toast } from 'sonner';
 import { Activity } from '../global';
 import { useStore } from './store';
 import { hasAnyDownloadedModel } from './ai';
+import { judgeActivityProductivityWithLLM } from './productivityAnalysisService';
 
 const COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes between nudges
 const MIN_DISTRACTION_SECONDS = 60; // Must be on distracting app for >= 60 seconds
@@ -206,32 +207,12 @@ class AINudgeService {
         // If WebLLM engine is active in memory, query it for a high-accuracy judgment
         if (this.engine) {
             try {
-                const prompt = `You are an AI productivity coach.
-User Target: ${activeTarget}
-Current Application: ${appName}
-Current Window Title: ${windowTitle}
-
-Is the user currently distracted by this activity from their target?
-Respond ONLY with a JSON object: {"isDistracted": true or false, "reason": "short explanation"}`;
-
-                const completion = await this.engine.chat.completions.create({
-                    messages: [
-                        {
-                            role: 'system',
-                            content:
-                                'You are a concise productivity classifier. You only reply with valid JSON.',
-                        },
-                        { role: 'user', content: prompt },
-                    ],
-                    temperature: 0.1,
-                });
-
-                const content = completion.choices[0]?.message?.content || '';
-                const cleanJson = content.replace(/```json\n?|\n?```/g, '').trim();
-                const parsed = JSON.parse(cleanJson);
-                if (typeof parsed.isDistracted === 'boolean') {
-                    return parsed.isDistracted;
-                }
+                const judgment = await judgeActivityProductivityWithLLM(
+                    { appName, title: windowTitle },
+                    activeTarget ? [activeTarget] : [],
+                    this.engine
+                );
+                return judgment.isDistracting;
             } catch (err) {
                 console.warn('AI engine quick distraction evaluation failed, using heuristic:', err);
             }

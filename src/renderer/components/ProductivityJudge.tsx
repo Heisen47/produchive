@@ -1,26 +1,22 @@
 import { useState, useRef, useEffect } from 'react';
-import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle, AlertTriangle, Clock, BookOpen, Calendar, ArrowRight } from 'lucide-react';
+import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle, AlertTriangle, Clock, BookOpen, Calendar, ArrowRight, Cpu } from 'lucide-react';
 import Lottie from 'lottie-react';
 import { useStore } from '../lib/store';
 import { HistoricalReports } from './HistoricalReports';
 import { ActivityHeatmap } from './ActivityHeatmap';
 import { ShareCard } from './ShareCard';
 import { useTheme } from './ThemeProvider';
+import {
+    generateProductivityAnalysis,
+    ProductivityAnalysis,
+    formatDomainOnly,
+    sanitizeCategoryList,
+    resolveModelDisplayName,
+} from '../lib/productivityAnalysisService';
+import { TrackedActivitiesModal } from './TrackedActivitiesModal';
 import confetti from 'canvas-confetti';
 import badCatAnimation from '../assets/bad_cat.json';
 import danceAnimation from '../assets/dance.json';
-
-interface ProductivityAnalysis {
-    rating: number;
-    verdict: 'productive' | 'neutral' | 'unproductive';
-    explanation: string;
-    tips: string[];
-    categorization: {
-        productive: string[];
-        neutral: string[];
-        distracting: string[];
-    }
-}
 
 interface ProductivityJudgeProps {
     engine: any;
@@ -28,7 +24,7 @@ interface ProductivityJudgeProps {
 }
 
 export const ProductivityJudge = ({ engine, onNavigate }: ProductivityJudgeProps) => {
-    const { goals, activities, addRating, selectedRole, customPrompt, routines, loadRoutines } = useStore();
+    const { goals, activities, addRating, selectedRole, customPrompt, routines, loadRoutines, ratings } = useStore();
     const { isDark } = useTheme();
 
     const todayStr = (() => {
@@ -47,13 +43,19 @@ export const ProductivityJudge = ({ engine, onNavigate }: ProductivityJudgeProps
 
     // Primary source: today's planned calendar tasks. Fallback: legacy goals from store
     const effectiveGoals = todayCalendarTitles.length > 0 ? todayCalendarTitles : goals;
-    const goal = effectiveGoals.length > 0 ? effectiveGoals[0] : null;
 
     const [analyzing, setAnalyzing] = useState(false);
-    const [analysis, setAnalysis] = useState<ProductivityAnalysis | null>(null);
+    const [analysis, setAnalysis] = useState<ProductivityAnalysis | null>(() => {
+        if (ratings && ratings.length > 0) {
+            const latest = ratings[ratings.length - 1];
+            if (latest?.verdict && latest?.rating) return latest;
+        }
+        return null;
+    });
     const [error, setError] = useState<string | null>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [focusSessions, setFocusSessions] = useState<any[]>([]);
+    const [activitiesModalCategory, setActivitiesModalCategory] = useState<'all' | 'productive' | 'neutral' | 'distracting' | null>(null);
 
     // Listen for routine calendar updates to keep today's plan synchronized
     useEffect(() => {
@@ -101,160 +103,31 @@ export const ProductivityJudge = ({ engine, onNavigate }: ProductivityJudgeProps
     const analyzeProductivity = async () => {
         setError(null);
 
-        if (!engine || effectiveGoals.length === 0 || activities.length === 0) {
-            console.log('[ProductivityJudge] Cannot generate report:', {
-                hasEngine: !!engine,
-                goalsCount: effectiveGoals.length,
-                activitiesCount: activities.length
-            });
+        if (!activities || activities.length === 0) {
+            setError("No activity recorded to analyze yet. Start monitoring to log active applications.");
             return;
         }
 
-        console.log('========================================');
-        console.log('[ProductivityJudge] GENERATING AI REPORT');
-        console.log('========================================');
-        console.log('[ProductivityJudge] Data source: In-memory store (Zustand) & Routine Calendar');
-        console.log('[ProductivityJudge] Target Goals/Tasks:', effectiveGoals);
-        console.log('[ProductivityJudge] Activities count:', activities.length);
-        console.log('[ProductivityJudge] Activities:', activities.map(a => ({
-            app: a.owner.name,
-            title: a.title,
-            duration: a.duration
-        })));
-
         setAnalyzing(true);
         try {
-            // Group activities by title to sum duration
-            const activityMap = new Map<string, number>();
-            activities.forEach(a => {
-                const key = `${a.owner.name} - ${a.title}`;
-                const currentDuration = activityMap.get(key) || 0;
-                activityMap.set(key, currentDuration + (a.duration || 0));
+            const result = await generateProductivityAnalysis({
+                activities,
+                routines,
+                goals: effectiveGoals,
+                selectedRole,
+                customPrompt,
+                focusSessions,
+                engine,
             });
 
-            const activitySummary = Array.from(activityMap.entries())
-                .map(([name, duration]) => `- ${name} (${formatDuration(duration)})`)
-                .join('\n');
+            setAnalysis(result);
+            addRating(result);
 
-            const goalsText = effectiveGoals.map((g, i) => `Goal ${i + 1}: "${g}"`).join('\n');
-
-            // Build focus session summary for the AI (aggregated by day)
-            let focusSessionText = '';
-            if (focusSessions.length > 0) {
-                const totalFocusSec = focusSessions.reduce((sum: number, s: any) => sum + (s.durationSeconds || 0), 0);
-                const sceneLabel: Record<string, string> = { classroom: 'Classroom', cafe: 'Café', library: 'Library' };
-                const byDay: Record<string, { totalSec: number; rooms: Record<string, number> }> = {};
-                focusSessions.forEach((s: any) => {
-                    const d = new Date(s.startedAt);
-                    const key = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                    if (!byDay[key]) byDay[key] = { totalSec: 0, rooms: {} };
-                    byDay[key].totalSec += s.durationSeconds || 0;
-                    byDay[key].rooms[s.scene] = (byDay[key].rooms[s.scene] || 0) + 1;
-                });
-                const dayLines = Object.entries(byDay).slice(0, 10).map(([date, day]) => {
-                    const dur = formatDuration(day.totalSec * 1000);
-                    const rooms = Object.entries(day.rooms).map(([scene, count]) =>
-                        `${sceneLabel[scene] || scene}${count > 1 ? ` (×${count})` : ''}`
-                    ).join(', ');
-                    return `- ${date}: ${rooms} — ${dur}`;
-                }).join('\n');
-                focusSessionText = `\n\nFocus Room Study Sessions (Total: ${formatDuration(totalFocusSec * 1000)}):\n${dayLines}`;
-            }
-
-            // Build Routine Calendar Summary (Planned schedule vs Actual adherence)
-            let routineSummaryText = '';
-            const todayStr = new Date().toISOString().split('T')[0];
-            const todayRoutines = (routines || []).filter((r) => r.dateStr === todayStr);
-            if (todayRoutines.length > 0) {
-                const scheduled = todayRoutines.filter((r) => !r.isAutoDetected);
-                const autoDetected = todayRoutines.filter((r) => r.isAutoDetected);
-
-                const scheduledLines = scheduled
-                    .map((r) => `- [${r.completed ? 'COMPLETED' : 'PENDING'}] ${r.title} (${r.durationMinutes}m) [${r.category}]`)
-                    .join('\n');
-
-                const autoLines = autoDetected
-                    .slice(-5)
-                    .map((r) => `- [Auto-Logged] ${r.title} (${r.durationMinutes}m) [App: ${r.detectedApp || 'Screen'}]`)
-                    .join('\n');
-
-                routineSummaryText = `Scheduled Routine Calendar (Today):\n${scheduledLines || '- None'}\n\nAuto-Detected Calendar Events:\n${autoLines || '- None'}`;
-            }
-
-            console.log('[ProductivityJudge] Sending to LLM:');
-            console.log('  Goals:', goalsText);
-            console.log('  Activity Summary:', activitySummary);
-            if (routineSummaryText) console.log('  Routine Calendar:', routineSummaryText);
-
-            const basePrompt = customPrompt.replace('{role}', selectedRole || 'General Student');
-            const prompt = `${basePrompt}
-
-Student input:
-Goal: \n${goalsText}\n\n${routineSummaryText ? `Calendar Schedule & Routine Adherence:\n${routineSummaryText}\n\n` : ''}Activity: \n${activitySummary}\n\n${focusSessionText ? `Focus Study Sessions: \n${focusSessionText}\n\n` : ''}`;
-
-            const isTechRole = selectedRole?.toLowerCase().includes('engineer') || selectedRole?.toLowerCase().includes('computer');
-            
-            const exampleUser = isTechRole 
-                ? "Goal: \nGoal 1: \"Study React\"\n\nActivity: \n- VS Code (45m)\n- YouTube (15m)"
-                : "Goal: \nGoal 1: \"Review Materials\"\n\nActivity: \n- PDF Reader (45m)\n- YouTube (15m)";
-                
-            const exampleAssistant = isTechRole
-                ? `{\n  "rating": 8,\n  "verdict": "productive",\n  "explanation": "Great job focusing on your React studies! You spent the majority of your time in VS Code, which is excellent active learning. The short YouTube session was likely helpful for tutorials.",\n  "tips": ["Keep up the great active coding!", "Try to ensure YouTube doesn't distract you for too long.", "You are doing great!"],\n  "categorization": {\n    "productive": ["VS Code"],\n    "neutral": ["YouTube"],\n    "distracting": []\n  }\n}`
-                : `{\n  "rating": 8,\n  "verdict": "productive",\n  "explanation": "Great job focusing on your materials! You spent the majority of your time reading documents, which is excellent active learning. The short YouTube session was likely helpful for educational videos.",\n  "tips": ["Keep up the great active study focus!", "Try to ensure YouTube doesn't distract you for too long.", "You are doing great!"],\n  "categorization": {\n    "productive": ["PDF Reader"],\n    "neutral": ["YouTube"],\n    "distracting": []\n  }\n}`;
-
-            const completion = await engine.chat.completions.create({
-                messages: [
-                    { role: "system", content: "You are a kind but helpful productivity coach. You strictly follow JSON format and instructions." },
-                    { role: "user", content: "Please read the instructions and evaluate this example student:\n\n" + exampleUser },
-                    { role: "assistant", content: exampleAssistant },
-                    { role: "user", content: prompt }
-                ],
-                temperature: 0.3,
-            });
-
-            const responseText = completion.choices[0]?.message?.content || "";
-            const jsonString = responseText.replace(/```json\n?|\n?```/g, '').trim();
-
-            const result = JSON.parse(jsonString);
-
-            // Sanitize rating: force to a number between 1-10
-            let parsedRating = typeof result.rating === 'number'
-                ? result.rating
-                : parseInt(result.rating, 10);
-            if (isNaN(parsedRating) || parsedRating < 1 || parsedRating > 10) {
-                parsedRating = 5; // Safe fallback
-            }
-
-            // Sanitize verdict: only allow valid values
-            const validVerdicts = ['productive', 'neutral', 'unproductive'];
-            const parsedVerdict = validVerdicts.includes(result.verdict?.toLowerCase())
-                ? result.verdict.toLowerCase() as 'productive' | 'neutral' | 'unproductive'
-                : parsedRating >= 6 ? 'productive' : parsedRating >= 4 ? 'neutral' : 'unproductive';
-
-            const analysisResult = {
-                rating: parsedRating,
-                verdict: parsedVerdict,
-                explanation: result.explanation || "Analysis complete.",
-                tips: result.tips || [],
-                categorization: result.categorization || { productive: [], neutral: [], distracting: [] }
-            };
-
-            setAnalysis(analysisResult);
-            addRating(analysisResult);
-
-            // Check for confetti condition (>= 8)
-            if (typeof analysisResult.rating === 'number' && analysisResult.rating >= 6) {
+            if (typeof result.rating === 'number' && result.rating >= 6) {
                 setTimeout(() => triggerConfetti(), 500);
             }
-
-        } catch (error) {
-            setAnalysis({
-                rating: 5,
-                verdict: 'neutral',
-                explanation: "Error analyzing productivity. Please ensure the AI model is loaded and try again.",
-                tips: ["Try again later."],
-                categorization: { productive: [], neutral: [], distracting: [] }
-            });
+        } catch (err: any) {
+            setError(err?.message || "Error analyzing productivity.");
         } finally {
             setAnalyzing(false);
         }
@@ -277,127 +150,168 @@ Goal: \n${goalsText}\n\n${routineSummaryText ? `Calendar Schedule & Routine Adhe
         }
     };
 
-    // Check total usage time (3 minutes = 180000ms)
-    // We check this on render to disable the button
-    const totalDuration = activities.reduce((sum, act) => sum + (act.duration || 0), 0);
-    const isEnoughData = totalDuration >= 180000;
+    const hasData = activities && activities.length > 0;
 
     return (
         <div className="mt-6 space-y-6">
             {effectiveGoals.length > 0 ? (
-                <>
-                    {/* Today's Planned Target Schedule Summary */}
-                    <div
-                        className="rounded-2xl p-4 md:p-5 border transition-all animate-fade-in"
-                        style={{
-                            background: isDark ? 'rgba(30, 41, 59, 0.35)' : 'rgba(241, 245, 249, 0.7)',
-                            borderColor: isDark ? 'rgba(99, 102, 241, 0.25)' : 'rgba(99, 102, 241, 0.2)',
-                        }}
-                    >
-                        <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-2.5">
-                                <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400">
-                                    <Calendar size={16} />
-                                </div>
-                                <div>
-                                    <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                                        Today's Target Schedule ({effectiveGoals.length} {effectiveGoals.length === 1 ? 'task' : 'tasks'})
-                                    </h4>
-                                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                                        AI evaluation measures your tracked activity against this schedule
-                                    </p>
-                                </div>
+                /* Today's Planned Target Schedule Summary */
+                <div
+                    className="rounded-2xl p-4 md:p-5 border transition-all animate-fade-in"
+                    style={{
+                        background: isDark ? 'rgba(30, 41, 59, 0.35)' : 'rgba(241, 245, 249, 0.7)',
+                        borderColor: isDark ? 'rgba(99, 102, 241, 0.25)' : 'rgba(99, 102, 241, 0.2)',
+                    }}
+                >
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2.5">
+                            <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400">
+                                <Calendar size={16} />
                             </div>
-                            {onNavigate && (
-                                <button
-                                    type="button"
-                                    onClick={() => onNavigate('routine')}
-                                    className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
-                                >
-                                    <span>Edit Schedule</span>
-                                    <ArrowRight size={12} />
-                                </button>
-                            )}
-                        </div>
-
-                        <div className="flex flex-wrap gap-2 pt-1">
-                            {todayCalendarItems.length > 0 ? (
-                                todayCalendarItems.map((item, i) => (
-                                    <div
-                                        key={item.id || i}
-                                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium"
-                                        style={{
-                                            background: isDark ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                                            borderColor: item.completed ? 'rgba(34, 197, 94, 0.4)' : 'var(--border-secondary)',
-                                        }}
-                                    >
-                                        <span className={`w-2 h-2 rounded-full shrink-0 ${item.completed ? 'bg-green-500' : 'bg-indigo-400'}`} />
-                                        <span style={{ color: 'var(--text-primary)' }}>{item.title}</span>
-                                        <span className="text-[10px] text-slate-400 font-mono">({item.durationMinutes}m)</span>
-                                    </div>
-                                ))
-                            ) : (
-                                effectiveGoals.map((g, i) => (
-                                    <div
-                                        key={i}
-                                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium"
-                                        style={{
-                                            background: isDark ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                                            borderColor: 'var(--border-secondary)',
-                                        }}
-                                    >
-                                        <span className="w-2 h-2 rounded-full shrink-0 bg-indigo-400" />
-                                        <span style={{ color: 'var(--text-primary)' }}>{g}</span>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="relative group">
-                        <button
-                            onClick={analyzeProductivity}
-                            disabled={analyzing || !engine || activities.length === 0 || !isEnoughData}
-                            title={!isEnoughData ? "Please enable monitoring and use the app for at least 3 minutes to unlock analysis" : undefined}
-                            className="w-full px-6 py-4 rounded-2xl font-bold transition-all duration-300 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98]"
-                            style={{
-                                background: 'linear-gradient(135deg, #6366f1, #8b5cf6, #6366f1)',
-                                backgroundSize: '200% 200%',
-                                color: '#fff',
-                                boxShadow: analyzing || !isEnoughData ? 'none' : '0 8px 30px rgba(99,102,241,0.4)',
-                                animation: !analyzing && isEnoughData ? 'gradientShift 3s ease infinite' : undefined,
-                                filter: !isEnoughData ? 'grayscale(1)' : 'none',
-                            }}
-                        >
-                            {analyzing ? (
-                                <>
-                                    <Loader2 size={24} className="animate-spin" />
-                                    Analyzing Your Day...
-                                </>
-                            ) : (
-                                <>
-                                    <Brain size={24} />
-                                    Generate AI Report
-                                </>
-                            )}
-                        </button>
-
-                        {!isEnoughData && (
-                            <div className="absolute top-full left-0 right-0 mt-2 text-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20">
-                                <span
-                                    className="text-xs font-medium px-3.5 py-1.5 rounded-full inline-block shadow-lg"
-                                    style={{
-                                        background: isDark ? 'rgba(30, 41, 59, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-                                        color: isDark ? '#cbd5e1' : '#475569',
-                                        border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.1)',
-                                        backdropFilter: 'blur(8px)',
-                                    }}
-                                >
-                                    Please enable monitoring and use the app for at least 3 minutes to unlock analysis
-                                </span>
+                            <div>
+                                <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+                                    Today's Target Schedule ({effectiveGoals.length} {effectiveGoals.length === 1 ? 'task' : 'tasks'})
+                                </h4>
+                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                                    AI evaluation measures your tracked activity against this schedule
+                                </p>
                             </div>
+                        </div>
+                        {onNavigate && (
+                            <button
+                                type="button"
+                                onClick={() => onNavigate('routine')}
+                                className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
+                            >
+                                <span>Edit Schedule</span>
+                                <ArrowRight size={12} />
+                            </button>
                         )}
                     </div>
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                        {todayCalendarItems.length > 0 ? (
+                            todayCalendarItems.map((item, i) => (
+                                <div
+                                    key={item.id || i}
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium"
+                                    style={{
+                                        background: isDark ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                                        borderColor: item.completed ? 'rgba(34, 197, 94, 0.4)' : 'var(--border-secondary)',
+                                    }}
+                                >
+                                    <span className={`w-2 h-2 rounded-full shrink-0 ${item.completed ? 'bg-green-500' : 'bg-indigo-400'}`} />
+                                    <span style={{ color: 'var(--text-primary)' }}>{item.title}</span>
+                                    <span className="text-[10px] text-slate-400 font-mono">({item.durationMinutes}m)</span>
+                                </div>
+                            ))
+                        ) : (
+                            effectiveGoals.map((g, i) => (
+                                <div
+                                    key={i}
+                                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium"
+                                    style={{
+                                        background: isDark ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
+                                        borderColor: 'var(--border-secondary)',
+                                    }}
+                                >
+                                    <span className="w-2 h-2 rounded-full shrink-0 bg-indigo-400" />
+                                    <span style={{ color: 'var(--text-primary)' }}>{g}</span>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+            ) : (
+                <div
+                    className="rounded-2xl p-4 border flex items-center justify-between gap-4 animate-fade-in"
+                    style={{
+                        background: isDark ? 'rgba(30, 41, 59, 0.3)' : 'rgba(241, 245, 249, 0.6)',
+                        borderColor: isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.15)',
+                    }}
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400 shrink-0">
+                            <Calendar size={16} />
+                        </div>
+                        <div>
+                            <h4 className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
+                                No Schedule Planned for Today
+                            </h4>
+                            <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                                AI will evaluate activity against standard productivity categories. Add tasks in Routine Calendar for targeted adherence scoring.
+                            </p>
+                        </div>
+                    </div>
+                    {onNavigate && (
+                        <button
+                            type="button"
+                            onClick={() => onNavigate('routine')}
+                            className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+                        >
+                            <span>Open Calendar</span>
+                            <ArrowRight size={12} />
+                        </button>
+                    )}
+                </div>
+            )}
+
+            <div className="relative group">
+                <button
+                    onClick={analyzeProductivity}
+                    disabled={analyzing || !hasData}
+                    title={!hasData ? "Please enable monitoring to record active application data" : undefined}
+                    className="w-full px-6 py-4 rounded-2xl font-bold transition-all duration-300 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
+                    style={{
+                        background: 'linear-gradient(135deg, #6366f1, #8b5cf6, #6366f1)',
+                        backgroundSize: '200% 200%',
+                        color: '#fff',
+                        boxShadow: analyzing || !hasData ? 'none' : '0 8px 30px rgba(99,102,241,0.4)',
+                        animation: !analyzing && hasData ? 'gradientShift 3s ease infinite' : undefined,
+                    }}
+                >
+                    {analyzing ? (
+                        <>
+                            <Loader2 size={24} className="animate-spin" />
+                            <span>Analyzing Your Day...</span>
+                        </>
+                    ) : (
+                        <>
+                            <Brain size={24} />
+                            <span>Generate AI Report</span>
+                        </>
+                    )}
+                </button>
+
+                <div className="flex items-center justify-center gap-2 mt-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                    {engine ? (
+                        <span className="flex items-center gap-1 text-emerald-400">
+                            <Cpu size={12} />
+                            <span>Using WebLLM On-Device Engine</span>
+                        </span>
+                    ) : (
+                        <span className="opacity-70">
+                            Using Fast AI Heuristic Engine · Click Activate AI in header for deep LLM reasoning
+                        </span>
+                    )}
+                </div>
+
+                {!hasData && (
+                    <div className="absolute top-full left-0 right-0 mt-2 text-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20">
+                        <span
+                            className="text-xs font-medium px-3.5 py-1.5 rounded-full inline-block shadow-lg"
+                            style={{
+                                background: isDark ? 'rgba(30, 41, 59, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                                color: isDark ? '#cbd5e1' : '#475569',
+                                border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.1)',
+                                backdropFilter: 'blur(8px)',
+                            }}
+                        >
+                            Please start monitoring from the Dashboard to record activity before analyzing
+                        </span>
+                    </div>
+                )}
+            </div>
 
 
 
@@ -460,45 +374,86 @@ Goal: \n${goalsText}\n\n${routineSummaryText ? `Calendar Schedule & Routine Adhe
                                 )}
 
                                 {/* Share Button */}
-                                <ShareCard analysis={analysis} goals={effectiveGoals} />
+                                <ShareCard
+                                    analysis={analysis}
+                                    goals={effectiveGoals}
+                                    modelName={analysis.modelName || resolveModelDisplayName(engine?.selectedModel || localStorage.getItem('selectedModelId'))}
+                                />
                             </div>
                         </div>
 
                         {/* Explanation */}
                         <div className="mb-8">
                             <p className="text-lg leading-relaxed font-medium" style={{ color: 'var(--text-primary)' }}>
-                                "{analysis.explanation}"
+                                "{formatDomainOnly(analysis.explanation)}"
                             </p>
                         </div>
 
                         {/* Categorization Grid */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
                             {[
-                                { title: 'Productive', items: analysis.categorization.productive, icon: CheckCircle2, color: '#4ade80', borderColor: 'rgba(34,197,94,0.2)' },
-                                { title: 'Distracting', items: analysis.categorization.distracting, icon: XCircle, color: '#f87171', borderColor: 'rgba(239,68,68,0.2)' },
-                                { title: 'Neutral', items: analysis.categorization.neutral, icon: Minus, color: '#fbbf24', borderColor: 'rgba(234,179,8,0.2)' },
+                                { title: 'Productive', key: 'productive' as const, items: sanitizeCategoryList(analysis.categorization.productive), icon: CheckCircle2, color: '#4ade80', borderColor: 'rgba(34,197,94,0.2)' },
+                                { title: 'Distracting', key: 'distracting' as const, items: sanitizeCategoryList(analysis.categorization.distracting), icon: XCircle, color: '#f87171', borderColor: 'rgba(239,68,68,0.2)' },
+                                { title: 'Neutral', key: 'neutral' as const, items: sanitizeCategoryList(analysis.categorization.neutral), icon: Minus, color: '#fbbf24', borderColor: 'rgba(234,179,8,0.2)' },
                             ].map((cat, i) => (
                                 <div
                                     key={i}
-                                    className="rounded-xl p-4"
+                                    className="rounded-xl p-4 flex flex-col justify-between"
                                     style={{
                                         background: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.5)',
                                         border: `1px solid ${cat.borderColor}`,
                                     }}
                                 >
-                                    <h5 className="text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-2" style={{ color: cat.color }}>
-                                        <cat.icon size={14} /> {cat.title}
-                                    </h5>
-                                    <ul className="space-y-1">
-                                        {cat.items.length > 0 ? (
-                                            cat.items.map((app: string, j: number) => (
-                                                <li key={j} className="text-sm truncate" style={{ color: 'var(--text-secondary)' }}>• {app}</li>
-                                            ))
-                                        ) : <li className="text-sm italic" style={{ color: 'var(--text-muted)' }}>None detected</li>}
-                                    </ul>
+                                    <div>
+                                        <div className="flex items-center justify-between mb-3">
+                                            <h5 className="text-xs font-bold uppercase tracking-wider flex items-center gap-2" style={{ color: cat.color }}>
+                                                <cat.icon size={14} /> {cat.title} ({cat.items.length})
+                                            </h5>
+                                            {cat.items.length > 5 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setActivitiesModalCategory(cat.key)}
+                                                    className="text-[11px] font-semibold hover:underline cursor-pointer opacity-80 hover:opacity-100"
+                                                    style={{ color: cat.color }}
+                                                >
+                                                    View all
+                                                </button>
+                                            )}
+                                        </div>
+                                        <ul className="space-y-1.5">
+                                            {cat.items.length > 0 ? (
+                                                cat.items.slice(0, 5).map((app: string, j: number) => (
+                                                    <li key={j} className="text-sm truncate" title={app} style={{ color: 'var(--text-secondary)' }}>• {app}</li>
+                                                ))
+                                            ) : <li className="text-sm italic" style={{ color: 'var(--text-muted)' }}>None detected</li>}
+                                        </ul>
+                                    </div>
+
+                                    {cat.items.length > 5 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setActivitiesModalCategory(cat.key)}
+                                            className="mt-3 pt-2 text-xs font-semibold hover:underline flex items-center justify-between cursor-pointer border-t transition-all opacity-85 hover:opacity-100 w-full"
+                                            style={{
+                                                color: cat.color,
+                                                borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                                            }}
+                                        >
+                                            <span>+{cat.items.length - 5} more</span>
+                                            <ArrowRight size={12} />
+                                        </button>
+                                    )}
                                 </div>
                             ))}
                         </div>
+
+                        {/* Modal to view all tracked activities with scrollbar */}
+                        <TrackedActivitiesModal
+                            isOpen={activitiesModalCategory !== null}
+                            onClose={() => setActivitiesModalCategory(null)}
+                            categorization={analysis.categorization}
+                            initialCategory={activitiesModalCategory || 'all'}
+                        />
 
                         {/* Tips */}
                         <div
@@ -516,7 +471,7 @@ Goal: \n${goalsText}\n\n${routineSummaryText ? `Calendar Schedule & Routine Adhe
                                 {analysis.tips.map((tip, i) => (
                                     <li key={i} className="text-sm flex items-start gap-2" style={{ color: isDark ? '#dbeafe' : '#1e40af' }}>
                                         <span className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--accent)' }} />
-                                        {tip}
+                                        {formatDomainOnly(tip)}
                                     </li>
                                 ))}
                             </ul>
@@ -524,38 +479,7 @@ Goal: \n${goalsText}\n\n${routineSummaryText ? `Calendar Schedule & Routine Adhe
                     </div>
                 );
             })()}
-                </>
-            ) : (
-                <div 
-                    className="rounded-2xl p-8 text-center animate-fade-in space-y-4"
-                    style={{
-                        background: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.5)',
-                        border: '1px solid var(--border-card)',
-                    }}
-                >
-                    <div className="w-12 h-12 rounded-2xl mx-auto flex items-center justify-center bg-indigo-500/15 text-indigo-400">
-                        <Calendar size={24} />
-                    </div>
-                    <div>
-                        <h3 className="text-lg font-bold mb-1" style={{ color: 'var(--text-primary)' }}>
-                            No Schedule Planned for Today
-                        </h3>
-                        <p className="text-sm max-w-md mx-auto" style={{ color: 'var(--text-secondary)' }}>
-                            Plan tasks in your Routine Calendar to unlock today's AI productivity analysis and scoring.
-                        </p>
-                    </div>
-                    {onNavigate && (
-                        <button
-                            type="button"
-                            onClick={() => onNavigate('routine')}
-                            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs shadow-md shadow-[#5b5fc7]/20 transition-all inline-flex items-center gap-2 cursor-pointer"
-                        >
-                            <Calendar size={14} />
-                            <span>Open Routine Calendar</span>
-                        </button>
-                    )}
-                </div>
-            )}
+
 
             {/* Focus Sessions Summary (grouped by day) */}
             {focusSessions.length > 0 && (() => {

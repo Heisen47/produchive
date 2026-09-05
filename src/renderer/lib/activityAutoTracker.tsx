@@ -45,6 +45,22 @@ export const cleanWindowTitle = (title: string, appName: string): string => {
     const regex = new RegExp(`\\s*[-—|]\\s*${appName}.*$`, 'i');
     clean = clean.replace(regex, '').trim();
 
+    // Strip query string parameters and hashes
+    if (clean.includes('?')) {
+        clean = clean.split('?')[0].trim();
+    }
+    if (clean.includes('#')) {
+        clean = clean.split('#')[0].trim();
+    }
+
+    // Extract domain if title is a URL or domain path
+    const httpMatch = clean.match(/https?:\/\/([^\s/?#:]+)/i);
+    if (httpMatch) {
+        clean = httpMatch[1].replace(/^www\./i, '');
+    } else if (/^[a-zA-Z0-9-]+\.[a-zA-Z]{2,}(?:\/|$)/.test(clean)) {
+        clean = clean.split('/')[0].replace(/^www\./i, '');
+    }
+
     // Limit length
     if (clean.length > 45) {
         clean = clean.substring(0, 42) + '...';
@@ -62,6 +78,8 @@ export const inferActivityDetails = (appName: string, rawTitle: string): Inferre
 
     // 1. Development & Engineering (Strictly IDEs, Dev Terminals, and Code files)
     const isIdeOrTerminal =
+        name === 'code' ||
+        name.startsWith('code.') ||
         name.includes('visual studio') ||
         name.includes('vscode') ||
         name.includes('cursor') ||
@@ -234,10 +252,11 @@ export const inferActivityDetails = (appName: string, rawTitle: string): Inferre
                 subtitle: `Entertainment / browsing in ${appName}`,
                 confidence: 86,
             };
-        } else if (title.includes('leetcode')) {
+        } else if (title.includes('leetcode') || title.includes('fastprep') || title.includes('hackerrank') || title.includes('coding interview') || title.includes('sliding window') || title.includes('rate limiter')) {
+            const platform = title.includes('fastprep') ? 'FastPrep' : title.includes('hackerrank') ? 'HackerRank' : 'LeetCode';
             return {
                 category: 'development',
-                title: 'Algorithm Practice • LeetCode',
+                title: `Algorithm Practice • ${platform}`,
                 subtitle: `Coding challenges in ${appName}`,
                 confidence: 95,
             };

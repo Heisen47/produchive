@@ -3,6 +3,7 @@ import { Calendar, ChevronDown, ChevronUp, Loader2, AlertCircle, FileText, Award
 import { generateCompletion } from '../lib/ai';
 import { useTheme } from './ThemeProvider';
 import { ShareCard } from './ShareCard';
+import { formatDomainOnly } from '../lib/productivityAnalysisService';
 import { reportService, experimentService, websocketService } from '../lib/services';
 import { useStore } from '../lib/store';
 
@@ -18,6 +19,7 @@ interface ProductivityAnalysis {
     };
     timestamp?: number;
     id?: string;
+    modelName?: string;
 }
 
 interface HistoricalReportsProps {
@@ -329,6 +331,7 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
                                         analysis={aggregatedReport}
                                         goals={dateGoals}
                                         dateLabel={formatDate(selectedDate)}
+                                        modelName={aggregatedReport.modelName}
                                     />
                                 </div>
                             </div>
@@ -341,7 +344,7 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
 
                             {/* Explanation */}
                             <p className="leading-relaxed mb-6" style={{ color: 'var(--text-secondary)' }}>
-                                "{aggregatedReport.explanation}"
+                                "{formatDomainOnly(aggregatedReport.explanation)}"
                             </p>
 
                             {/* Tips */}
@@ -358,7 +361,7 @@ export const HistoricalReports: React.FC<HistoricalReportsProps> = ({ engine }) 
                                         {aggregatedReport.tips.map((tip, i) => (
                                             <li key={i} className="text-sm flex items-start gap-2" style={{ color: isDark ? '#dbeafe' : '#1e40af' }}>
                                                 <span className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--accent)' }} />
-                                                {tip}
+                                                {formatDomainOnly(tip)}
                                             </li>
                                         ))}
                                     </ul>

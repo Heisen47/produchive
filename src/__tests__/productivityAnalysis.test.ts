@@ -182,10 +182,10 @@ describe('productivityAnalysisService', () => {
     });
 
     it('sanitizes full URLs and OAuth handlers down to domain names only', () => {
-        const fullUrlWithParams = 'GitHub: fastprep.io/__/auth/handler?apiKey=AIzaSyCxpzLLpIdFvU8PBHUZaYysnxhWPX-uiSg&appName=%5BDEFAULT%5D&authType=signInViaPopup&redirectUrl=https%3A%2F%2Ffastprep.io%2Fpurchase-servers&v=12.12.0&eventId=4076297685&providerId=github.com';
+        const fullUrlWithParams = 'GitHub: fastprep.io/__/auth/handler?apiKey=AIzaSyMOCK_DUMMY_REDACTED_TEST_KEY_123&appName=%5BDEFAULT%5D&authType=signInViaPopup&redirectUrl=https%3A%2F%2Ffastprep.io%2Fpurchase-servers&v=12.12.0&eventId=4076297685&providerId=github.com';
         expect(formatDomainOnly(fullUrlWithParams)).toBe('fastprep.io');
 
-        const oauthCallback = 'fastprep.io/__/auth/handler?code=b65c004609c8f82c2ac4&iss=https%3A%2F%2Fgithub.com%2Flogin';
+        const oauthCallback = 'fastprep.io/__/auth/handler?code=MOCK_OAUTH_CODE_123&iss=https%3A%2F%2Fgithub.com%2Flogin';
         expect(formatDomainOnly(oauthCallback)).toBe('fastprep.io');
 
         const httpsUrl = 'https://fastprep.io/study/problems/rate-limiter';
@@ -199,7 +199,7 @@ describe('productivityAnalysisService', () => {
     });
 
     it('sanitizes embedded URLs in explanation paragraphs and deduplicates category chips', () => {
-        const rawExplanation = 'Strong focus today! You made high progress in LeetCode: leetcode, GitHub: fastprep.io/__/auth/handler?apiKey=AIzaSyCxpzLLpIdFvU8PBHUZaYysnxhWPX-uiSg&appName=%5BDEFAULT%5D&authType=signInViaPopup&redirectUrl=https%3A%2F%2Ffastprep.io%2Fpurchase-servers&v=12.12.0&eventId=4076297685&providerId=github.com, GitHub: fastprep.io/__/auth/handler?code=b65c004609c8f82c2ac4&iss=https%3A%2F%2Fgithub.com%2Flogin with solid objective alignment.';
+        const rawExplanation = 'Strong focus today! You made high progress in LeetCode: leetcode, GitHub: fastprep.io/__/auth/handler?apiKey=AIzaSyMOCK_DUMMY_REDACTED_TEST_KEY_123&appName=%5BDEFAULT%5D&authType=signInViaPopup&redirectUrl=https%3A%2F%2Ffastprep.io%2Fpurchase-servers&v=12.12.0&eventId=4076297685&providerId=github.com, GitHub: fastprep.io/__/auth/handler?code=MOCK_OAUTH_CODE_123&iss=https%3A%2F%2Fgithub.com%2Flogin with solid objective alignment.';
         const cleaned = formatDomainOnly(rawExplanation);
 
         expect(cleaned).not.toContain('apiKey=');
@@ -238,7 +238,7 @@ describe('productivityAnalysisService', () => {
     it('generates report with clean domains and without URL leakage when analyzing OAuth tabs', async () => {
         const activities = [
             {
-                title: 'fastprep.io/__/auth/handler?apiKey=AIzaSyCxpzLLpIdFvU8PBHUZaYysnxhWPX-uiSg&appName=%5BDEFAULT%5D&authType=signInViaPopup&redirectUrl=https%3A%2F%2Ffastprep.io%2Fpurchase-servers&v=12.12.0&eventId=4076297685&providerId=github.com - Google Chrome',
+                title: 'fastprep.io/__/auth/handler?apiKey=AIzaSyMOCK_DUMMY_REDACTED_TEST_KEY_123&appName=%5BDEFAULT%5D&authType=signInViaPopup&redirectUrl=https%3A%2F%2Ffastprep.io%2Fpurchase-servers&v=12.12.0&eventId=4076297685&providerId=github.com - Google Chrome',
                 owner: { name: 'chrome.exe' },
                 duration: 15 * 60 * 1000,
             },

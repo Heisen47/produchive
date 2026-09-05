@@ -2,37 +2,51 @@
 
 ---
 
-## Produchive v3.0.2
+## Produchive v3.0.3
 
-A landmark release introducing the Smart Routine Calendar, Automatic Screen Activity Detection, On-Device AI Distraction Nudges, and Study-Triggered Pomodoro & Spaced Revision.
+A major feature release introducing Double-Click Calendar Scheduling, Direct Time Planning, AI Insights & Focus Telemetry, Automatic Screen Activity Detection, On-Device AI Distraction Nudges, and Study-Triggered Spaced Revision.
 
-### Smart Routine and Calendar Scheduler
-- **7-Day Master Visual Calendar**: Plan your week with visual timeline slots, color-coded categories, and day-by-day circadian rhythm budgeting (Deep Work, Meetings, Meals, Breaks, Sleep).
-- **Intelligent Auto-Scheduler**: Algorithm-driven weekly planning (`generateWeeklySmartSchedule`) with automatic workload balancing and sequential rescheduling.
-- **Bidirectional Task & Routine Sync**: Toggling task completion in the task list or goals immediately updates matching calendar blocks and synchronizes with LowDB persistence.
+### Interactive Calendar & Direct Time Planning
+- **Double-Click Quick Create**: Double-click anywhere on empty calendar slots to schedule focus sessions, routines, and breaks with instant 15-minute grid alignment.
+- **Direct Time Planning**: Create, edit, and reorganize calendar routines without requiring the automated algorithmic scheduler.
+- **Bidirectional Task Synchronization**: Toggling task completion in the task list or goals immediately synchronizes matching calendar blocks, with automatic task backlog integration.
 
-### Automatic Activity Tracking and Calendar Event Logging
-- **Real-Time Activity Auto-Tracking**: Tracks foreground window usage and automatically creates completed calendar blocks with exact session durations.
-- **Multi-App Overflow Grouping**: When switching between multiple apps within a time block, cleanly groups items with a `+N apps detected` collapse button and full breakdown modal.
-- **Developer Accuracy Feedback**: In-app feedback ratings stored to database, with direct integration to Google Forms for continuous accuracy improvement.
+### AI Insights & Productivity Telemetry
+- **Visual AI Insights View**: Comprehensive analytics dashboard showing focus score trends, attention fragmentation, and category breakdowns.
+- **Distraction Analysis**: Real-time evaluation of foreground app usage against active goals and routines.
 
-### On-Device AI Distraction Judge and Native Nudges
-- **Local Model Judge**: Checks if a local LLM is downloaded in cache. Evaluates active windows against active goals and scheduled routine blocks.
-- **Native Desktop Notifications & Sonner Alerts**: Dispatches gentle, polite native desktop notifications when you stay on non-goal apps (e.g. YouTube, social media) for $\ge 60$ seconds.
-- **Spam Protection**: 10-minute cooldown timer ensures notifications remain helpful and never intrusive.
+### Automatic Screen Activity Detection & Multi-App Grouping
+- **Continuous Foreground Tracking**: Tracks window activity in real-time and logs focus blocks with precise session durations.
+- **Intelligent Activity Categorization**: Automatically categorizes active apps into Development, Design, Meeting, Writing, Research, and Media breaks.
+- **Multi-App Overflow Grouping**: Cleanly aggregates rapid context switches within a time slot with a `+N apps detected` collapse button and breakdown modal.
+- **In-App Accuracy Feedback**: In-app rating dialog to submit classification feedback to the developer database for continuous model refinement.
 
-### Study-Only Pomodoro and Spaced Revision Assistant
-- **Study-Triggered Pomodoro**: 25-minute focus / 5-minute break cycles trigger *strictly* while actively studying (in 3D Focus Rooms, study apps, reading PDFs/notes).
-- **Spaced Repetition Topic Check-In**: Gentle reminders for topics unstudied for 4–5 days (e.g., *Photosynthesis*), capped at max 1 per day.
-- **3-Action Interactive Response**:
-  - `Yes, Revise`: Slots a 25-min revision block into the calendar and updates study timestamp.
+### On-Device AI Distraction Judge & Native Desktop Nudges
+- **Local Model Judge**: Evaluates active windows using local WebGPU LLMs against your active goals and scheduled routines.
+- **Polite Native Desktop Notifications**: Alerts when off-task for $\ge 60$ seconds with built-in 10-minute cooldown protection to avoid spam.
+
+### Study-Only Pomodoro & Spaced Revision Assistant
+- **Study-Triggered Pomodoro**: 25/5 Pomodoro focus and break cycles trigger strictly while in study environments or study apps.
+- **Spaced Repetition Topic Check-In**: Automatic reminders for topics unstudied for 4–5 days with 3 interactive actions:
+  - `Yes, Revise`: Slots a 25-minute revision block into the calendar and updates study history.
   - `Not Today`: Snoozes reminder for 24 hours.
-  - `Never give me reminder for this`: Permanently mutes reminders for that specific topic.
-- **5-Minute Ahead Activity Warnings**: Scans routines every 30 seconds and delivers proactive reminders 5 minutes before scheduled calendar blocks begin.
+  - `Never give me reminder for this`: Permanently mutes reminders for the topic.
+- **5-Minute Advance Activity Alerts**: Scans schedule and delivers proactive desktop reminders 5 minutes before scheduled calendar blocks begin.
 
 ### 3D Virtual Focus Rooms (Three.js)
-- **Immersive Sanctuaries**: Choose between Classroom, Café, and Library environments with ambient audio.
-- **Study Session Auto-Logging**: Completed study sessions ($\ge 30$s) automatically log to your master routine calendar with exact duration and timestamp.
+- **Immersive Sanctuaries**: Classroom, Café, and Library environments with ambient soundscapes and offline NPC companions.
+- **Session Auto-Logging**: Completed study sessions ($\ge 30$s) automatically log to your master routine calendar.
+
+---
+
+## Produchive v3.0.2
+
+Initial routine planning foundation, smart schedule auto-balancing, and calendar themes.
+
+### Smart Routine Foundation
+- **7-Day Master Visual Calendar**: Visual timeline slots, color-coded categories, and day-by-day circadian rhythm budgeting.
+- **Intelligent Auto-Scheduler**: Algorithm-driven weekly planning (`generateWeeklySmartSchedule`) with workload auto-balancing.
+- **Calendar Themes**: Added Totoro bus stop theme and customizable background styling.
 
 ---
 

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
     Clock,
     Activity as ActivityIcon,
@@ -14,12 +14,16 @@ import {
     Target,
     Layers,
     ChevronDown,
-    ChevronUp
+    ChevronUp,
+    Loader2
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { analyticsService, websocketService } from '../lib/services';
 import { submitActivityFeedback, inferActivityDetails } from '../lib/activityAutoTracker';
+import { generateProductivityAnalysis, ProductivityAnalysis } from '../lib/productivityAnalysisService';
+import { AIAnalysisModal } from './AIAnalysisModal';
 
 import { TotoroBg } from './TotoroBg';
 import { NoFaceBg } from './NoFaceBg';
@@ -143,9 +147,116 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0, onCli
     );
 };
 
-export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
-    const { activities, isMonitoring, setMonitoring, stats: userStats, analytics, setAnalytics, routines, toggleRoutineComplete, ratings } = useStore();
+interface DashboardProps {
+    onNavigate?: (view: string) => void;
+    engine?: any;
+    onStartEngine?: (modelId?: string) => Promise<any>;
+    isEngineLoading?: boolean;
+    engineProgress?: { text: string; progress?: number };
+    downloadedModelName?: string;
+}
+
+export const Dashboard = ({
+    onNavigate,
+    engine,
+    onStartEngine,
+    isEngineLoading,
+    engineProgress,
+    downloadedModelName,
+}: DashboardProps) => {
+    const { activities, isMonitoring, setMonitoring, stats: userStats, analytics, setAnalytics, routines, toggleRoutineComplete, ratings, addRating, goals, selectedRole, customPrompt } = useStore();
     const { isDark } = useTheme();
+
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [loadingStep, setLoadingStep] = useState(1);
+    const [loadingStageText, setLoadingStageText] = useState('');
+    const [aiReport, setAiReport] = useState<ProductivityAnalysis | null>(() => {
+        if (ratings && ratings.length > 0) {
+            const latest = ratings[ratings.length - 1];
+            if (latest?.verdict && latest?.rating) return latest;
+        }
+        return null;
+    });
+    const [showAiModal, setShowAiModal] = useState(false);
+    const [focusSessions, setFocusSessions] = useState<any[]>([]);
+
+    useEffect(() => {
+        const api = (window as any).electronAPI;
+        if (api?.getFocusSessions) {
+            api.getFocusSessions().then((s: any[]) => setFocusSessions(s)).catch(() => {});
+        }
+    }, []);
+
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const handleAnalyzeWithAI = async () => {
+        if (!activities || activities.length === 0) {
+            toast.info('No activity recorded yet today. Click "Start Monitoring" to track your apps first.');
+            return;
+        }
+
+        setIsAnalyzing(true);
+        setShowAiModal(true);
+        setLoadingStep(1);
+        setLoadingStageText('Scanning active foreground windows & browser tabs...');
+
+        try {
+            await delay(600);
+            setLoadingStep(2);
+            setLoadingStageText(`Analyzing ${activities.length} activity sessions & filtering educational vs distracting tabs...`);
+
+            await delay(700);
+            setLoadingStep(3);
+
+            let activeEngine = engine;
+            if (!activeEngine && onStartEngine) {
+                setLoadingStageText(
+                    downloadedModelName
+                        ? `Starting on-device AI model (${downloadedModelName}) on WebGPU...`
+                        : 'Connecting to On-Device AI Neural Engine...'
+                );
+                try {
+                    activeEngine = await onStartEngine();
+                } catch (e) {
+                    console.warn('[Dashboard] Could not start AI engine, falling back to activity intelligence:', e);
+                }
+            } else if (activeEngine) {
+                setLoadingStageText('Connected to On-Device WebLLM Engine. Submitting tabs for judgment...');
+            } else {
+                setLoadingStageText('Applying On-Device Activity Intelligence Engine...');
+            }
+
+            await delay(600);
+            setLoadingStep(4);
+            setLoadingStageText('AI judging tab relevance against daily objectives & routine...');
+
+            const reportPromise = generateProductivityAnalysis({
+                activities,
+                routines,
+                goals,
+                selectedRole,
+                customPrompt,
+                focusSessions,
+                engine: activeEngine,
+            });
+
+            const [report] = await Promise.all([reportPromise, delay(800)]);
+
+            setLoadingStep(5);
+            setLoadingStageText('Finalizing productivity verdict & personalized coaching tips...');
+            await delay(400);
+
+            setAiReport(report);
+            addRating(report);
+            toast.success(`AI Analysis ready: ${report.rating}/10 (${report.verdict})`);
+        } catch (err) {
+            console.error('[Dashboard] AI Analysis failed:', err);
+            toast.error('Failed to run AI analysis. Please try again.');
+            setShowAiModal(false);
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
 
     const todayStr = useMemo(() => {
         const now = new Date();
@@ -748,16 +859,27 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     </div>
                     <div className="flex gap-3">
                         <button
-                            onClick={() => onNavigate && onNavigate('ai')}
-                            className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2 hover:scale-105 active:scale-95"
+                            type="button"
+                            onClick={handleAnalyzeWithAI}
+                            disabled={isAnalyzing}
+                            className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                             style={{
-                                background: 'rgba(147, 51, 234, 0.1)',
+                                background: 'rgba(147, 51, 234, 0.12)',
                                 color: '#c084fc',
-                                border: '1px solid rgba(147, 51, 234, 0.2)',
+                                border: '1px solid rgba(147, 51, 234, 0.3)',
                             }}
                         >
-                            <Zap size={16} />
-                            Analyze with AI
+                            {isAnalyzing ? (
+                                <>
+                                    <Loader2 size={16} className="animate-spin text-purple-400" />
+                                    <span>Analyzing...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <Zap size={16} />
+                                    <span>Analyze with AI</span>
+                                </>
+                            )}
                         </button>
                         <button
                             onClick={handleToggleMonitoring}
@@ -891,6 +1013,20 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     )}
                 </div>
             </div>
+
+            <AIAnalysisModal
+                analysis={aiReport}
+                isOpen={showAiModal}
+                onClose={() => {
+                    if (!isAnalyzing) setShowAiModal(false);
+                }}
+                onNavigate={onNavigate}
+                goals={todayRoutines.map((r) => r.title)}
+                isLoading={isAnalyzing}
+                loadingStep={loadingStep}
+                loadingStageText={loadingStageText}
+                engineProgressText={engineProgress?.text}
+            />
         </div>
     );
 };

@@ -14,7 +14,7 @@ import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { initEngine, parseAIErrorMessage } from './lib/ai';
+import { initEngine, parseAIErrorMessage, AVAILABLE_MODELS, hasModelInCache, AIModel } from './lib/ai';
 import { useStore } from './lib/store';
 import { apiClient } from './lib/api';
 import { syncEngine } from './lib/services';
@@ -24,7 +24,7 @@ import { aiNudgeService } from './lib/aiNudgeService';
 import { studyAssistantService } from './lib/studyAssistantService';
 import {
     Loader2,
-    Sparkles,
+    Bot,
     XCircle,
     LayoutDashboard,
     BarChart3,
@@ -243,12 +243,33 @@ const AppContent = () => {
     
     const [engine, setEngine] = useState<any>(null);
     const [modelName, setModelName] = useState<string>('');
+    const [downloadedModel, setDownloadedModel] = useState<AIModel | null>(null);
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<{ text: string; progress?: number }>({ text: '' });
     const [showModelSelector, setShowModelSelector] = useState(false);
     const [showPromptEditor, setShowPromptEditor] = useState(false);
     const loadingRef = useRef(false);
     const selectorRef = useRef<HTMLDivElement>(null);
+
+    // Detect if any supported AI model is already cached locally on the machine
+    useEffect(() => {
+        let mounted = true;
+        const checkDownloaded = async () => {
+            for (const model of AVAILABLE_MODELS) {
+                try {
+                    const cached = await hasModelInCache(model.id);
+                    if (cached && mounted) {
+                        setDownloadedModel(model);
+                        break;
+                    }
+                } catch {
+                    // Ignore cache checking errors
+                }
+            }
+        };
+        checkDownloaded();
+        return () => { mounted = false; };
+    }, [engine]);
 
     // Close selector when clicking outside
     useEffect(() => {
@@ -261,28 +282,31 @@ const AppContent = () => {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const startEngine = async () => {
+    const startEngine = async (modelIdToUse?: string) => {
         loadingRef.current = true;
         setLoading(true);
 
         try {
+            const targetModelId = modelIdToUse || selectedModelId || downloadedModel?.id || undefined;
             const result = await initEngine((progress: any) => {
                 if (!loadingRef.current) return;
                 setProgress({
                     text: progress.text || '',
                     progress: progress.progress
                 });
-            }, selectedModelId || undefined);
+            }, targetModelId);
             if (loadingRef.current) {
                 setEngine(result.engine);
                 setModelName(result.modelName);
                 aiNudgeService.setEngine(result.engine);
                 setLoading(false);
+                return result.engine;
             }
         } catch (err: any) {
             if (loadingRef.current) {
-                setError(parseAIErrorMessage(err, selectedModelId || undefined));
+                setError(parseAIErrorMessage(err, modelIdToUse || selectedModelId || undefined));
                 setLoading(false);
+                throw err;
             }
         }
     };
@@ -395,7 +419,7 @@ const AppContent = () => {
                                         border: '1px solid rgba(34, 197, 94, 0.2)',
                                     }}
                                 >
-                                    <Sparkles size={14} />
+                                    <Bot size={14} />
                                     <span className="font-medium">{modelName.split('-')[0]}</span>
                                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse ml-1" />
                                 </button>
@@ -450,17 +474,34 @@ const AppContent = () => {
                                     </div>
                                 )}
                             </div>
+                        ) : downloadedModel ? (
+                            <div className="relative" ref={selectorRef}>
+                                <button
+                                    onClick={() => startEngine(downloadedModel.id)}
+                                    className="flex items-center gap-2 text-sm px-3.5 py-1.5 rounded-xl transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                                    style={{
+                                        background: 'rgba(99, 102, 241, 0.12)',
+                                        color: '#a5b4fc',
+                                        border: '1px solid rgba(99, 102, 241, 0.3)',
+                                    }}
+                                    title={`Locally cached model: ${downloadedModel.name}. Click to load into WebGPU.`}
+                                >
+                                    <Bot size={14} className="text-indigo-400" />
+                                    <span className="font-semibold">{downloadedModel.name}</span>
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-mono">Ready</span>
+                                </button>
+                            </div>
                         ) : (
                             <button
-                                onClick={startEngine}
-                                className="text-sm px-4 py-2 rounded-xl font-medium transition-all duration-300 flex items-center gap-2 glow-ring hover:scale-105"
+                                onClick={() => startEngine()}
+                                className="text-sm px-4 py-2 rounded-xl font-medium transition-all duration-300 flex items-center gap-2 glow-ring hover:scale-105 cursor-pointer"
                                 style={{
                                     background: 'var(--bg-elevated)',
                                     color: 'var(--text-primary)',
                                     border: '1px solid var(--border-primary)',
                                 }}
                             >
-                                <Sparkles size={16} style={{ color: 'var(--accent)' }} />
+                                <Bot size={16} style={{ color: 'var(--accent)' }} />
                                 Activate AI
                             </button>
                         )}
@@ -515,7 +556,16 @@ const AppContent = () => {
 
                         {/* Views with animation */}
                         <div key={viewKey} className="animate-fade-in-up">
-                            {currentView === 'dashboard' && <Dashboard onNavigate={handleViewChange} />}
+                            {currentView === 'dashboard' && (
+                                <Dashboard
+                                    onNavigate={handleViewChange}
+                                    engine={engine}
+                                    onStartEngine={startEngine}
+                                    isEngineLoading={loading}
+                                    engineProgress={progress}
+                                    downloadedModelName={downloadedModel?.name}
+                                />
+                            )}
 
                             {currentView === 'analytics' && <UsageCharts />}
 

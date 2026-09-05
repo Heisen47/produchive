@@ -6,7 +6,8 @@ import {
     autoBalanceSchedule,
     getMindsetCardData,
     calculateDayEventCollisions,
-    recalculateSequentialSchedule
+    recalculateSequentialSchedule,
+    isOccupationBlock
 } from '../renderer/lib/smartScheduler';
 
 describe('smartScheduler - Forward Planning & Auto-Balancing', () => {
@@ -358,4 +359,171 @@ describe('smartScheduler - Forward Planning & Auto-Balancing', () => {
         const total = allocated.reduce((s, i) => s + i.duration, 0);
         expect(total).toBe(240);
     });
+
+    it('places Lunch strictly at midday (12:30 PM) and never at 10 PM even when 80 hours weekly schedule is selected', () => {
+        const weekDates = [
+            '2026-09-01', // Tuesday
+            '2026-09-02', // Wednesday
+            '2026-09-03', // Thursday
+            '2026-09-04', // Friday
+            '2026-09-05', // Saturday
+            '2026-09-06', // Sunday
+            '2026-09-07', // Monday
+        ];
+
+        const tasks = [
+            { title: 'Dev • produchive', category: 'development' as const, priority: 'high' as const },
+            { title: 'Leetcode & Study Practice', category: 'writing' as const, priority: 'medium' as const },
+            { title: 'explorer.exe', category: 'design' as const, priority: 'medium' as const },
+        ];
+
+        // 80 hours across 7 days (~11.4h / day)
+        const weeklySchedule = generateWeeklySmartSchedule({
+            weekDates,
+            tasks,
+            totalWeeklyHours: 80,
+            defaultStartHour: 9, // 9 AM start
+            includeLunch: true,
+            includeDinner: true,
+            includeRestBlocks: true,
+        });
+
+        expect(weeklySchedule.length).toBeGreaterThan(0);
+
+        // For every scheduled day starting at 9 AM:
+        // Lunch MUST be at 12:30 PM (startHour 12, startMinute 30) - NEVER 10 PM (22:00)
+        for (const date of weekDates) {
+            const dayItems = weeklySchedule.filter((item) => item.dateStr === date);
+            const lunchItem = dayItems.find((item) => item.title.toLowerCase().includes('lunch'));
+            expect(lunchItem).toBeDefined();
+            expect(lunchItem!.startHour).toBe(12);
+            expect(lunchItem!.startMinute).toBe(30);
+
+            // Dinner must be around 19:30 (7:30 PM), never midnight
+            const dinnerItem = dayItems.find((item) => item.title.toLowerCase().includes('dinner'));
+            expect(dinnerItem).toBeDefined();
+            expect(dinnerItem!.startHour).toBe(19);
+            expect(dinnerItem!.startMinute).toBe(30);
+
+            // No task should exceed 120 minutes per continuous block
+            for (const item of dayItems) {
+                if (item.category !== 'sleep') {
+                    expect(item.durationMinutes).toBeLessThanOrEqual(120);
+                }
+            }
+        }
+    });
+
+    it('schedules occupation blocks (job/school/college) from 9 AM to 5 PM with lunch, personal tasks after 5 PM', () => {
+        const tasks = [
+            { title: 'College classes', category: 'other' as const },
+            { title: 'Leetcode practice', category: 'development' as const },
+            { title: 'Gym workout', category: 'break' as const },
+        ];
+
+        expect(isOccupationBlock('College classes')).toBe(true);
+        expect(isOccupationBlock('Leetcode practice')).toBe(false);
+        expect(isOccupationBlock('office work')).toBe(true);
+        expect(isOccupationBlock('school homework')).toBe(true);
+
+        const schedule = generateForwardSmartSchedule({
+            tasks,
+            allottedMinutes: 600,
+            startHour: 8,
+            startMinute: 0,
+            dateStr: '2026-09-04',
+            includeLunch: true,
+            includeDinner: true,
+            includeRestBlocks: true,
+        });
+
+        expect(schedule.length).toBeGreaterThan(0);
+
+        // Occupation morning session starts at 9:00 AM
+        const morningSession = schedule.find((s) => s.title === 'College classes');
+        expect(morningSession).toBeDefined();
+        expect(morningSession!.startHour).toBe(9);
+        expect(morningSession!.startMinute).toBe(0);
+        expect(morningSession!.durationMinutes).toBe(210); // 9 AM to 12:30 PM
+
+        // Lunch at 12:30 PM
+        const lunch = schedule.find((s) => s.title.toLowerCase().includes('lunch'));
+        expect(lunch).toBeDefined();
+        expect(lunch!.startHour).toBe(12);
+        expect(lunch!.startMinute).toBe(30);
+
+        // Occupation afternoon session starts at 1:30 PM
+        const afternoonSession = schedule.find((s) => s.title.includes('(Afternoon)'));
+        expect(afternoonSession).toBeDefined();
+        expect(afternoonSession!.startHour).toBe(13);
+        expect(afternoonSession!.startMinute).toBe(30);
+        expect(afternoonSession!.durationMinutes).toBe(210); // 1:30 PM to 5:00 PM
+
+        // Personal tasks (Leetcode, Gym) should be scheduled AFTER 5:00 PM (17:00)
+        // Exclude occupation blocks, meals, system breaks (like 'Evening Transition'), and sleep
+        const personalTasks = schedule.filter(
+            (s) => !s.title.includes('College') &&
+                   s.category !== 'meal' &&
+                   s.category !== 'sleep' &&
+                   !s.title.includes('Transition') &&
+                   !s.title.includes('Breakfast') &&
+                   (s.title.includes('Leetcode') || s.title.includes('Gym'))
+        );
+        for (const pt of personalTasks) {
+            const startMins = pt.startHour * 60 + pt.startMinute;
+            expect(startMins).toBeGreaterThanOrEqual(1020); // >= 5:00 PM
+        }
+
+        // Dinner should still be around 7:30 PM
+        const dinner = schedule.find((s) => s.title.toLowerCase().includes('dinner'));
+        expect(dinner).toBeDefined();
+        expect(dinner!.startHour).toBe(19);
+        expect(dinner!.startMinute).toBe(30);
+    });
+
+    it('gives 100% priority to all user-entered tasks, never ignoring or dropping tasks even in late evening (9 PM)', () => {
+        const tasks = [
+            { title: 'Video Editing', category: 'design' as const },
+            { title: 'to do leetcode', category: 'development' as const },
+        ];
+
+        const schedule = generateForwardSmartSchedule({
+            tasks,
+            allottedMinutes: 90, // 1.5 hours
+            startHour: 21,       // 9:00 PM
+            startMinute: 0,
+            dateStr: '2026-09-03',
+            includeDinner: true,
+        });
+
+        // Both user-entered tasks MUST be in the schedule (100% priority, zero ignored)
+        const videoTask = schedule.find((s) => s.title === 'Video Editing');
+        const leetcodeTask = schedule.find((s) => s.title === 'to do leetcode');
+
+        expect(videoTask).toBeDefined();
+        expect(leetcodeTask).toBeDefined();
+
+        // Tasks must start at 9:00 PM (1260 mins)
+        expect(videoTask!.startHour).toBe(21);
+        expect(videoTask!.startMinute).toBe(0);
+
+        // Sum of both user tasks must equal the requested 90 minutes
+        const totalUserMinutes = videoTask!.durationMinutes + leetcodeTask!.durationMinutes;
+        expect(totalUserMinutes).toBe(90);
+
+        // Neither task was dropped or cut short
+        expect(videoTask!.durationMinutes).toBe(45);
+        expect(leetcodeTask!.durationMinutes).toBe(45);
+
+        // Second task immediately follows first task
+        expect(leetcodeTask!.startHour).toBe(21);
+        expect(leetcodeTask!.startMinute).toBe(45);
+
+        // Sleep block is adjusted after all user tasks finish
+        const sleepTask = schedule.find((s) => s.category === 'sleep');
+        expect(sleepTask).toBeDefined();
+        const sleepStartMins = sleepTask!.startHour * 60 + sleepTask!.startMinute;
+        expect(sleepStartMins).toBeGreaterThanOrEqual(1350); // >= 10:30 PM
+    });
 });
+

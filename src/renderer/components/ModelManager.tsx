@@ -3,6 +3,7 @@ import { useStore } from '../lib/store';
 import { useTheme } from '../components/ThemeProvider';
 import { AVAILABLE_MODELS, hasModelInCache, deleteModelFromCache, AIModel } from '../lib/ai';
 import { Download, CheckCircle2, Trash2, HardDrive, WifiOff, AlertTriangle, Loader2 } from 'lucide-react';
+import { aiNudgeService } from '../lib/aiNudgeService';
 
 export const ModelManager = () => {
     const { isDark } = useTheme();
@@ -22,6 +23,7 @@ export const ModelManager = () => {
             if (isCached) status.add(model.id);
         }
         setCachedModels(status);
+        aiNudgeService.refreshModelCacheStatus();
     };
 
     const handleDelete = async (e: React.MouseEvent, modelId: string) => {
@@ -32,6 +34,7 @@ export const ModelManager = () => {
         try {
             await deleteModelFromCache(modelId);
             await checkCacheStatus();
+            aiNudgeService.refreshModelCacheStatus();
             
             // If deleting selected model, clear selection or fallback?
             // store.ts implementation allows null, initEngine handles default

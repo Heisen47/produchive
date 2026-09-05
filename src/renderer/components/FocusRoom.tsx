@@ -8,6 +8,8 @@ import { SceneId, Occupant, SCENE_META, fmtHMS, GhibliMaterial, NPC_NAMES } from
 import { ClassroomEnv } from './focus-room/ClassroomEnv';
 import { CafeEnv } from './focus-room/CafeEnv';
 import { LibraryEnv } from './focus-room/LibraryEnv';
+import { syncFocusSessionToRoutineCalendar } from '../lib/routineSync';
+import { studyAssistantService } from '../lib/studyAssistantService';
 
 // ─── Scene preview SVGs (inline, no external assets needed) ──────────────────
 const SCENE_PREVIEWS: Record<SceneId, string> = {
@@ -923,6 +925,18 @@ export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave,
     return () => clearInterval(id);
   }, [scene, mode, isPaused]);
 
+  // Pomodoro technique triggers strictly when user is studying
+  useEffect(() => {
+    if (scene && mode === 'study' && !isPaused) {
+      studyAssistantService.startStudy();
+    } else {
+      studyAssistantService.stopStudy();
+    }
+    return () => {
+      studyAssistantService.stopStudy();
+    };
+  }, [scene, mode, isPaused]);
+
   const npcs = useMemo(() => NPC_NAMES.map((name, i) => ({
     id: `npc-${i}`, name, isUser: false,
     elapsedSeconds: Math.floor(Math.random() * 7200) + 300,
@@ -956,10 +970,17 @@ export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave,
           startedAt: sessionStartedAt.current,
         }).catch((e: any) => console.error(e));
       }
+      // Unify with routine master calendar
+      try {
+        syncFocusSessionToRoutineCalendar(scene, sessionSeconds, sessionStartedAt.current);
+      } catch (err) {
+        console.error('Failed to sync focus session to calendar:', err);
+      }
     }
     if (onLeave) {
       onLeave();
     }
+    studyAssistantService.stopStudy();
     setScene(null);
     setMode('study');
     setTick(0);

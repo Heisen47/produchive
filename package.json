@@ -78,6 +78,7 @@
     "ref-napi": "npm:@napi-ffi/ref-napi@^3.0.8",
     "ref-struct-di": "^1.1.1",
     "ref-wchar-napi": "^1.0.3",
+    "sonner": "^2.0.8",
     "three": "^0.175.0",
     "zustand": "^5.0.10"
   },

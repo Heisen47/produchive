@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
     Calendar as CalendarIcon,
     Clock,
     Plus,
-    Sparkles,
+    Layers,
     Lightbulb,
     ChevronLeft,
     ChevronRight,
@@ -24,8 +25,14 @@ import {
     ArrowLeft,
     Check,
     Moon,
-    Loader2
+    Loader2,
+    ThumbsUp,
+    ThumbsDown,
+    Target,
+    Quote,
+    Sparkles
 } from 'lucide-react';
+import { submitActivityFeedback, consolidateDuplicateAutoEvents } from '../lib/activityAutoTracker';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { Activity } from '../global';
@@ -39,6 +46,7 @@ import {
     recalculateSequentialSchedule,
     generateForwardSmartSchedule,
     generateWeeklySmartSchedule,
+    isOccupationBlock,
     autoBalanceSchedule,
     getMindsetCardData,
     calculateDayEventCollisions,
@@ -48,30 +56,8 @@ import {
 } from '../lib/smartScheduler';
 
 // ─── Types ───
-export interface PlannedRoutineItem {
-    id: string;
-    title: string;
-    category: 'development' | 'research' | 'meeting' | 'design' | 'writing' | 'break' | 'meal' | 'sleep' | 'other';
-    priority: 'high' | 'medium' | 'low';
-    dayIndex: number; // 0 (Mon) - 6 (Sun)
-    dateStr: string; // YYYY-MM-DD
-    startHour: number; // 0 - 23
-    startMinute: number; // 0, 15, 30, 45
-    durationMinutes: number; // e.g. 30, 60, 90, 120
-    completed: boolean;
-    subtitle?: string;
-    attendees?: string;
-}
-
-export interface ActivityGuess {
-    category: string;
-    label: string;
-    confidence: number;
-    topApp: string;
-    topTitle: string;
-    totalSeconds: number;
-    appBreakdown: Array<{ name: string; seconds: number }>;
-}
+import type { PlannedRoutineItem, ActivityGuess } from '../types/routine';
+export type { PlannedRoutineItem, ActivityGuess };
 
 // ─── Categories & Styling with Proper Contrast for Light & Dark Mode ───
 const getEventColors = (category: string, isDark: boolean) => {
@@ -385,6 +371,42 @@ export const Routine = () => {
         guess: ActivityGuess;
     } | null>(null);
 
+    // ─── Double-Click Empty Space Quick Create Modal ───
+    const [quickCreateModal, setQuickCreateModal] = useState<{
+        dateStr: string;
+        startHour: number;
+        startMinute: number;
+        title: string;
+        category: PlannedRoutineItem['category'];
+        priority: PlannedRoutineItem['priority'];
+        durationMinutes: number;
+        subtitle?: string;
+        addToTasks?: boolean;
+    } | null>(null);
+
+    // Multi-app overflow collapse modal
+    const [slotAppsModal, setSlotAppsModal] = useState<{
+        dateStr: string;
+        hour: number;
+        items: PlannedRoutineItem[];
+    } | null>(null);
+
+    const handleRateActivity = async (
+        e: React.MouseEvent,
+        item: PlannedRoutineItem,
+        rating: 'accurate' | 'inaccurate',
+        corrections?: { category?: PlannedRoutineItem['category']; title?: string }
+    ) => {
+        e.stopPropagation();
+        await submitActivityFeedback(item.id, rating, corrections);
+        try {
+            const saved = localStorage.getItem('produchive_master_routines');
+            if (saved) {
+                setAllRoutines(JSON.parse(saved));
+            }
+        } catch (_) {}
+    };
+
     // Range activities from database
     const [rangeActivities, setRangeActivities] = useState<Record<string, { activities: Activity[] }>>({});
 
@@ -424,66 +446,53 @@ export const Routine = () => {
     // ─── Routine Storage ───
     // Track if all local routine items are in sync with Google Calendar
     // (Disables the sync button when up to date, re-enables on any change)
-const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
+    const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
         try {
             const saved = localStorage.getItem('produchive_master_routines');
-            if (saved) return JSON.parse(saved);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                return consolidateDuplicateAutoEvents(parsed);
+            }
         } catch (e) {
             console.error('Failed to load master routines:', e);
         }
-        return [
-            {
-                id: 'demo-1',
-                title: 'Weekly check-in with Engineers',
-                category: 'meeting',
-                priority: 'high',
-                dayIndex: 0,
-                dateStr: formatDateStr(now),
-                startHour: 14,
-                startMinute: 0,
-                durationMinutes: 90,
-                completed: false,
-                subtitle: 'Engineering lab',
-                attendees: 'Core Dev Team',
-            },
-            {
-                id: 'demo-2',
-                title: 'Deep Focus: Architecture & Core API',
-                category: 'development',
-                priority: 'high',
-                dayIndex: 0,
-                dateStr: formatDateStr(now),
-                startHour: 10,
-                startMinute: 0,
-                durationMinutes: 120,
-                completed: false,
-                subtitle: 'VS Code — main.ts',
-            },
-            {
-                id: 'demo-3',
-                title: 'Lunch & Recharge Break 🥗',
-                category: 'meal',
-                priority: 'medium',
-                dayIndex: 0,
-                dateStr: formatDateStr(now),
-                startHour: 13,
-                startMinute: 0,
-                durationMinutes: 60,
-                completed: false,
-                subtitle: 'Healthy meal & fresh air',
-            },
-        ];
+        return [];
     });
 
     const isSynced = isGoogleLoggedIn && isCalendarSyncUpToDate(allRoutines);
 
     const saveMasterRoutines = (items: PlannedRoutineItem[]) => {
+        const previousRoutines = allRoutines;
         setAllRoutines(items);
         try {
             localStorage.setItem('produchive_master_routines', JSON.stringify(items));
             window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
         } catch (e) {
             console.error('Failed to save master routines:', e);
+        }
+
+        // Bidirectional sync: sync completion state with tasks in store & DB
+        try {
+            const currentTasks = useStore.getState().tasks;
+            items.forEach((item) => {
+                const prev = previousRoutines.find((r) => r.id === item.id);
+                if (prev && prev.completed !== item.completed) {
+                    const itemTitle = item.title.trim().toLowerCase();
+                    const matchingTask = currentTasks.find(
+                        (t) =>
+                            item.taskId === t.id ||
+                            t.text.trim().toLowerCase() === itemTitle ||
+                            itemTitle.includes(t.text.trim().toLowerCase())
+                    );
+                    if (matchingTask && matchingTask.completed !== item.completed && window.electronAPI?.updateTask) {
+                        window.electronAPI.updateTask({ ...matchingTask, completed: item.completed }).then((tasks) => {
+                            useStore.setState({ tasks });
+                        }).catch(console.error);
+                    }
+                }
+            });
+        } catch (err) {
+            console.error('Error syncing routine with tasks:', err);
         }
     };
 
@@ -493,7 +502,7 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
             try {
                 const saved = localStorage.getItem('produchive_master_routines');
                 if (saved) {
-                    setAllRoutines(JSON.parse(saved));
+                    setAllRoutines(consolidateDuplicateAutoEvents(JSON.parse(saved)));
                 }
             } catch (e) {
                 console.error(e);
@@ -543,6 +552,38 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
         return map;
     }, [allRoutines]);
 
+    // ─── Context Menu State (Right-click quick edit / delete) ───
+    const [contextMenu, setContextMenu] = useState<{
+        x: number;
+        y: number;
+        item: PlannedRoutineItem;
+    } | null>(null);
+
+    const handleContextMenu = (e: React.MouseEvent, item: PlannedRoutineItem) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const menuWidth = 180;
+        const menuHeight = 150;
+        const x = Math.max(12, Math.min(e.clientX, window.innerWidth - menuWidth - 16));
+        const y = Math.max(12, Math.min(e.clientY, window.innerHeight - menuHeight - 16));
+        setContextMenu({ x, y, item });
+    };
+
+    useEffect(() => {
+        const handleClose = () => setContextMenu(null);
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setContextMenu(null);
+        };
+        if (contextMenu) {
+            window.addEventListener('click', handleClose);
+            window.addEventListener('keydown', handleKeyDown);
+        }
+        return () => {
+            window.removeEventListener('click', handleClose);
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [contextMenu]);
+
     // ─── Routine Maker Form State (Day vs Week Planner) ───
     const [planScope, setPlanScope] = useState<'day' | 'week'>('day');
     const [selectedPreviewDay, setSelectedPreviewDay] = useState<string>('all');
@@ -563,6 +604,13 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
     >([]);
     const [newTaskTitle, setNewTaskTitle] = useState('');
     const [previewSchedule, setPreviewSchedule] = useState<PlannedRoutineItem[]>([]);
+
+    // Direct Time Planning States (apart from Generate button)
+    const [enableDirectTime, setEnableDirectTime] = useState(false);
+    const [directStartHour, setDirectStartHour] = useState<number>(9);
+    const [directStartMinute, setDirectStartMinute] = useState<number>(0);
+    const [directDuration, setDirectDuration] = useState<number>(60);
+    const [directCategory, setDirectCategory] = useState<PlannedRoutineItem['category']>('development');
 
     // Active week dates (Monday to Friday default; includes Sat/Sun if user opts in)
     const activeWeekDates = useMemo(() => {
@@ -640,14 +688,92 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
     useEffect(() => {
         if (isMakerOpen) {
             const isToday = formatDateStr(selectedDate) === todayStr;
+            const nowHour = new Date().getHours();
             if (isToday) {
-                const nowHour = new Date().getHours();
-                setStartHourInput(Math.min(23, nowHour));
+                const targetH = Math.min(23, nowHour);
+                setStartHourInput(targetH);
+                setDirectStartHour(targetH);
             } else {
                 setStartHourInput(9);
+                setDirectStartHour(9);
             }
         }
     }, [isMakerOpen, selectedDate, todayStr]);
+
+    // Close Quick Create modal on Escape key
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setQuickCreateModal(null);
+        };
+        if (quickCreateModal) {
+            window.addEventListener('keydown', handleKeyDown);
+        }
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [quickCreateModal]);
+
+    // Save Routine from Quick Create Modal (Double click on empty calendar space)
+    const handleSaveQuickCreate = () => {
+        if (!quickCreateModal || !quickCreateModal.title.trim()) return;
+
+        const [y, m, d] = quickCreateModal.dateStr.split('-').map(Number);
+        const dayIndex = new Date(y, m - 1, d).getDay();
+
+        let newTaskId: string | undefined;
+        if (quickCreateModal.addToTasks) {
+            useStore.getState().addTask(quickCreateModal.title.trim());
+            const currentTasks = useStore.getState().tasks;
+            const matching = currentTasks.find((t) => t.text.trim().toLowerCase() === quickCreateModal.title.trim().toLowerCase());
+            if (matching) newTaskId = matching.id;
+        }
+
+        const newRoutine: PlannedRoutineItem = {
+            id: `routine-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            title: quickCreateModal.title.trim(),
+            category: quickCreateModal.category,
+            priority: quickCreateModal.priority,
+            dayIndex,
+            dateStr: quickCreateModal.dateStr,
+            startHour: quickCreateModal.startHour,
+            startMinute: quickCreateModal.startMinute,
+            durationMinutes: Math.max(15, quickCreateModal.durationMinutes || 30),
+            completed: false,
+            subtitle: quickCreateModal.subtitle?.trim() || undefined,
+            taskId: newTaskId,
+        };
+
+        saveMasterRoutines([...allRoutines, newRoutine]);
+        setQuickCreateModal(null);
+        setSyncToast(`"${newRoutine.title}" scheduled for ${formatTimeSlot(newRoutine.startHour, newRoutine.startMinute)}! 🎯`);
+        setTimeout(() => setSyncToast(null), 4000);
+    };
+
+    // Direct Time Planning Handler in "Plan Your Day" modal (apart from Generate button)
+    const handleDirectPlanTask = (overrideTitle?: string, overrideCategory?: PlannedRoutineItem['category']) => {
+        const titleToUse = (overrideTitle || newTaskTitle).trim();
+        if (!titleToUse) return;
+
+        const targetDateStr = formatDateStr(selectedDate);
+        const [y, m, d] = targetDateStr.split('-').map(Number);
+        const dayIndex = new Date(y, m - 1, d).getDay();
+
+        const newRoutine: PlannedRoutineItem = {
+            id: `routine-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            title: titleToUse,
+            category: overrideCategory || directCategory,
+            priority: 'high',
+            dayIndex,
+            dateStr: targetDateStr,
+            startHour: directStartHour,
+            startMinute: directStartMinute,
+            durationMinutes: directDuration,
+            completed: false,
+        };
+
+        saveMasterRoutines([...allRoutines, newRoutine]);
+        if (!overrideTitle) setNewTaskTitle('');
+        setSyncToast(`Directly scheduled "${newRoutine.title}" at ${formatTimeSlot(newRoutine.startHour, newRoutine.startMinute)}! 🎯`);
+        setTimeout(() => setSyncToast(null), 4000);
+    };
 
     // ─── Smart Forward Schedule Generator (Day vs Week Mode) ───
     const handleGenerateSchedule = () => {
@@ -808,13 +934,18 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
             return;
         }
 
+        // Snap to 30-min intervals: top half of cell = :00, bottom half = :30
+        const cellRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const yInCell = e.clientY - cellRect.top;
+        const targetMinute = yInCell > cellRect.height / 2 ? 30 : 0;
+
         const updated = allRoutines.map((item) => {
             if (item.id === draggedItem.id) {
                 return {
                     ...item,
                     dateStr: targetDateStr,
                     startHour: targetHour,
-                    startMinute: 0,
+                    startMinute: targetMinute,
                 };
             }
             return item;
@@ -828,13 +959,18 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
         const uncompleted = (tasks || []).filter((t) => !t.completed);
         if (uncompleted.length === 0) return;
 
-        const imported = uncompleted.map((t) => ({
-            title: t.text,
-            category: 'development' as const,
-            priority: 'high' as const,
-        }));
-
-        setMakerTasks((prev) => [...prev, ...imported]);
+        setMakerTasks((prev) => {
+            const existingTitles = new Set(prev.map((item) => item.title.trim().toLowerCase()));
+            const newTasks = uncompleted
+                .filter((t) => !existingTitles.has(t.text.trim().toLowerCase()))
+                .map((t) => ({
+                    title: t.text.trim(),
+                    category: 'development' as const,
+                    priority: 'high' as const,
+                }));
+            if (newTasks.length === 0) return prev;
+            return [...prev, ...newTasks];
+        });
     };
 
     const handleDateStep = (step: number) => {
@@ -1314,6 +1450,20 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                         (r) => r.dateStr === dateStr && r.startHour === hour
                                     );
 
+                                    // Sort routines in this slot: user-planned first, then auto-detected, by start minute
+                                    const sortedCellRoutines = [...cellRoutines].sort((a, b) => {
+                                        if (a.isAutoDetected !== b.isAutoDetected) {
+                                            return a.isAutoDetected ? 1 : -1;
+                                        }
+                                        if (a.startMinute !== b.startMinute) return a.startMinute - b.startMinute;
+                                        return (b.durationMinutes || 0) - (a.durationMinutes || 0);
+                                    });
+
+                                    // Display at most 2 events as clean full-width rows; collapse the rest into "+X events detected"
+                                    const MAX_VISIBLE_EVENTS = 2;
+                                    const visibleRoutines = sortedCellRoutines.slice(0, MAX_VISIBLE_EVENTS);
+                                    const hiddenCount = Math.max(0, sortedCellRoutines.length - MAX_VISIBLE_EVENTS);
+
                                     const dayActs = isDayToday
                                         ? activities
                                         : rangeActivities[dateStr]?.activities || [];
@@ -1328,54 +1478,74 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                     return (
                                         <div
                                             key={colIdx}
+                                            data-calendar-cell="true"
                                             onDragOver={(e) => handleDragOver(e, hour, dateStr)}
                                             onDrop={(e) => handleDrop(e, hour, dateStr)}
-                                            className={`p-1.5 border-r transition-colors relative flex flex-col gap-1.5 ${
+                                            onDoubleClick={(e) => {
+                                                const target = e.target as HTMLElement;
+                                                if (target.closest('[data-routine-item]') || target.closest('button')) {
+                                                    return;
+                                                }
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                const offsetY = Math.max(0, e.clientY - rect.top);
+                                                const fraction = Math.max(0, Math.min(0.99, offsetY / rect.height));
+                                                const minute = (Math.floor(fraction * 4) * 15) as 0 | 15 | 30 | 45;
+
+                                                setQuickCreateModal({
+                                                    dateStr,
+                                                    startHour: hour,
+                                                    startMinute: minute,
+                                                    title: '',
+                                                    category: 'development',
+                                                    priority: 'medium',
+                                                    durationMinutes: 30,
+                                                    subtitle: '',
+                                                    addToTasks: false,
+                                                });
+                                            }}
+                                            title="Double-click empty space to schedule an activity"
+                                            className={`p-1.5 border-r transition-colors relative flex flex-col gap-1.5 min-h-[90px] cursor-pointer ${
                                                 isDayToday ? 'bg-indigo-500/[0.03]' : ''
                                             } hover:bg-black/[0.02] dark:hover:bg-white/[0.02]`}
-                                            style={{ borderColor: 'var(--border-secondary)' }}
+                                            style={{ borderColor: 'var(--border-secondary)', overflow: 'visible' }}
                                         >
-                                            {/* Draggable Routine Cards */}
-                                            {cellRoutines.map((item) => {
+                                            {/* Draggable Routine Cards: Clean full-width horizontal rows */}
+                                            {visibleRoutines.map((item, idx) => {
                                                 const colors = getEventColors(item.category, isDark);
                                                 const isPastTask = item.dateStr < todayStr || (item.dateStr === todayStr && item.startHour < currentHour);
-                                                const collisionInfo = collisionsByDate.get(dateStr)?.get(item.id) || { colIndex: 0, totalCols: 1 };
-                                                const { colIndex, totalCols } = collisionInfo;
-                                                const isColliding = totalCols > 1;
-
-                                                const duration = Math.max(15, item.durationMinutes || 30);
-                                                const rawHeight = Math.round((duration / 60) * 90) - 6;
-                                                // 15m events use 18px height so they fit cleanly without overflowing into the next :15 start
-                                                const calculatedHeight = duration <= 15 ? 18 : Math.max(30, rawHeight);
-                                                const isCompact = calculatedHeight <= 26;
-
+                                                const duration = Math.max(5, item.durationMinutes || 30);
                                                 const endMinTotal = item.startHour * 60 + item.startMinute + duration;
                                                 const endH = Math.floor(endMinTotal / 60) % 24;
                                                 const endM = endMinTotal % 60;
                                                 const timeRangeString = `${formatTimeSlot(item.startHour, item.startMinute)} - ${formatTimeSlot(endH, endM)} (${duration}m)`;
 
-                                                const colWidthPercent = 100 / totalCols;
-                                                const colLeftPercent = (colIndex * 100) / totalCols;
-                                                const widthStyle = isColliding ? `calc(${colWidthPercent}% - 6px)` : 'calc(100% - 12px)';
-                                                const leftStyle = isColliding ? `calc(${colLeftPercent}% + ${colIndex === 0 ? 4 : 2}px)` : '6px';
-                                                const topOffset = Math.round((item.startMinute / 60) * 90) + 4;
+                                                const isSingle = visibleRoutines.length === 1 && hiddenCount === 0;
+                                                const rawMultiHeight = Math.max(26, Math.round((duration / 60) * 90) - 6);
+                                                const cardHeight = isSingle ? (duration > 60 ? rawMultiHeight : 38) : 28;
+                                                const isTallCard = isSingle && cardHeight >= 56;
+                                                const minuteOffset = Math.round((item.startMinute / 60) * 90);
+                                                const topOffset = isSingle
+                                                    ? (item.startMinute === 0 ? 4 : minuteOffset)
+                                                    : (item.startMinute >= 30 ? Math.max(36, minuteOffset) : (idx === 0 ? 4 : 36));
 
                                                 return (
                                                     <div
                                                         key={item.id}
+                                                        data-routine-item="true"
                                                         draggable={!isPastTask}
                                                         onDragStart={(e) => handleDragStart(e, item)}
+                                                        onContextMenu={(e) => handleContextMenu(e, item)}
                                                         onDoubleClick={(e) => {
                                                             e.stopPropagation();
                                                             setSelectedRoutineDetails({ ...item });
                                                         }}
-                                                        className={`rounded-xl border shadow-md transition-all group overflow-hidden flex flex-col justify-between ${
-                                                            isCompact ? 'px-2 py-0.5' : 'p-2'
+                                                        className={`rounded-xl border shadow-sm transition-all group overflow-hidden select-none ${
+                                                            isTallCard ? 'flex flex-col justify-between p-2.5' : 'flex items-center justify-between px-2.5 py-1'
                                                         } ${
                                                             isPastTask
                                                                 ? 'cursor-default opacity-60'
-                                                                : 'cursor-grab active:cursor-grabbing hover:scale-[1.01]'
-                                                        } ${item.completed ? 'line-through' : ''}`}
+                                                                : 'cursor-grab active:cursor-grabbing hover:scale-[1.01] hover:shadow-md'
+                                                        } ${item.completed ? 'line-through opacity-70' : ''}`}
                                                         style={{
                                                             background: colors.bg,
                                                             borderColor: colors.border,
@@ -1384,39 +1554,63 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                                 : '0 2px 8px rgba(0,0,0,0.06)',
                                                             position: 'absolute',
                                                             top: `${topOffset}px`,
-                                                            height: `${calculatedHeight}px`,
-                                                            left: leftStyle,
-                                                            width: widthStyle,
-                                                            zIndex: 20 + colIndex,
+                                                            height: `${cardHeight}px`,
+                                                            left: '4px',
+                                                            width: 'calc(100% - 8px)',
+                                                            zIndex: isTallCard ? 30 : 20 + idx,
                                                         }}
+                                                        title="Double-click to open event details"
                                                     >
-                                                        {isCompact ? (
-                                                            <div className="flex items-center justify-between gap-1 w-full h-full">
-                                                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                                        {isTallCard ? (
+                                                            <>
+                                                                {/* Top: Badges, Title, Subtitle */}
+                                                                <div className="flex-1 min-w-0 pr-0.5">
+                                                                    <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                                                                        {item.isAutoDetected && (
+                                                                            <span
+                                                                                className="text-[8px] px-1 py-0.2 rounded font-bold uppercase tracking-wider shrink-0 bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
+                                                                                title={`Auto-detected: ${item.detectedApp || 'Screen activity'}`}
+                                                                            >
+                                                                                Auto
+                                                                            </span>
+                                                                        )}
+                                                                        <span
+                                                                            className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-black/15 dark:bg-white/10 font-bold shrink-0"
+                                                                            style={{ color: colors.subtext }}
+                                                                        >
+                                                                            {timeRangeString}
+                                                                        </span>
+                                                                        <span
+                                                                            className="text-[8px] px-1 py-0.2 rounded uppercase font-bold tracking-wider shrink-0"
+                                                                            style={{ background: colors.accent + '20', color: colors.accent }}
+                                                                        >
+                                                                            {item.category}
+                                                                        </span>
+                                                                    </div>
+
                                                                     <h4
-                                                                        className="font-semibold text-[11px] leading-none truncate"
+                                                                        className="font-semibold text-xs leading-snug break-words line-clamp-3 text-left"
                                                                         style={{ color: colors.text }}
+                                                                        title={item.title}
                                                                     >
                                                                         {item.title}
                                                                     </h4>
-                                                                    <span className="text-[9px] font-mono opacity-80 shrink-0" style={{ color: colors.subtext }}>
-                                                                        {formatTimeSlot(item.startHour, item.startMinute)}
-                                                                    </span>
-                                                                    {isPastTask && (
-                                                                        <span
-                                                                            className="text-[9px] px-1 py-0.2 rounded font-medium shrink-0"
-                                                                            style={{
-                                                                                background: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.08)',
-                                                                                color: colors.subtext,
-                                                                            }}
+
+                                                                    {(item.subtitle || item.detectedTitle) && (
+                                                                        <p
+                                                                            className="text-[10px] mt-1 line-clamp-2 leading-tight text-left font-normal"
+                                                                            style={{ color: colors.subtext }}
+                                                                            title={item.subtitle || item.detectedTitle}
                                                                         >
-                                                                            Past
-                                                                        </span>
+                                                                            {item.subtitle || item.detectedTitle}
+                                                                        </p>
                                                                     )}
                                                                 </div>
 
-                                                                <div className="flex items-center gap-1 shrink-0">
+                                                                {/* Bottom Right: Action buttons */}
+                                                                <div className="flex items-center justify-end gap-1 pt-1 mt-auto border-t border-black/5 dark:border-white/5">
                                                                     <button
+                                                                        type="button"
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
                                                                             saveMasterRoutines(
@@ -1425,8 +1619,79 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                                                 )
                                                                             );
                                                                         }}
-                                                                        className="hover:text-emerald-500 transition-colors"
-                                                                        title="Mark done"
+                                                                        className="p-1 rounded-md text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/15 transition-colors cursor-pointer"
+                                                                        title={item.completed ? 'Mark incomplete' : 'Mark done'}
+                                                                    >
+                                                                        {item.completed ? (
+                                                                            <CheckCircle2 size={13} className="text-emerald-500" />
+                                                                        ) : (
+                                                                            <Circle size={13} />
+                                                                        )}
+                                                                    </button>
+
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setSelectedRoutineDetails({ ...item });
+                                                                        }}
+                                                                        className="p-1 rounded-md text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/15 transition-all cursor-pointer"
+                                                                        title="Edit details (or double-click)"
+                                                                    >
+                                                                        <Edit3 size={12} />
+                                                                    </button>
+
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            saveMasterRoutines(allRoutines.filter((r) => r.id !== item.id));
+                                                                        }}
+                                                                        className="p-1 rounded-md text-slate-400 hover:text-red-400 hover:bg-red-500/15 transition-all cursor-pointer"
+                                                                        title="Delete event"
+                                                                    >
+                                                                        <Trash2 size={12} />
+                                                                    </button>
+                                                                </div>
+                                                            </>
+                                                        ) : (
+                                                            <div className="flex items-center justify-between w-full h-full">
+                                                                {/* Content row */}
+                                                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                                                    {item.isAutoDetected && (
+                                                                        <span
+                                                                            className="text-[8px] px-1 py-0.2 rounded font-bold uppercase tracking-wider shrink-0 bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
+                                                                            title={`Auto-detected: ${item.detectedApp || 'Screen activity'}`}
+                                                                        >
+                                                                            Auto
+                                                                        </span>
+                                                                    )}
+                                                                    <h4
+                                                                        className="font-semibold text-xs leading-none truncate"
+                                                                        style={{ color: colors.text }}
+                                                                        title={item.title}
+                                                                    >
+                                                                        {item.title}
+                                                                    </h4>
+                                                                    <span className="text-[9px] font-mono opacity-70 shrink-0" style={{ color: colors.subtext }}>
+                                                                        {duration}m
+                                                                    </span>
+                                                                </div>
+
+                                                                {/* Quick Action Icons */}
+                                                                <div className="flex items-center gap-0.5 shrink-0 ml-1">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            saveMasterRoutines(
+                                                                                allRoutines.map((r) =>
+                                                                                    r.id === item.id ? { ...r, completed: !r.completed } : r
+                                                                                )
+                                                                            );
+                                                                        }}
+                                                                        className="p-0.5 rounded text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer"
+                                                                        title={item.completed ? 'Mark incomplete' : 'Mark done'}
                                                                     >
                                                                         {item.completed ? (
                                                                             <CheckCircle2 size={12} className="text-emerald-500" />
@@ -1434,135 +1699,101 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                                             <Circle size={12} />
                                                                         )}
                                                                     </button>
+
                                                                     <button
+                                                                        type="button"
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
                                                                             setSelectedRoutineDetails({ ...item });
                                                                         }}
-                                                                        className="opacity-0 group-hover:opacity-100 hover:text-indigo-500 transition-all"
-                                                                        title="Edit Details"
+                                                                        className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-indigo-400 hover:bg-indigo-500/10 transition-all text-slate-400 cursor-pointer"
+                                                                        title="Edit details (or double-click)"
                                                                     >
                                                                         <Edit3 size={11} />
                                                                     </button>
+
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            saveMasterRoutines(allRoutines.filter((r) => r.id !== item.id));
+                                                                        }}
+                                                                        className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-red-500/10 transition-all text-slate-400 cursor-pointer"
+                                                                        title="Delete event"
+                                                                    >
+                                                                        <Trash2 size={11} />
+                                                                    </button>
                                                                 </div>
                                                             </div>
-                                                        ) : (
-                                                            <>
-                                                                <div>
-                                                                    <div className="flex items-start justify-between gap-1.5">
-                                                                        <div className="flex items-center gap-1.5 min-w-0">
-                                                                            <h4
-                                                                                className="font-semibold text-xs leading-tight truncate"
-                                                                                style={{ color: colors.text }}
-                                                                            >
-                                                                                {item.title}
-                                                                            </h4>
-                                                                            {isPastTask && (
-                                                                                <span
-                                                                                    className="text-[9px] px-1 py-0.2 rounded font-medium shrink-0"
-                                                                                    style={{
-                                                                                        background: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.08)',
-                                                                                        color: colors.subtext,
-                                                                                    }}
-                                                                                >
-                                                                                    Past
-                                                                                </span>
-                                                                            )}
-                                                                        </div>
-                                                                        {!isPastTask && (
-                                                                            <GripVertical
-                                                                                size={12}
-                                                                                style={{ color: colors.subtext }}
-                                                                                className="opacity-0 group-hover:opacity-100 shrink-0 cursor-grab"
-                                                                            />
-                                                                        )}
-                                                                    </div>
-
-                                                                    {item.subtitle && (
-                                                                        <p
-                                                                            className="text-[11px] mt-1 truncate"
-                                                                            style={{ color: colors.subtext }}
-                                                                        >
-                                                                            {item.subtitle}
-                                                                        </p>
-                                                                    )}
-                                                                </div>
-
-                                                                <div
-                                                                    className="flex items-center justify-between mt-2 pt-1.5 border-t text-[10px]"
-                                                                    style={{
-                                                                        borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                                                                        color: colors.subtext,
-                                                                    }}
-                                                                >
-                                                                    <span className="font-medium truncate">
-                                                                        {timeRangeString}
-                                                                    </span>
-
-                                                                    <div className="flex items-center gap-1.5 shrink-0 ml-1">
-                                                                        <button
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                saveMasterRoutines(
-                                                                                    allRoutines.map((r) =>
-                                                                                        r.id === item.id ? { ...r, completed: !r.completed } : r
-                                                                                    )
-                                                                                );
-                                                                            }}
-                                                                            className="hover:text-emerald-500 transition-colors"
-                                                                            title="Mark done"
-                                                                        >
-                                                                            {item.completed ? (
-                                                                                <CheckCircle2 size={13} className="text-emerald-500" />
-                                                                            ) : (
-                                                                                <Circle size={13} />
-                                                                            )}
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                setSelectedRoutineDetails({ ...item });
-                                                                            }}
-                                                                            className="opacity-0 group-hover:opacity-100 hover:text-indigo-500 transition-all"
-                                                                            title="Edit Details"
-                                                                        >
-                                                                            <Edit3 size={12} />
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                saveMasterRoutines(allRoutines.filter((r) => r.id !== item.id));
-                                                                            }}
-                                                                            className="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all"
-                                                                            title="Delete"
-                                                                        >
-                                                                            <Trash2 size={12} />
-                                                                        </button>
-                                                                    </div>
-                                                                </div>
-                                                            </>
                                                         )}
                                                     </div>
                                                 );
                                             })}
 
-                                            {/* Tracked Activity Guess Card */}
-                                            {guess && (
+                                            {/* +X Events Detected Button: cleanly placed as 3rd row */}
+                                            {hiddenCount > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSlotAppsModal({
+                                                            dateStr,
+                                                            hour,
+                                                            items: sortedCellRoutines,
+                                                        });
+                                                    }}
+                                                    onDoubleClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSlotAppsModal({
+                                                            dateStr,
+                                                            hour,
+                                                            items: sortedCellRoutines,
+                                                        });
+                                                    }}
+                                                    className="rounded-lg border shadow-sm px-2.5 py-0.5 transition-all hover:scale-[1.01] active:scale-95 cursor-pointer flex items-center justify-between text-[11px] font-semibold animate-fade-in group"
+                                                    style={{
+                                                        background: isDark ? 'rgba(30, 41, 59, 0.95)' : '#f1f5f9',
+                                                        borderColor: isDark ? 'rgba(99, 102, 241, 0.45)' : '#cbd5e1',
+                                                        position: 'absolute',
+                                                        top: '68px',
+                                                        left: '4px',
+                                                        width: 'calc(100% - 8px)',
+                                                        height: '22px',
+                                                        zIndex: 35,
+                                                    }}
+                                                    title={`Double-click or click to view all ${sortedCellRoutines.length} events`}
+                                                >
+                                                    <div className="flex items-center gap-1.5 truncate">
+                                                        <Layers size={11} className="text-indigo-400 shrink-0" />
+                                                        <span className="text-indigo-400 truncate text-[10px] font-bold">
+                                                            +{hiddenCount} event{hiddenCount > 1 ? 's' : ''} detected
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[9px] text-slate-400 group-hover:text-indigo-300 shrink-0 font-medium">
+                                                        View all →
+                                                    </span>
+                                                </button>
+                                            )}
+
+                                            {/* Tracked Activity Guess Card (only shown when NO routines exist in this slot and activity is >= 2 minutes) */}
+                                            {guess && cellRoutines.length === 0 && guess.totalSeconds >= 120 && (
                                                 <div
+                                                    data-routine-item="true"
                                                     onDoubleClick={(e) => {
                                                         e.stopPropagation();
                                                         setSelectedActivityDetails({ dateStr, hour, guess });
                                                     }}
-                                                    className="p-2 rounded-xl border text-xs shadow-md cursor-pointer transition-all hover:scale-[1.02]"
+                                                    className="p-2.5 rounded-xl border border-dashed text-xs shadow-sm cursor-pointer transition-all hover:scale-[1.01]"
                                                     style={{
-                                                        background: isDark ? 'rgba(15, 23, 42, 0.85)' : '#f0fdf4',
-                                                        borderColor: isDark ? 'rgba(16, 185, 129, 0.3)' : 'rgba(16, 185, 129, 0.4)',
+                                                        background: isDark ? 'rgba(15, 23, 42, 0.45)' : '#f0fdf4',
+                                                        borderColor: isDark ? 'rgba(16, 185, 129, 0.25)' : 'rgba(16, 185, 129, 0.35)',
                                                     }}
-                                                    title={`Double-click for details. Tracked: ${guess.topApp} (${Math.round(guess.totalSeconds / 60)}m)`}
+                                                    title={`Double-click for details. Untracked activity: ${guess.topApp} (${Math.round(guess.totalSeconds / 60)}m)`}
                                                 >
                                                     <div className="flex items-center justify-between gap-1">
-                                                        <span className="font-bold text-[11px] text-emerald-600 dark:text-emerald-400 truncate">
-                                                            🤖 {guess.label}
+                                                        <span className="font-semibold text-[11px] text-emerald-600 dark:text-emerald-400 truncate flex items-center gap-1.5">
+                                                            <ActivityIcon size={12} className="shrink-0" />
+                                                            <span>{guess.label}</span>
                                                         </span>
                                                         <span
                                                             className="text-[10px] font-mono"
@@ -1572,7 +1803,7 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                         </span>
                                                     </div>
                                                     <p
-                                                        className="text-[10px] truncate mt-0.5"
+                                                        className="text-[10px] truncate mt-0.5 font-mono"
                                                         style={{ color: 'var(--text-secondary)' }}
                                                     >
                                                         {guess.topApp}: {guess.topTitle}
@@ -1587,6 +1818,307 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                     })}
                 </div>
             </div>
+
+            {/* 3.5 Quick Create "What do you want to do?" Modal */}
+            {quickCreateModal && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in"
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget) setQuickCreateModal(null);
+                    }}
+                >
+                    <div
+                        className="w-full max-w-lg rounded-3xl p-6 shadow-2xl relative border animate-scale-in"
+                        style={{
+                            background: 'var(--bg-card-solid)',
+                            borderColor: 'var(--border-card)',
+                            boxShadow: 'var(--shadow-card)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div
+                            className="flex items-center justify-between pb-4 border-b mb-4"
+                            style={{ borderColor: 'var(--border-secondary)' }}
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-2xl bg-[#5b5fc7]/20 text-[#5b5fc7] dark:text-[#7b83eb] border border-[#5b5fc7]/40">
+                                    <Sparkles size={18} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-display font-bold" style={{ color: 'var(--text-primary)' }}>
+                                        What do you want to do?
+                                    </h3>
+                                    <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--text-secondary)' }}>
+                                        <Clock size={11} />
+                                        <span>
+                                            {quickCreateModal.dateStr} • {formatTimeSlot(quickCreateModal.startHour, quickCreateModal.startMinute)}
+                                        </span>
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setQuickCreateModal(null)}
+                                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-all text-slate-400 hover:text-slate-200 cursor-pointer"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                handleSaveQuickCreate();
+                            }}
+                            className="space-y-4"
+                        >
+                            {/* Main Activity Input */}
+                            <div>
+                                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                    Activity / Task Title
+                                </label>
+                                <input
+                                    type="text"
+                                    autoFocus
+                                    value={quickCreateModal.title}
+                                    onChange={(e) => setQuickCreateModal({ ...quickCreateModal, title: e.target.value })}
+                                    placeholder="What are you planning to work on? (e.g. Code review, Study, Gym...)"
+                                    className="w-full px-3.5 py-2.5 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] transition-all"
+                                    style={{
+                                        background: 'var(--bg-input)',
+                                        color: 'var(--text-primary)',
+                                        borderColor: 'var(--border-input)',
+                                    }}
+                                />
+                            </div>
+
+                            {/* Quick Inspiration Chips */}
+                            <div>
+                                <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1.5 flex items-center gap-1">
+                                    <Lightbulb size={12} className="text-[#5b5fc7]" /> Quick Suggestions:
+                                </span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    {[
+                                        { label: '💻 Deep Work', title: 'Deep Work Session', category: 'development' },
+                                        { label: '📚 Study & Research', title: 'Research & Study', category: 'research' },
+                                        { label: '👥 Team Meeting', title: 'Team Sync Meeting', category: 'meeting' },
+                                        { label: '🎨 UI Design', title: 'Design & Wireframing', category: 'design' },
+                                        { label: '✍️ Writing', title: 'Documentation & Writing', category: 'writing' },
+                                        { label: '☕ Quick Break', title: 'Coffee & Recharge Break', category: 'break' },
+                                        { label: '🥗 Lunch', title: 'Lunch Break', category: 'meal' },
+                                        { label: '🏃 Workout', title: 'Workout & Fitness', category: 'other' },
+                                    ].map((chip, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onClick={() => {
+                                                setQuickCreateModal({
+                                                    ...quickCreateModal,
+                                                    title: chip.title,
+                                                    category: chip.category as any,
+                                                });
+                                            }}
+                                            className="text-[11px] px-2.5 py-1 rounded-lg border transition-all cursor-pointer hover:scale-[1.02] active:scale-95"
+                                            style={{
+                                                background: quickCreateModal.title === chip.title ? 'rgba(91, 95, 199, 0.25)' : 'var(--bg-input)',
+                                                borderColor: quickCreateModal.title === chip.title ? '#5b5fc7' : 'var(--border-secondary)',
+                                                color: quickCreateModal.title === chip.title ? '#8b92f8' : 'var(--text-secondary)',
+                                            }}
+                                        >
+                                            {chip.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Category & Duration */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                        Category
+                                    </label>
+                                    <select
+                                        value={quickCreateModal.category}
+                                        onChange={(e) => setQuickCreateModal({ ...quickCreateModal, category: e.target.value as any })}
+                                        className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            borderColor: 'var(--border-input)',
+                                        }}
+                                    >
+                                        <option value="development">💻 Development</option>
+                                        <option value="research">📚 Research</option>
+                                        <option value="meeting">👥 Meeting</option>
+                                        <option value="design">🎨 Design</option>
+                                        <option value="writing">✍️ Writing</option>
+                                        <option value="meal">🥗 Meal</option>
+                                        <option value="break">☕ Break</option>
+                                        <option value="sleep">🌙 Sleep</option>
+                                        <option value="other">📦 Other</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                        Duration
+                                    </label>
+                                    <div className="flex items-center gap-1">
+                                        {[15, 30, 45, 60, 90].map((d) => (
+                                            <button
+                                                key={d}
+                                                type="button"
+                                                onClick={() => setQuickCreateModal({ ...quickCreateModal, durationMinutes: d })}
+                                                className={`flex-1 py-1.5 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${
+                                                    quickCreateModal.durationMinutes === d
+                                                        ? 'bg-[#5b5fc7] text-white border-[#5b5fc7]'
+                                                        : 'bg-black/5 dark:bg-white/5 border-transparent text-slate-400 hover:text-white'
+                                                }`}
+                                            >
+                                                {d}m
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Date & Start Time Scheduling */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                        Date
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={quickCreateModal.dateStr}
+                                        onChange={(e) => setQuickCreateModal({ ...quickCreateModal, dateStr: e.target.value })}
+                                        className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                        style={{
+                                            background: 'var(--bg-input)',
+                                            color: 'var(--text-primary)',
+                                            borderColor: 'var(--border-input)',
+                                        }}
+                                    />
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                            Start Hour
+                                        </label>
+                                        <select
+                                            value={quickCreateModal.startHour}
+                                            onChange={(e) => setQuickCreateModal({ ...quickCreateModal, startHour: Number(e.target.value) })}
+                                            className="w-full px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                color: 'var(--text-primary)',
+                                                borderColor: 'var(--border-input)',
+                                            }}
+                                        >
+                                            {Array.from({ length: 24 }).map((_, h) => (
+                                                <option key={h} value={h}>
+                                                    {formatHourLabel(h)}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                            Minute
+                                        </label>
+                                        <select
+                                            value={quickCreateModal.startMinute}
+                                            onChange={(e) => setQuickCreateModal({ ...quickCreateModal, startMinute: Number(e.target.value) })}
+                                            className="w-full px-2.5 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                color: 'var(--text-primary)',
+                                                borderColor: 'var(--border-input)',
+                                            }}
+                                        >
+                                            <option value={0}>:00</option>
+                                            <option value={15}>:15</option>
+                                            <option value={30}>:30</option>
+                                            <option value={45}>:45</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Subtitle / Notes */}
+                            <div>
+                                <label className="text-xs font-semibold mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                                    Notes / Location <span className="text-slate-400 font-normal">(Optional)</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={quickCreateModal.subtitle || ''}
+                                    onChange={(e) => setQuickCreateModal({ ...quickCreateModal, subtitle: e.target.value })}
+                                    placeholder="e.g. VS Code, Google Meet link, or notes"
+                                    className="w-full px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7]"
+                                    style={{
+                                        background: 'var(--bg-input)',
+                                        color: 'var(--text-primary)',
+                                        borderColor: 'var(--border-input)',
+                                    }}
+                                />
+                            </div>
+
+                            {/* Checkbox: Also add to Tasks list */}
+                            <div
+                                className="p-3 rounded-xl border flex items-center justify-between cursor-pointer"
+                                style={{
+                                    background: 'var(--bg-elevated)',
+                                    borderColor: 'var(--border-secondary)',
+                                }}
+                                onClick={() => setQuickCreateModal({ ...quickCreateModal, addToTasks: !quickCreateModal.addToTasks })}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <ListTodo size={14} className="text-[#5b5fc7]" />
+                                    <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                                        Also add to my To-Do Task Backlog
+                                    </span>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    checked={Boolean(quickCreateModal.addToTasks)}
+                                    onChange={(e) => setQuickCreateModal({ ...quickCreateModal, addToTasks: e.target.checked })}
+                                    className="rounded accent-[#5b5fc7] cursor-pointer"
+                                    onClick={(e) => e.stopPropagation()}
+                                />
+                            </div>
+
+                            {/* Modal Footer Buttons */}
+                            <div
+                                className="flex items-center justify-end gap-2.5 pt-4 border-t"
+                                style={{ borderColor: 'var(--border-secondary)' }}
+                            >
+                                <button
+                                    type="button"
+                                    onClick={() => setQuickCreateModal(null)}
+                                    className="px-4 py-2 rounded-xl text-xs font-semibold transition-all hover:bg-black/5 dark:hover:bg-white/10"
+                                    style={{ color: 'var(--text-secondary)' }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={!quickCreateModal.title.trim()}
+                                    className="px-5 py-2 rounded-xl text-xs font-bold text-white shadow-md transition-all flex items-center gap-1.5 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                                    style={{
+                                        background: 'linear-gradient(135deg, #5b5fc7 0%, #4f52b2 100%)',
+                                    }}
+                                >
+                                    <Plus size={14} /> Schedule Activity
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
 
             {/* 4. Task Details Modal */}
             {selectedRoutineDetails && (
@@ -1806,6 +2338,92 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                 </div>
                             </div>
 
+                            {/* Auto-detected event feedback & accuracy inspection */}
+                            {selectedRoutineDetails.isAutoDetected && (
+                                <div
+                                    className="p-3.5 rounded-2xl border"
+                                    style={{
+                                        background: isDark ? 'rgba(16, 185, 129, 0.08)' : 'rgba(16, 185, 129, 0.05)',
+                                        borderColor: 'rgba(16, 185, 129, 0.3)',
+                                    }}
+                                >
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-bold flex items-center gap-1.5 text-emerald-500">
+                                            <ActivityIcon size={13} /> Screen Activity Detection
+                                        </span>
+                                        {selectedRoutineDetails.detectionConfidence && (
+                                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 font-semibold">
+                                                {selectedRoutineDetails.detectionConfidence}% Confidence
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="text-xs" style={{ color: 'var(--text-primary)' }}>
+                                        Detected App: <strong>{selectedRoutineDetails.detectedApp || 'Screen Monitor'}</strong>
+                                    </p>
+                                    {selectedRoutineDetails.detectedTitle && (
+                                        <p className="text-[11px] truncate mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                                            Window: "{selectedRoutineDetails.detectedTitle}"
+                                        </p>
+                                    )}
+                                    <div className="mt-3 pt-2.5 border-t border-emerald-500/20">
+                                        <p className="text-xs font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                                            Was this detection accurate?
+                                        </p>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    await submitActivityFeedback(selectedRoutineDetails.id, 'accurate');
+                                                    setSelectedRoutineDetails({
+                                                        ...selectedRoutineDetails,
+                                                        detectionFeedback: 'accurate',
+                                                        feedbackAt: Date.now(),
+                                                    });
+                                                    try {
+                                                        const saved = localStorage.getItem('produchive_master_routines');
+                                                        if (saved) setAllRoutines(JSON.parse(saved));
+                                                    } catch (_) {}
+                                                }}
+                                                className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                                                    selectedRoutineDetails.detectionFeedback === 'accurate'
+                                                        ? 'bg-emerald-500 text-white shadow-md'
+                                                        : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+                                                }`}
+                                            >
+                                                <ThumbsUp size={12} /> 👍 Accurate
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    await submitActivityFeedback(selectedRoutineDetails.id, 'inaccurate');
+                                                    setSelectedRoutineDetails({
+                                                        ...selectedRoutineDetails,
+                                                        detectionFeedback: 'inaccurate',
+                                                        feedbackAt: Date.now(),
+                                                    });
+                                                    try {
+                                                        const saved = localStorage.getItem('produchive_master_routines');
+                                                        if (saved) setAllRoutines(JSON.parse(saved));
+                                                    } catch (_) {}
+                                                }}
+                                                className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-1.5 ${
+                                                    selectedRoutineDetails.detectionFeedback === 'inaccurate'
+                                                        ? 'bg-amber-500 text-white shadow-md'
+                                                        : 'bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
+                                                }`}
+                                            >
+                                                <ThumbsDown size={12} /> 👎 Inaccurate
+                                            </button>
+                                        </div>
+                                        {selectedRoutineDetails.detectionFeedback && (
+                                            <p className="text-[10px] text-slate-400 mt-2 text-center">
+                                                Rating recorded and stored for developer feedback.
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             <div
                                 className="p-3 rounded-xl border flex items-center justify-between"
                                 style={{
@@ -1934,8 +2552,9 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                 }}
                             >
                                 <div className="flex items-center justify-between mb-1">
-                                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                                        🤖 {selectedActivityDetails.guess.label}
+                                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                                        <ActivityIcon size={13} className="shrink-0" />
+                                        <span>{selectedActivityDetails.guess.label}</span>
                                     </span>
                                     <span className="text-xs font-mono text-emerald-600 dark:text-emerald-300">
                                         {selectedActivityDetails.guess.confidence}% Confidence
@@ -1961,7 +2580,7 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                 </h4>
 
                                 <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
-                                    {selectedActivityDetails.guess.appBreakdown.map((app, i) => {
+                                    {selectedActivityDetails.guess.appBreakdown.map((app: { name: string; seconds: number }, i: number) => {
                                         const pct = Math.round(
                                             (app.seconds / (selectedActivityDetails.guess.totalSeconds || 1)) * 100
                                         );
@@ -2040,6 +2659,157 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                 </div>
             )}
 
+            {/* 5.5 Multi-App Overflow Modal (shows each separate detected app event at this time) */}
+            {slotAppsModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in">
+                    <div
+                        className="w-full max-w-lg rounded-3xl p-6 shadow-2xl relative border"
+                        style={{
+                            background: 'var(--bg-card-solid)',
+                            borderColor: 'var(--border-card)',
+                            boxShadow: 'var(--shadow-card)',
+                        }}
+                    >
+                        <div className="flex items-center justify-between pb-4 border-b mb-5" style={{ borderColor: 'var(--border-secondary)' }}>
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                                    <Layers size={18} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base font-display font-bold" style={{ color: 'var(--text-primary)' }}>
+                                        Events at {formatHourLabel(slotAppsModal.hour)}
+                                    </h3>
+                                    <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                                        {slotAppsModal.dateStr} • {slotAppsModal.items.length} event{slotAppsModal.items.length > 1 ? 's' : ''} • Double-click any event to open full details
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setSlotAppsModal(null)}
+                                className="p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/10 transition-all text-slate-400 hover:text-white"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-3 max-h-96 overflow-y-auto custom-scrollbar pr-1">
+                            {slotAppsModal.items.map((appItem) => {
+                                const colors = getEventColors(appItem.category, isDark);
+                                return (
+                                    <div
+                                        key={appItem.id}
+                                        onDoubleClick={() => {
+                                            setSlotAppsModal(null);
+                                            setSelectedRoutineDetails(appItem);
+                                        }}
+                                        className="p-3.5 rounded-2xl border transition-all cursor-pointer hover:scale-[1.01]"
+                                        style={{
+                                            background: colors.bg,
+                                            borderColor: colors.border,
+                                        }}
+                                    >
+                                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2">
+                                                    <h4 className="font-bold text-xs truncate" style={{ color: colors.text }}>
+                                                        {appItem.title}
+                                                    </h4>
+                                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded uppercase" style={{ background: colors.accent + '20', color: colors.accent }}>
+                                                        {appItem.category}
+                                                    </span>
+                                                </div>
+                                                {appItem.detectedTitle && (
+                                                    <p className="text-[11px] truncate mt-0.5" style={{ color: colors.subtext }}>
+                                                        {appItem.detectedApp}: {appItem.detectedTitle}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <span className="text-[10px] font-mono shrink-0 px-2 py-0.5 rounded-lg bg-black/10 dark:bg-black/20" style={{ color: colors.text }}>
+                                                {appItem.durationMinutes}m duration
+                                            </span>
+                                        </div>
+
+                                        <div className="flex items-center justify-between pt-2 border-t text-xs" style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px]" style={{ color: colors.subtext }}>Was detection accurate?</span>
+                                                {!appItem.detectionFeedback ? (
+                                                    <div className="flex items-center gap-1.5">
+                                                        <button
+                                                            onClick={async (e) => {
+                                                                await handleRateActivity(e, appItem, 'accurate');
+                                                                setSlotAppsModal((prev) => prev ? {
+                                                                    ...prev,
+                                                                    items: prev.items.map(it => it.id === appItem.id ? { ...it, detectionFeedback: 'accurate' } : it)
+                                                                } : null);
+                                                            }}
+                                                            className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-all flex items-center gap-1"
+                                                        >
+                                                            <ThumbsUp size={10} /> Accurate
+                                                        </button>
+                                                        <button
+                                                            onClick={async (e) => {
+                                                                await handleRateActivity(e, appItem, 'inaccurate');
+                                                                setSlotAppsModal((prev) => prev ? {
+                                                                    ...prev,
+                                                                    items: prev.items.map(it => it.id === appItem.id ? { ...it, detectionFeedback: 'inaccurate' } : it)
+                                                                } : null);
+                                                            }}
+                                                            className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-all flex items-center gap-1"
+                                                        >
+                                                            <ThumbsDown size={10} /> Inaccurate
+                                                        </button>
+                                                    </div>
+                                                ) : appItem.detectionFeedback === 'accurate' ? (
+                                                    <span className="text-[10px] font-bold text-emerald-400">✓ Accurate (Rated)</span>
+                                                ) : (
+                                                    <span className="text-[10px] font-bold text-amber-400">⚠️ Inaccurate (Feedback Sent)</span>
+                                                )}
+                                            </div>
+
+                                            <div className="flex items-center gap-1.5">
+                                                <button
+                                                    onClick={() => {
+                                                        setSlotAppsModal(null);
+                                                        setSelectedRoutineDetails(appItem);
+                                                    }}
+                                                    className="p-1 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 text-slate-300"
+                                                    title="Edit Details"
+                                                >
+                                                    <Edit3 size={13} />
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        saveMasterRoutines(allRoutines.filter(r => r.id !== appItem.id));
+                                                        setSlotAppsModal((prev) => prev ? {
+                                                            ...prev,
+                                                            items: prev.items.filter(it => it.id !== appItem.id)
+                                                        } : null);
+                                                    }}
+                                                    className="p-1 rounded-lg hover:bg-red-500/20 text-red-400"
+                                                    title="Delete"
+                                                >
+                                                    <Trash2 size={13} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        <div className="mt-5 pt-3 border-t flex justify-end" style={{ borderColor: 'var(--border-secondary)' }}>
+                            <button
+                                onClick={() => setSlotAppsModal(null)}
+                                className="px-4 py-2 rounded-xl text-xs font-semibold"
+                                style={{ background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* 6. "Plan Your Day / Week" Smart Routine Maker & Preview Modal */}
             {isMakerOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in">
@@ -2055,7 +2825,7 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                         <div className="flex items-center justify-between pb-3 border-b" style={{ borderColor: 'var(--border-secondary)' }}>
                             <div className="flex items-center gap-2.5 min-w-0">
                                 <div className="p-2 rounded-xl bg-[#5b5fc7]/15 text-[#5b5fc7] dark:text-[#7b83eb] shrink-0">
-                                    <Sparkles size={18} />
+                                    <CalendarIcon size={18} />
                                 </div>
                                 <div className="min-w-0">
                                     <h3 className="text-base font-bold truncate" style={{ color: 'var(--text-primary)' }}>
@@ -2146,43 +2916,58 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                         </span>
                                     </div>
                                     <div className="flex items-center gap-1.5 flex-wrap">
-                                        {(planScope === 'day' ? [2, 4, 6, 8, 10] : [10, 15, 20, 30, 40]).map((h) => {
-                                            const isSelected = planScope === 'day' ? allottedHours === h : weeklyTotalHours === h;
+                                        {(() => {
+                                            const activeDaysCount = Math.max(1, activeWeekDates.length);
+                                            const maxWeeklyHours = Math.max(40, activeDaysCount * 16);
+                                            const maxCustomHours = planScope === 'day' ? 16 : maxWeeklyHours;
+                                            const presets = planScope === 'day'
+                                                ? [2, 4, 6, 8, 10]
+                                                : activeDaysCount >= 6
+                                                ? [20, 40, 60, 80, 100]
+                                                : [15, 25, 40, 60, 80];
+
                                             return (
-                                                <button
-                                                    key={h}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        if (planScope === 'day') setAllottedHours(h);
-                                                        else setWeeklyTotalHours(h);
-                                                    }}
-                                                    className={`px-3 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                                                        isSelected
-                                                            ? 'bg-[#5b5fc7] text-white border-[#5b5fc7] shadow-sm shadow-[#5b5fc7]/30'
-                                                            : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white hover:border-slate-500'
-                                                    }`}
-                                                >
-                                                    {h} hrs
-                                                </button>
+                                                <>
+                                                    {presets.map((h) => {
+                                                        const isSelected = planScope === 'day' ? allottedHours === h : weeklyTotalHours === h;
+                                                        return (
+                                                            <button
+                                                                key={h}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (planScope === 'day') setAllottedHours(h);
+                                                                    else setWeeklyTotalHours(h);
+                                                                }}
+                                                                className={`px-3 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                                                                    isSelected
+                                                                        ? 'bg-[#5b5fc7] text-white border-[#5b5fc7] shadow-sm shadow-[#5b5fc7]/30'
+                                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white hover:border-slate-500'
+                                                                }`}
+                                                            >
+                                                                {h} hrs
+                                                            </button>
+                                                        );
+                                                    })}
+                                                    <div className="flex items-center gap-1.5 ml-auto text-xs text-slate-400">
+                                                        <span>Custom:</span>
+                                                        <input
+                                                            type="number"
+                                                            min={1}
+                                                            max={maxCustomHours}
+                                                            value={planScope === 'day' ? allottedHours : weeklyTotalHours}
+                                                            onChange={(e) => {
+                                                                const val = Math.max(1, Math.min(maxCustomHours, Number(e.target.value) || 1));
+                                                                if (planScope === 'day') setAllottedHours(val);
+                                                                else setWeeklyTotalHours(val);
+                                                            }}
+                                                            className="w-14 px-1.5 py-0.5 rounded-lg text-xs font-semibold border bg-black/20 dark:bg-white/5 text-center focus:outline-none focus:border-[#5b5fc7]"
+                                                            style={{ color: 'var(--text-primary)', borderColor: 'rgba(255, 255, 255, 0.12)' }}
+                                                        />
+                                                        <span>h</span>
+                                                    </div>
+                                                </>
                                             );
-                                        })}
-                                        <div className="flex items-center gap-1.5 ml-auto text-xs text-slate-400">
-                                            <span>Custom:</span>
-                                            <input
-                                                type="number"
-                                                min={1}
-                                                max={planScope === 'day' ? 16 : 80}
-                                                value={planScope === 'day' ? allottedHours : weeklyTotalHours}
-                                                onChange={(e) => {
-                                                    const val = Math.max(1, Math.min(planScope === 'day' ? 16 : 80, Number(e.target.value) || 1));
-                                                    if (planScope === 'day') setAllottedHours(val);
-                                                    else setWeeklyTotalHours(val);
-                                                }}
-                                                className="w-12 px-1.5 py-0.5 rounded-lg text-xs font-semibold border bg-black/20 dark:bg-white/5 text-center focus:outline-none focus:border-[#5b5fc7]"
-                                                style={{ color: 'var(--text-primary)', borderColor: 'rgba(255, 255, 255, 0.12)' }}
-                                            />
-                                            <span>h</span>
-                                        </div>
+                                        })()}
                                     </div>
                                 </div>
 
@@ -2241,6 +3026,67 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                             >
                                                 Dinner
                                             </button>
+
+                                            <span className="w-px h-4 bg-white/10 mx-0.5" />
+
+                                            {/* Occupation Bubbles: School, College, Office, Uni (Mutually Exclusive: Either-Or) */}
+                                            {(() => {
+                                                const OCCUPATION_OPTIONS = [
+                                                    { label: 'School', title: 'School' },
+                                                    { label: 'College', title: 'College' },
+                                                    { label: 'Office', title: 'Office' },
+                                                    { label: 'Uni', title: 'Uni' },
+                                                ];
+
+                                                const selectedOccupation = OCCUPATION_OPTIONS.find((occ) =>
+                                                    makerTasks.some((t) => {
+                                                        const low = t.title.toLowerCase().trim();
+                                                        if (occ.label === 'Uni') {
+                                                            return low === 'uni' || low.startsWith('uni ') || low.endsWith(' uni') || low.includes(' uni ') || low.includes('university');
+                                                        }
+                                                        return low.includes(occ.label.toLowerCase());
+                                                    })
+                                                );
+                                                const hasOccupationSelected = Boolean(selectedOccupation);
+
+                                                return OCCUPATION_OPTIONS.map((occ) => {
+                                                    const isSelected = selectedOccupation?.label === occ.label;
+                                                    const isDisabled = hasOccupationSelected && !isSelected;
+
+                                                    return (
+                                                        <button
+                                                            key={occ.label}
+                                                            type="button"
+                                                            disabled={isDisabled}
+                                                            title={isDisabled ? 'Only one occupation can be chosen at a time' : undefined}
+                                                            onClick={() => {
+                                                                if (isSelected) {
+                                                                    // Deselect: remove all occupation tasks
+                                                                    setMakerTasks((prev) => prev.filter((t) => !isOccupationBlock(t.title)));
+                                                                } else if (!isDisabled) {
+                                                                    // Select: replace any occupation tasks, add this one, and set start time to 9 AM
+                                                                    setMakerTasks((prev) => [
+                                                                        ...prev.filter((t) => !isOccupationBlock(t.title)),
+                                                                        { title: occ.title, category: 'development', priority: 'high' },
+                                                                    ]);
+                                                                    if (startHourInput > 9) {
+                                                                        setStartHourInput(9);
+                                                                    }
+                                                                }
+                                                            }}
+                                                            className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all select-none ${
+                                                                isSelected
+                                                                    ? 'bg-[#5b5fc7]/25 border-[#5b5fc7]/80 text-[#8b92f8] shadow-sm font-bold cursor-pointer'
+                                                                    : isDisabled
+                                                                    ? 'bg-black/10 dark:bg-white/5 border-slate-800/40 text-slate-500 opacity-40 cursor-not-allowed'
+                                                                    : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white hover:border-slate-500 cursor-pointer'
+                                                            }`}
+                                                        >
+                                                            {occ.label}
+                                                        </button>
+                                                    );
+                                                });
+                                            })()}
                                         </div>
 
                                         <div className="flex items-center gap-1.5 shrink-0 text-xs text-slate-300">
@@ -2319,55 +3165,185 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                         borderColor: 'rgba(255, 255, 255, 0.08)',
                                     }}
                                 >
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between gap-2 flex-wrap">
                                         <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
                                             {planScope === 'day' ? `Today's Tasks (${makerTasks.length})` : `Weekly Tasks (${makerTasks.length})`}
                                         </label>
-                                        {(tasks || []).filter(t => !t.completed).length > 0 && (
+                                        <div className="flex items-center gap-2">
                                             <button
                                                 type="button"
-                                                onClick={handleImportTasks}
-                                                className="text-xs px-2.5 py-1 rounded-lg bg-[#5b5fc7]/15 hover:bg-[#5b5fc7]/25 text-[#7b83eb] font-semibold transition-all flex items-center gap-1.5 cursor-pointer"
+                                                onClick={() => setMakerTasks([])}
+                                                disabled={makerTasks.length === 0}
+                                                className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
+                                                    makerTasks.length === 0
+                                                        ? 'bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed opacity-50'
+                                                        : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 cursor-pointer shadow-sm'
+                                                }`}
+                                                title="Remove all tasks from list"
                                             >
-                                                <Download size={11} /> Import from Tasks ({tasks.filter(t => !t.completed).length})
+                                                <Trash2 size={11} /> Remove All
                                             </button>
-                                        )}
+
+                                            {(() => {
+                                                const uncompleted = (tasks || []).filter((t) => !t.completed);
+                                                if (uncompleted.length === 0) return null;
+                                                const unimported = uncompleted.filter(
+                                                    (t) => !makerTasks.some((m) => m.title.trim().toLowerCase() === t.text.trim().toLowerCase())
+                                                );
+                                                const allImported = unimported.length === 0;
+                                                return (
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleImportTasks}
+                                                        disabled={allImported}
+                                                        className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
+                                                            allImported
+                                                                ? 'bg-white/5 text-slate-500 border border-white/5 cursor-default'
+                                                                : 'bg-[#5b5fc7]/15 hover:bg-[#5b5fc7]/25 text-[#7b83eb] cursor-pointer'
+                                                        }`}
+                                                    >
+                                                        <Download size={11} /> {allImported ? 'All Tasks Imported' : `Import from Tasks (${unimported.length})`}
+                                                    </button>
+                                                );
+                                            })()}
+                                        </div>
                                     </div>
 
                                     <form
                                         onSubmit={(e) => {
                                             e.preventDefault();
                                             if (!newTaskTitle.trim()) return;
-                                            setMakerTasks((prev) => [
-                                                ...prev,
-                                                {
-                                                    title: newTaskTitle.trim(),
-                                                    priority: 'high',
-                                                },
-                                            ]);
-                                            setNewTaskTitle('');
+                                            if (enableDirectTime) {
+                                                handleDirectPlanTask();
+                                            } else {
+                                                setMakerTasks((prev) => [
+                                                    ...prev,
+                                                    {
+                                                        title: newTaskTitle.trim(),
+                                                        priority: 'high',
+                                                    },
+                                                ]);
+                                                setNewTaskTitle('');
+                                            }
                                         }}
-                                        className="flex items-center gap-2"
+                                        className="space-y-2"
                                     >
-                                        <input
-                                            type="text"
-                                            placeholder={planScope === 'day' ? "Add task (e.g. Video editing, Leetcode, Build feature)..." : "Add weekly task (e.g. Build auth, Write docs, Deploy staging)..."}
-                                            value={newTaskTitle}
-                                            onChange={(e) => setNewTaskTitle(e.target.value)}
-                                            className="flex-1 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] transition-all bg-black/20 dark:bg-white/5"
-                                            style={{
-                                                color: 'var(--text-primary)',
-                                                borderColor: 'rgba(255, 255, 255, 0.12)',
-                                            }}
-                                        />
+                                        <div className="flex items-center gap-2">
+                                            <input
+                                                type="text"
+                                                placeholder={planScope === 'day' ? "Add task (e.g. Video editing, Leetcode, Build feature)..." : "Add weekly task (e.g. Build auth, Write docs, Deploy staging)..."}
+                                                value={newTaskTitle}
+                                                onChange={(e) => setNewTaskTitle(e.target.value)}
+                                                className="flex-1 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] transition-all bg-black/20 dark:bg-white/5"
+                                                style={{
+                                                    color: 'var(--text-primary)',
+                                                    borderColor: 'rgba(255, 255, 255, 0.12)',
+                                                }}
+                                            />
 
-                                        <button
-                                            type="submit"
-                                            disabled={!newTaskTitle.trim()}
-                                            className="py-2 px-3.5 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm shrink-0 cursor-pointer"
-                                        >
-                                            <Plus size={14} /> Add
-                                        </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setEnableDirectTime(!enableDirectTime)}
+                                                className={`px-2.5 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                                                    enableDirectTime
+                                                        ? 'bg-[#5b5fc7]/25 text-[#8b92f8] border-[#5b5fc7]/70 shadow-sm'
+                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-400 hover:text-white hover:border-slate-500'
+                                                }`}
+                                                title="Toggle direct time entry for this task"
+                                            >
+                                                <Clock size={13} />
+                                                <span className="hidden sm:inline">{enableDirectTime ? 'Direct Time On' : 'Set Time'}</span>
+                                            </button>
+
+                                            <button
+                                                type="submit"
+                                                disabled={!newTaskTitle.trim()}
+                                                className="py-2 px-3.5 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm shrink-0 cursor-pointer"
+                                            >
+                                                <Plus size={14} /> {enableDirectTime ? 'Plan at Time' : 'Add'}
+                                            </button>
+                                        </div>
+
+                                        {/* Direct Time Planning Controls */}
+                                        {enableDirectTime && (
+                                            <div
+                                                className="p-2.5 rounded-xl border flex items-center justify-between gap-2 flex-wrap text-xs animate-fade-in"
+                                                style={{
+                                                    background: 'rgba(91, 95, 199, 0.08)',
+                                                    borderColor: 'rgba(91, 95, 199, 0.3)',
+                                                }}
+                                            >
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="text-[11px] font-bold text-[#8b92f8] flex items-center gap-1">
+                                                        <Clock size={12} /> Time:
+                                                    </span>
+                                                    <select
+                                                        value={directStartHour}
+                                                        onChange={(e) => setDirectStartHour(Number(e.target.value))}
+                                                        className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                        style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
+                                                    >
+                                                        {Array.from({ length: 24 }).map((_, h) => (
+                                                            <option key={h} value={h}>
+                                                                {formatHourLabel(h)}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                    <select
+                                                        value={directStartMinute}
+                                                        onChange={(e) => setDirectStartMinute(Number(e.target.value))}
+                                                        className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                        style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
+                                                    >
+                                                        <option value={0}>:00</option>
+                                                        <option value={15}>:15</option>
+                                                        <option value={30}>:30</option>
+                                                        <option value={45}>:45</option>
+                                                    </select>
+
+                                                    <span className="text-[11px] font-bold text-[#8b92f8] ml-1">Duration:</span>
+                                                    <select
+                                                        value={directDuration}
+                                                        onChange={(e) => setDirectDuration(Number(e.target.value))}
+                                                        className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                        style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
+                                                    >
+                                                        <option value={15}>15m</option>
+                                                        <option value={30}>30m</option>
+                                                        <option value={45}>45m</option>
+                                                        <option value={60}>1 hour</option>
+                                                        <option value={90}>1.5 hours</option>
+                                                        <option value={120}>2 hours</option>
+                                                    </select>
+
+                                                    <span className="text-[11px] font-bold text-[#8b92f8] ml-1">Category:</span>
+                                                    <select
+                                                        value={directCategory}
+                                                        onChange={(e) => setDirectCategory(e.target.value as any)}
+                                                        className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                        style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
+                                                    >
+                                                        <option value="development">💻 Dev</option>
+                                                        <option value="research">📚 Research</option>
+                                                        <option value="meeting">👥 Meeting</option>
+                                                        <option value="design">🎨 Design</option>
+                                                        <option value="writing">✍️ Writing</option>
+                                                        <option value="break">☕ Break</option>
+                                                        <option value="meal">🥗 Meal</option>
+                                                        <option value="other">📦 Other</option>
+                                                    </select>
+                                                </div>
+
+                                                <button
+                                                    type="button"
+                                                    disabled={!newTaskTitle.trim()}
+                                                    onClick={() => handleDirectPlanTask()}
+                                                    className="px-3 py-1 rounded-lg bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer ml-auto"
+                                                >
+                                                    <Check size={12} /> Plan at this Time
+                                                </button>
+                                            </div>
+                                        )}
                                     </form>
 
                                     {/* Personalized Quick Suggestions */}
@@ -2426,13 +3402,37 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                                         </span>
                                                     </div>
 
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setMakerTasks((prev) => prev.filter((_, i) => i !== idx))}
-                                                        className="p-1 rounded text-slate-400 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
-                                                    >
-                                                        <Trash2 size={13} />
-                                                    </button>
+                                                    <div className="flex items-center gap-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const targetDateStr = formatDateStr(selectedDate);
+                                                                setQuickCreateModal({
+                                                                    dateStr: targetDateStr,
+                                                                    startHour: directStartHour,
+                                                                    startMinute: directStartMinute,
+                                                                    title: t.title,
+                                                                    category: t.category || 'development',
+                                                                    priority: t.priority || 'high',
+                                                                    durationMinutes: directDuration,
+                                                                    subtitle: '',
+                                                                    addToTasks: false,
+                                                                });
+                                                                setIsMakerOpen(false);
+                                                            }}
+                                                            className="p-1 rounded text-slate-400 hover:text-indigo-400 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
+                                                            title="Schedule this task at specific time"
+                                                        >
+                                                            <Clock size={13} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setMakerTasks((prev) => prev.filter((_, i) => i !== idx))}
+                                                            className="p-1 rounded text-slate-400 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
+                                                        >
+                                                            <Trash2 size={13} />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             ))
                                         )}
@@ -2449,27 +3449,53 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                         </span>
                                     </div>
 
-                                    <div className="flex items-center gap-2.5">
+                                    <div className="flex items-center gap-2">
                                         <button
                                             type="button"
                                             onClick={() => setIsMakerOpen(false)}
-                                            className="px-3.5 py-2 rounded-xl text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 cursor-pointer"
+                                            className="px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 cursor-pointer"
                                         >
                                             Cancel
                                         </button>
                                         <button
                                             type="button"
+                                            onClick={() => {
+                                                const targetDateStr = formatDateStr(selectedDate);
+                                                const isSelectedToday = targetDateStr === todayStr;
+                                                const currentH = new Date().getHours();
+                                                const actualStartHour = isSelectedToday ? Math.max(directStartHour, currentH) : directStartHour;
+                                                setIsMakerOpen(false);
+                                                setQuickCreateModal({
+                                                    dateStr: targetDateStr,
+                                                    startHour: Math.min(23, actualStartHour),
+                                                    startMinute: directStartMinute,
+                                                    title: newTaskTitle.trim() || (makerTasks[0]?.title || ''),
+                                                    category: directCategory,
+                                                    priority: 'high',
+                                                    durationMinutes: directDuration,
+                                                    subtitle: '',
+                                                    addToTasks: false,
+                                                });
+                                            }}
+                                            className="px-3 py-1.5 rounded-lg border border-[#5b5fc7]/40 bg-[#5b5fc7]/15 hover:bg-[#5b5fc7]/25 text-[#7b83eb] font-semibold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                                            title="Plan at a specific time directly without running the auto-generator"
+                                        >
+                                            <Clock size={13} />
+                                            <span>Plan</span>
+                                        </button>
+                                        <button
+                                            type="button"
                                             onClick={handleGenerateSchedule}
                                             disabled={isGenerating || (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast)}
-                                            className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs shadow-md shadow-[#5b5fc7]/20 transition-all disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                                            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs shadow-md shadow-[#5b5fc7]/20 transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                                         >
                                             {isGenerating ? (
                                                 <>
-                                                    <Loader2 size={14} className="animate-spin text-white" />
-                                                    <span>Optimizing Schedule...</span>
+                                                    <Loader2 size={13} className="animate-spin text-white" />
+                                                    <span>Generating...</span>
                                                 </>
                                             ) : (
-                                                <span>Generate Schedule</span>
+                                                <span>Generate</span>
                                             )}
                                         </button>
                                     </div>
@@ -2490,10 +3516,10 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
                                             : startHourInput;
 
                                         return (
-                                            <div className="p-3.5 rounded-2xl border space-y-2 bg-[#5b5fc7]/10 border-[#5b5fc7]/30">
+                                            <div className="p-3.5 rounded-2xl border space-y-2.5 bg-[#5b5fc7]/10 border-[#5b5fc7]/30">
                                                 <div className="flex items-center justify-between text-xs font-semibold">
                                                     <span className="text-[#5b5fc7] dark:text-[#7b83eb] flex items-center gap-1.5 font-bold">
-                                                        <Sparkles size={13} /> {planScope === 'day' ? `${formatHourLabel(previewSchedule[0]?.startHour || startHourInput)} → ${formatHourLabel(endHour)} Routine` : `${scheduledDaysCount}-Day Weekly Plan (${previewSchedule.length} total blocks)`}
+                                                        <Clock size={13} /> {planScope === 'day' ? `${formatHourLabel(previewSchedule[0]?.startHour || startHourInput)} → ${formatHourLabel(endHour)} Routine` : `${scheduledDaysCount}-Day Weekly Plan (${previewSchedule.length} total blocks)`}
                                                     </span>
                                                     <span className="font-mono text-emerald-400 text-xs font-bold">
                                                         {(productiveMins / 60).toFixed(1)}h {planScope === 'day' ? `/ ${allottedHours}h Work Time` : `/ ${weeklyTotalHours}h Weekly Total (~${(productiveMins / 60 / Math.max(1, scheduledDaysCount)).toFixed(1)}h/day)`}
@@ -2502,14 +3528,14 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
 
                                                 <div className="w-full h-2 rounded-full bg-slate-800/60 overflow-hidden">
                                                     <div
-                                                        className="h-full transition-all duration-300 rounded-full bg-gradient-to-r from-[#5b5fc7] via-indigo-400 to-emerald-400 w-full"
+                                                        className="h-full transition-all duration-300 rounded-full bg-[#5b5fc7] w-full"
                                                     />
                                                 </div>
                                             </div>
                                         );
                                     })()}
 
-                                    {/* Mindset & Focus / Recovery Card */}
+                                    {/* Mindset & Focus / Recovery Card - Prominently Highlighted Sections */}
                                     {(() => {
                                         const budgetForMindset = planScope === 'day' ? allottedHours : Math.round(weeklyTotalHours / Math.max(1, activeWeekDates.length));
                                         const mindsetData = getMindsetCardData(previewSchedule, budgetForMindset, startHourInput);
@@ -2517,36 +3543,80 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
 
                                         return (
                                             <div
-                                                className={`p-3.5 rounded-2xl border space-y-1.5 backdrop-blur-sm ${
-                                                    isSleepType
-                                                        ? 'bg-gradient-to-br from-indigo-950/40 via-purple-950/20 to-slate-900/60 border-indigo-500/20'
-                                                        : 'bg-gradient-to-br from-blue-950/40 via-indigo-950/20 to-slate-900/60 border-blue-500/20'
-                                                }`}
+                                                className="p-4 rounded-2xl border space-y-3 backdrop-blur-md shadow-sm transition-all"
+                                                style={{
+                                                    background: isDark
+                                                        ? 'rgba(91, 95, 199, 0.08)'
+                                                        : 'rgba(91, 95, 199, 0.04)',
+                                                    borderColor: isDark
+                                                        ? 'rgba(91, 95, 199, 0.28)'
+                                                        : 'rgba(91, 95, 199, 0.22)',
+                                                }}
                                             >
-                                                <div className="flex items-center justify-between text-xs">
-                                                    <div className={`flex items-center gap-1.5 font-bold ${isSleepType ? 'text-indigo-400' : 'text-blue-400'}`}>
-                                                        {isSleepType ? <Moon size={14} className="text-indigo-400" /> : <Sparkles size={14} className="text-blue-400" />}
-                                                        <span>{mindsetData.title}</span>
+                                                {/* 1. Header Section: Title & Badge */}
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2 font-bold text-xs text-[#5b5fc7] dark:text-[#8b92f7]">
+                                                        {isSleepType ? <Moon size={15} /> : <Target size={15} />}
+                                                        <span className="tracking-tight text-sm font-display">{mindsetData.title}</span>
                                                     </div>
                                                     <span
-                                                        className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full border ${
-                                                            isSleepType
-                                                                ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/25'
-                                                                : 'bg-blue-500/15 text-blue-300 border-blue-500/25'
-                                                        }`}
+                                                        className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border shadow-sm"
+                                                        style={{
+                                                            background: isSleepType
+                                                                ? 'rgba(129, 140, 248, 0.15)'
+                                                                : 'rgba(91, 95, 199, 0.2)',
+                                                            borderColor: isSleepType
+                                                                ? 'rgba(129, 140, 248, 0.3)'
+                                                                : 'rgba(91, 95, 199, 0.4)',
+                                                            color: isSleepType ? '#a5b4fc' : '#8b92f7',
+                                                        }}
                                                     >
                                                         {mindsetData.badge}
                                                     </span>
                                                 </div>
-                                                <p className="text-xs italic text-slate-300 leading-relaxed pt-0.5">
-                                                    “{mindsetData.quote}”
-                                                </p>
-                                                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-700/30">
-                                                    <span className="font-medium text-slate-400">— {mindsetData.author}</span>
-                                                    <span className={isSleepType ? 'text-amber-300/90 font-medium' : 'text-emerald-300/90 font-medium'}>
-                                                        {mindsetData.tip}
-                                                    </span>
+
+                                                {/* 2. Highlighted Quote Block */}
+                                                <div
+                                                    className="p-3.5 rounded-xl border relative overflow-hidden"
+                                                    style={{
+                                                        background: isDark ? 'rgba(0, 0, 0, 0.35)' : 'rgba(255, 255, 255, 0.6)',
+                                                        borderColor: 'rgba(91, 95, 199, 0.25)',
+                                                        borderLeft: '4px solid #5b5fc7',
+                                                    }}
+                                                >
+                                                    <div className="flex items-start gap-2.5">
+                                                        <Quote size={18} className="text-[#5b5fc7] shrink-0 mt-0.5 opacity-80" />
+                                                        <div className="space-y-1.5 flex-1 min-w-0">
+                                                            <p className="text-[13px] font-medium leading-snug" style={{ color: 'var(--text-primary)' }}>
+                                                                “{mindsetData.quote}”
+                                                            </p>
+                                                            <div className="flex items-center gap-2 pt-0.5">
+                                                                <span className="text-[11px] font-semibold text-[#5b5fc7] dark:text-[#a5b4fc]">
+                                                                    — {mindsetData.author}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
+
+                                                {/* 3. Highlighted Insight / Strategy Tip */}
+                                                {mindsetData.tip && (
+                                                    <div
+                                                        className="flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold"
+                                                        style={{
+                                                            background: isSleepType
+                                                                ? 'rgba(245, 158, 11, 0.1)'
+                                                                : 'rgba(16, 185, 129, 0.1)',
+                                                            borderColor: isSleepType
+                                                                ? 'rgba(245, 158, 11, 0.25)'
+                                                                : 'rgba(16, 185, 129, 0.25)',
+                                                            color: isSleepType ? '#fbbf24' : '#34d399',
+                                                        }}
+                                                    >
+                                                        <span className="text-sm shrink-0">{isSleepType ? '🌙' : '⚡'}</span>
+                                                        <span className="leading-snug">{mindsetData.tip}</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })()}
@@ -2710,6 +3780,80 @@ const [allRoutines, setAllRoutines] = useState<PlannedRoutineItem[]>(() => {
             {isLoginModalOpen && (
                 <LoginModal onClose={() => setIsLoginModalOpen(false)} />
             )}
+
+            {/* 9. Right-Click Context Menu for Routine Events (Portaled to document.body to avoid parent transform offsets & scrollbars) */}
+            {contextMenu &&
+                createPortal(
+                    <div
+                        className="fixed z-[99999] min-w-[175px] rounded-2xl border p-1.5 shadow-2xl animate-scale-in text-xs font-medium backdrop-blur-xl"
+                        style={{
+                            top: `${contextMenu.y}px`,
+                            left: `${contextMenu.x}px`,
+                            background: isDark ? 'rgba(15, 23, 42, 0.96)' : 'rgba(255, 255, 255, 0.98)',
+                            borderColor: 'var(--border-card)',
+                            boxShadow: isDark
+                                ? '0 12px 30px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06)'
+                                : '0 12px 25px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="px-2 py-1 text-[10px] font-semibold text-slate-400 truncate max-w-[190px] border-b mb-1 border-black/5 dark:border-white/5">
+                            {contextMenu.item.title}
+                        </div>
+
+                        <button
+                            onClick={() => {
+                                const item = contextMenu.item;
+                                setContextMenu(null);
+                                setSelectedRoutineDetails({ ...item });
+                            }}
+                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-left transition-colors hover:bg-indigo-500/10 hover:text-indigo-400 text-slate-700 dark:text-slate-200 cursor-pointer"
+                        >
+                            <Edit3 size={13} className="text-indigo-400 shrink-0" />
+                            <span>Edit Event</span>
+                        </button>
+
+                        <button
+                            onClick={() => {
+                                const item = contextMenu.item;
+                                setContextMenu(null);
+                                saveMasterRoutines(
+                                    allRoutines.map((r) =>
+                                        r.id === item.id ? { ...r, completed: !r.completed } : r
+                                    )
+                                );
+                            }}
+                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-left transition-colors hover:bg-black/5 dark:hover:bg-white/5 text-slate-700 dark:text-slate-200 cursor-pointer"
+                        >
+                            {contextMenu.item.completed ? (
+                                <>
+                                    <Circle size={13} className="text-slate-400 shrink-0" />
+                                    <span>Mark Incomplete</span>
+                                </>
+                            ) : (
+                                <>
+                                    <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                                    <span>Mark Done</span>
+                                </>
+                            )}
+                        </button>
+
+                        <div className="my-1 border-t border-black/5 dark:border-white/5" />
+
+                        <button
+                            onClick={() => {
+                                const item = contextMenu.item;
+                                setContextMenu(null);
+                                saveMasterRoutines(allRoutines.filter((r) => r.id !== item.id));
+                            }}
+                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-left transition-colors text-red-500 hover:bg-red-500/10 hover:text-red-400 cursor-pointer"
+                        >
+                            <Trash2 size={13} className="shrink-0" />
+                            <span>Delete Event</span>
+                        </button>
+                    </div>,
+                    document.body
+                )}
         </div>
     );
 };

@@ -3,6 +3,7 @@ import {
     LayoutDashboard,
     Calendar,
     Target,
+    Brain,
     Coffee,
     Sun,
     Moon,
@@ -259,8 +260,8 @@ export const Navbar = ({
                         collapsed={!isPinned}
                     />
                     <SidebarLink
-                        icon={Target}
-                        label="Set your goals"
+                        icon={Brain}
+                        label="AI Insights"
                         active={currentView === 'ai'}
                         onClick={() => handleLinkClick('ai')}
                         collapsed={!isPinned}

@@ -5,7 +5,7 @@
       <img src="https://img.shields.io/github/stars/Heisen47/produchive?style=for-the-badge&color=eab308&logo=github&labelColor=333333" alt="GitHub stars" />
     </a>
   </p>
-  <strong>If you find Produchive useful, please consider giving it a ⭐ on GitHub!</strong>
+  <strong>If you find Produchive useful, please consider giving it a star on GitHub!</strong>
   <br/>
   It helps the project grow and is the best way to motivate me to keep improving it.
 </div>
@@ -23,11 +23,14 @@ Produchive is a self-hosted, offline-first productivity application that helps y
 
 ## Key Features
 
-*   **Offline & Private**: All data is stored locally on your device. No cloud, no tracking.
-*   **Self-Hosted**: You own your data.
-*   **Activity Monitoring**: Automatically tracks what applications you use.
-*   **AI Performance Judge**: An optional AI feature that analyzes your activity against your set goals.
-    *   *Note: Internet is only required once to download the AI model. You can skip this feature if you prefer.*
+*   **Smart Routine & Calendar Scheduler (v3.0.2)**: 7-day visual calendar, circadian rhythm balance (deep work, meetings, breaks, sleep), intelligent auto-balancing, and bidirectional task synchronization.
+*   **Automatic Screen Activity Detection (v3.0.2)**: Automatically detects active windows and logs focus sessions into the calendar with duration, handling multi-app overflow (`+N apps detected`) and 1-click user verification.
+*   **On-Device AI Distraction Judge & Native Nudges (v3.0.2)**: Local LLM monitors active windows against goals and delivers polite native desktop notifications when off-task.
+*   **Study-Only Pomodoro & Spaced Revision (v3.0.2)**: 25/5 Pomodoro cycles activated strictly during study mode, plus gentle 4-5 day spaced repetition check-ins with 3-action controls.
+*   **3D Virtual Focus Rooms (v3.0.2)**: Three.js powered study environments (Classroom, Café, Library) with ambient audio, timer sync, and NPC study companions.
+*   **Focus Telemetry & Custom AI Prompts (v3.0.1)**: Real-time context switch tracking, Focus Score analytics, and built-in Prompt Editor for custom AI Judge personas.
+*   **Offline & Strictly Private**: All data is stored locally on your device in LowDB JSON. No cloud, no tracking.
+*   **Self-Hosted & Open Source**: You own your data 100%. Optional local AI runs on WebGPU.
 
 ## Download
 

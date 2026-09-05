@@ -5,10 +5,10 @@
  * All base URLs come from config.ts (single source of truth).
  */
 
-import { API_BASE_URL, WEB_BASE_URL } from './config';
+import { API_BASE_URL, WEB_BASE_URL, FEEDBACK_GOOGLE_FORM_URL } from './config';
 
 // Re-export so existing `import { WEB_BASE_URL } from '../lib/urls'` still works.
-export { WEB_BASE_URL };
+export { WEB_BASE_URL, FEEDBACK_GOOGLE_FORM_URL };
 
 /**
  * Build a website URL with optional auth token attached as a query param.
@@ -45,3 +45,11 @@ export function openUrl(url: string): void {
 export function openWebPage(path: string): void {
   openUrl(getWebUrl(path));
 }
+
+/**
+ * Open the Google Feedback Form in the user's default system browser.
+ */
+export function openFeedbackForm(): void {
+  openUrl(FEEDBACK_GOOGLE_FORM_URL);
+}
+

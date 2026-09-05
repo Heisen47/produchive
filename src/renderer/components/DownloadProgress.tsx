@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useMemo } from 'react';
 import { Download, Cpu, Zap, Loader2 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 
@@ -9,6 +9,7 @@ interface DownloadProgressProps {
 export const DownloadProgress: React.FC<DownloadProgressProps> = ({ progress }) => {
     const { isDark } = useTheme();
     const pct = typeof progress.progress === 'number' ? Math.round(progress.progress * 100) : null;
+    const startTimeRef = useRef<number>(Date.now());
 
     // Detect stage from text
     const isDownloading = progress.text.toLowerCase().includes('download');
@@ -16,6 +17,41 @@ export const DownloadProgress: React.FC<DownloadProgressProps> = ({ progress }) 
 
     const stageIcon = isCompiling ? <Cpu size={20} /> : isDownloading ? <Download size={20} /> : <Zap size={20} />;
     const stageColor = isCompiling ? '#f472b6' : isDownloading ? '#60a5fa' : '#4ade80';
+
+    // Compute approximate remaining time (ETA)
+    const remainingTime = useMemo(() => {
+        if (pct === null || pct <= 0 || pct >= 100) return null;
+
+        // Try parsing elapsed seconds from progress report text (e.g. "71 secs elapsed")
+        let elapsedSec: number | null = null;
+        const match = progress.text.match(/(\d+(?:\.\d+)?)\s*(?:secs?|seconds?|s)\s*elapsed/i);
+        if (match) {
+            elapsedSec = parseFloat(match[1]);
+        }
+
+        // Fallback to measured wall-clock elapsed time
+        if (!elapsedSec || elapsedSec <= 0) {
+            elapsedSec = (Date.now() - startTimeRef.current) / 1000;
+        }
+
+        if (elapsedSec < 3) {
+            return 'Estimating...';
+        }
+
+        const p = pct / 100;
+        const remainingSec = Math.round((elapsedSec * (1 - p)) / p);
+
+        if (remainingSec <= 0) return 'Almost ready';
+        if (remainingSec < 60) return `~${remainingSec}s left`;
+        const mins = Math.floor(remainingSec / 60);
+        const secs = remainingSec % 60;
+        if (mins < 60) {
+            return secs > 0 ? `~${mins}m ${secs}s left` : `~${mins}m left`;
+        }
+        const hours = Math.floor(mins / 60);
+        const remMins = mins % 60;
+        return `~${hours}h ${remMins}m left`;
+    }, [pct, progress.text]);
 
     return (
         <div
@@ -26,21 +62,30 @@ export const DownloadProgress: React.FC<DownloadProgressProps> = ({ progress }) 
         >
             <div className="flex items-center gap-4 mb-4">
                 <div
-                    className="p-2.5 rounded-xl"
+                    className="p-2.5 rounded-xl shrink-0"
                     style={{ background: `${stageColor}15`, color: stageColor }}
                 >
                     {stageIcon}
                 </div>
-                <div className="flex-1">
-                    <h4 className="font-display font-bold" style={{ color: 'var(--text-primary)' }}>
+                <div className="flex-1 min-w-0">
+                    <h4 className="font-display font-bold leading-tight" style={{ color: 'var(--text-primary)' }}>
                         {isCompiling ? 'Compiling Model' : isDownloading ? 'Downloading Model' : 'Initializing AI'}
                     </h4>
-                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{progress.text}</p>
+                    <p className="text-[11px] leading-relaxed mt-0.5 break-words opacity-80" style={{ color: 'var(--text-muted)' }}>
+                        {progress.text}
+                    </p>
                 </div>
                 {pct !== null && (
-                    <span className="text-xl font-display font-bold" style={{ color: stageColor }}>
-                        {pct}%
-                    </span>
+                    <div className="flex flex-col items-end shrink-0 pl-2">
+                        <span className="text-xl font-display font-bold leading-tight" style={{ color: stageColor }}>
+                            {pct}%
+                        </span>
+                        {remainingTime && (
+                            <span className="text-[11px] font-medium text-slate-400 mt-0.5 whitespace-nowrap">
+                                {remainingTime}
+                            </span>
+                        )}
+                    </div>
                 )}
             </div>
 

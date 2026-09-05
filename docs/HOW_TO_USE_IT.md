@@ -48,46 +48,107 @@ You can always edit your goals from the **Your Targets** section on the main das
 
 ---
 
-## Using the Dashboard
+## Using the Dashboard & Routine Hub
 
-The dashboard is your productivity command center.
+The dashboard is your central focus command center.
 
 | Feature | What It Does |
 |---------|--------------|
-| **Start Monitoring** | Begins tracking your app usage. Click again to stop. |
+| **Start Monitoring** | Begins real-time foreground window tracking. Click again to stop. |
+| **Today's Schedule & Routine** | Displays your active scheduled block, upcoming routine, daily adherence progress, and recent auto-detected screen events. |
 | **Your Targets** | Shows your current goals. Add, edit, or delete them here. |
-| **Activity Stats** | Displays metrics like total time tracked and number of apps used. |
-| **Top Apps** | Lists the applications you've used the most during this session. |
+| **Activity Stats** | Displays metrics like total time tracked, focus score, and apps used. |
+| **Top Apps** | Lists the applications you've spent the most time in. |
 
 ---
 
-##  AI Productivity Judge
+## Smart Routine and Calendar Scheduler
 
-This is the core feature! The AI analyzes your activity and tells you how productive you've been.
+Produchive v3.0.2 includes a master 7-day visual calendar built around circadian rhythms.
+
+1. **Circadian Rhythm Budgets**: View planned vs allocated hours across Deep Work, Meetings, Meals, Breaks, and Sleep.
+2. **Auto-Scheduling & Balancing**: Use the Smart Scheduler to automatically balance your weekly routine without overlapping blocks.
+3. **Bidirectional Task Sync**: Complete a task in your task list and it immediately marks as completed on your calendar (and vice versa).
+
+---
+
+## Automatic Activity Detection and Calendar Logging
+
+Never manually track sessions again.
+
+1. **Auto-Detection**: With screen monitoring enabled, Produchive tracks foreground activity and automatically logs verified focus blocks directly to your calendar.
+2. **Multi-App Grouping**: If you switch between apps (e.g. VS Code, Terminal, Browser) during a block, it displays a clean `+N apps detected` badge with full percentage breakdowns on click.
+3. **1-Click Accuracy Feedback**: Rate detection accuracy directly in-app or click to open the feedback form to help refine categorization.
+
+---
+
+## AI Distraction Judge and Native Desktop Nudges
+
+When an on-device AI model is downloaded:
+
+1. **Distraction Evaluation**: The AI judge evaluates whether your active window aligns with your scheduled routine block or goal.
+2. **Proactive Alerts**: Spending $\ge 60$ seconds on non-goal apps (e.g. YouTube, social media) triggers a polite native desktop notification and toast warning.
+3. **10-Minute Cooldown**: Rate-limited to prevent notification fatigue.
+
+---
+
+## Study-Only Pomodoro and Spaced Revision
+
+Intelligent study assistance built for retention:
+
+1. **Study-Triggered Pomodoro**: 25-minute focus / 5-minute break timers initiate *only* when you are actively studying (Focus Room study mode, reading PDFs, notes, or study routine blocks).
+2. **Spaced Repetition Check-In**: If you haven't studied a topic (e.g., *Photosynthesis*) in 4–5 days, Produchive offers a gentle revision nudge with 3 choices:
+   - **Yes, Revise**: Slots a 25-minute revision block into your calendar.
+   - **Not Today**: Snoozes reminder for 24 hours.
+   - **Never give me reminder for this**: Permanently disables future alerts for that topic.
+3. **5-Minute Ahead Alerts**: Sends a desktop alert 5 minutes before your planned calendar activities start.
+
+---
+
+## 3D Virtual Focus Rooms
+
+Immersive Three.js environments for solo and group focus:
+
+1. Choose a scene: **Classroom**, **Café**, or **Library**.
+2. Ambient soundscapes and timer controls keep you grounded.
+3. Sessions $\ge 30$ seconds automatically log as completed blocks on your master routine calendar.
+
+---
+
+## Custom Prompt Editor (v3.0.1)
+
+Personalize the local AI Judge's strictness and tone:
+
+1. Open **Prompt Editor** from the settings or AI panel.
+2. Adjust evaluation instructions (e.g., strict software engineer, supportive student tutor, minimalist coach).
+3. Changes apply immediately to all on-device evaluations.
+
+---
+
+## AI Productivity Judge
+
+The AI analyzes your tracked activity and scores your focus.
 
 ### How to Use It:
 1. Make sure **monitoring is started** and you have some tracked activity.
 2. Click the **"Analyze My Productivity"** button.
-3. The AI will compare your activity against your goals and give you:
+3. The AI compares your activity against your goals and schedule, outputting:
    - A **Productivity Rating** (0-10)
    - A **Verdict** (Productive / Neutral / Unproductive)
    - **Personalized Tips** for improvement
-   - A categorization of your apps (productive, neutral, distracting)
+   - App categorization (productive, neutral, distracting)
 
 ### First-Time Setup:
-- The AI model needs to be downloaded once (requires internet).
-- After the download, the AI runs **completely offline** on your device.
-- You can skip the AI download if you just want activity tracking.
+- The AI model downloads once (requires internet connection).
+- After download, the model executes **100% locally** via WebGPU with zero cloud telemetry.
 
 ---
 
-## Viewing Historical Reports
+## Viewing Historical Reports & Analytics
 
-Want to see your past analyses?
-
-1. Navigate to the **Historical Reports** section.
-2. You'll find a list of all your previous productivity evaluations.
-3. Click on any report to view its full details.
+1. Navigate to **Historical Reports** or **Analytics**.
+2. Inspect past daily analyses, context switch rates, and planned vs actual adherence.
+3. Share aesthetic watercolor milestone cards with 1 click.
 
 ---
 

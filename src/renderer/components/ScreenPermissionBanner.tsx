@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, ExternalLink, RefreshCw, ChevronDown, ChevronUp, X, Monitor } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
+import { activityAutoTracker } from '../lib/activityAutoTracker';
 
 interface ScreenPermissionBannerProps {
     /** Called when the user manually dismisses the banner */

@@ -9,17 +9,23 @@ import {
   Menu,
   nativeImage,
   net,
+  Notification,
 } from "electron";
 import path from "node:path";
 import started from "electron-squirrel-startup";
 import { createLogger, getLogPath } from "./lib/logger";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { execSync, exec } from "node:child_process";
 import { getAutoUpdater } from "./lib/autoUpdater";
 
 app.setName("Produchive");
 app.name = "Produchive";
+
+if (process.platform === "win32") {
+  app.setAppUserModelId("Produchive");
+}
 
 const logger = createLogger("Main");
 
@@ -64,7 +70,7 @@ app.on('open-url', (event, url) => {
 
 app.commandLine.appendSwitch("disable-gpu-watchdog");
 app.commandLine.appendSwitch("force_high_performance_gpu");
-let db: any = { data: { tasks: [], goals: [], ratings: [], focusSessions: [] } };
+let db: any = { data: { tasks: [], goals: [], ratings: [], focusSessions: [], activityFeedbacks: [] } };
 let dbFilePath: string;
 
 // Daily Activity DB
@@ -162,6 +168,7 @@ async function initDB() {
     db.data.goals ||= [];
     db.data.ratings ||= [];
     db.data.focusSessions ||= [];
+    db.data.activityFeedbacks ||= [];
 
     db.data.ratings ||= [];
     await db.write();
@@ -1283,13 +1290,37 @@ function registerIpcHandlers() {
     return logPath;
   });
 
-  ipcMain.handle("get-db-contents", async () => {
-    const currentActivityDb = await getActivityDb();
-    return {
-      tasks: db.data.tasks,
-      activities: currentActivityDb?.data?.activities || [],
-      goals: db.data.goals || [],
-    };
+  ipcMain.handle("save-activity-feedback", async (_event, feedback: any) => {
+    try {
+      const entry = {
+        id: feedback.id || crypto.randomUUID(),
+        eventId: feedback.eventId || "",
+        appName: feedback.appName || "Unknown",
+        windowTitle: feedback.windowTitle || "",
+        inferredCategory: feedback.inferredCategory || "other",
+        userFeedback: feedback.userFeedback || "accurate", // 'accurate' | 'inaccurate'
+        correctedCategory: feedback.correctedCategory || null,
+        correctedTitle: feedback.correctedTitle || null,
+        durationMinutes: feedback.durationMinutes || 0,
+        confidence: feedback.confidence || 0,
+        timestamp: Date.now(),
+        timestampReadable: new Date().toLocaleString(),
+      };
+      db.data.activityFeedbacks ||= [];
+      db.data.activityFeedbacks.push(entry);
+      await db.write();
+      logger.info(
+        `[ActivityFeedback] Saved rating: ${entry.appName} -> ${entry.userFeedback} (Total: ${db.data.activityFeedbacks.length})`
+      );
+      return { success: true, feedback: entry };
+    } catch (e: any) {
+      logger.error("Failed to save activity feedback:", e);
+      return { success: false, error: e?.message };
+    }
+  });
+
+  ipcMain.handle("get-activity-feedbacks", async () => {
+    return db.data.activityFeedbacks || [];
   });
 
   ipcMain.handle("start-monitoring", async () => {
@@ -1357,6 +1388,39 @@ function registerIpcHandlers() {
     await db.write();
     logger.info(`Setting updated: ${key} = ${JSON.stringify(value)}`);
     return db.data.settings;
+  });
+
+  ipcMain.handle("show-notification", async (_event, { title, body }: { title: string; body: string }) => {
+    try {
+      if (Notification.isSupported()) {
+        const notiIconPath =
+          process.platform === "win32"
+            ? app.isPackaged
+              ? path.join(process.resourcesPath, "icon.ico")
+              : path.join(__dirname, "../../resources/icon.ico")
+            : app.isPackaged
+              ? path.join(process.resourcesPath, "icon.png")
+              : path.join(__dirname, "../../resources/icon.png");
+
+        const notification = new Notification({
+          title,
+          body,
+          icon: existsSync(notiIconPath) ? notiIconPath : undefined,
+        });
+
+        notification.on("click", () => {
+          if (mainWindow) {
+            if (mainWindow.isMinimized()) mainWindow.restore();
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        });
+
+        notification.show();
+      }
+    } catch (err) {
+      logger.error("Failed to show native notification", err);
+    }
   });
 
   logger.info("All IPC handlers registered successfully");

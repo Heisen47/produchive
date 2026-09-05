@@ -5,8 +5,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   addTask: (task: any) => ipcRenderer.invoke("add-task", task),
   updateTask: (task: any) => ipcRenderer.invoke("update-task", task),
   getTask: (id: string) => ipcRenderer.invoke("get-task", id),
-  onActivityUpdate: (callback: (activity: any) => void) =>
-    ipcRenderer.on("activity-update", (_event, value) => callback(value)),
+  onActivityUpdate: (callback: (activity: any) => void) => {
+    ipcRenderer.removeAllListeners("activity-update");
+    ipcRenderer.on("activity-update", (_event, value) => callback(value));
+  },
 
   // Monitoring Control
   startMonitoring: () => ipcRenderer.invoke("start-monitoring"),
@@ -26,11 +28,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSystemInfo: () => ipcRenderer.invoke("get-system-info"),
   openUserDataFolder: () => ipcRenderer.invoke("open-user-data-folder"),
   openLogFile: () => ipcRenderer.invoke("open-log-file"),
-  getDbContents: () => ipcRenderer.invoke("get-db-contents"),
   saveGoals: (goals: string[]) => ipcRenderer.invoke("save-goals", goals),
   saveRating: (rating: any) => ipcRenderer.invoke("save-rating", rating),
   getRatingsByDate: (dateStr: string) =>
     ipcRenderer.invoke("get-ratings-by-date", dateStr),
+  saveActivityFeedback: (feedback: any) =>
+    ipcRenderer.invoke("save-activity-feedback", feedback),
+  getActivityFeedbacks: () => ipcRenderer.invoke("get-activity-feedbacks"),
   getActivityDataByDate: (dateStr: string) =>
     ipcRenderer.invoke("get-activity-data-by-date", dateStr),
   getActivityDataRange: (startDate: string, endDate: string) =>
@@ -79,5 +83,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.removeAllListeners("on-gcal-token");
     ipcRenderer.on("on-gcal-token", (_event, value) => callback(value));
   },
+  showNotification: (options: { title: string; body: string }) => ipcRenderer.invoke("show-notification", options),
 });
 

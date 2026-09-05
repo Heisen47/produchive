@@ -24,9 +24,10 @@ export const ActivityConfirmationPopup: React.FC = () => {
     const { isDark } = useTheme();
 
     const [activePrompt, setActivePrompt] = useState<PlannedRoutineItem | null>(null);
+    const [lastDismissedTime, setLastDismissedTime] = useState<number>(0);
     const [promptedIds, setPromptedIds] = useState<Set<string>>(() => {
         try {
-            const saved = sessionStorage.getItem('produchive_prompted_routine_ids');
+            const saved = localStorage.getItem('produchive_prompted_routine_ids');
             if (saved) return new Set(JSON.parse(saved));
         } catch (e) {
             console.error(e);
@@ -36,11 +37,14 @@ export const ActivityConfirmationPopup: React.FC = () => {
 
     const [autoConfirmedNotification, setAutoConfirmedNotification] = useState<string | null>(null);
 
-    const markPrompted = useCallback((id: string) => {
+    const markPrompted = useCallback((item: PlannedRoutineItem | string) => {
+        const id = typeof item === 'string' ? item : item.id;
+        const semanticKey = typeof item === 'string' ? '' : `${item.title.toLowerCase().trim()}-${item.dateStr}`;
         setPromptedIds((prev) => {
             const next = new Set(prev).add(id);
+            if (semanticKey) next.add(semanticKey);
             try {
-                sessionStorage.setItem('produchive_prompted_routine_ids', JSON.stringify(Array.from(next)));
+                localStorage.setItem('produchive_prompted_routine_ids', JSON.stringify(Array.from(next)));
             } catch (e) {
                 console.error(e);
             }
@@ -174,19 +178,24 @@ export const ActivityConfirmationPopup: React.FC = () => {
                 }
             });
 
-            // 4. Prompt only for the latest finished event if not completed, not yet prompted, and ended recently
+            // 4. Prompt only for the latest finished event if not completed, not yet prompted, not dismissed recently, and ended recently
+            const semanticKey = `${latestFinishedEvent.title.toLowerCase().trim()}-${latestFinishedEvent.dateStr}-${latestFinishedEvent.startHour}:${latestFinishedEvent.startMinute}`;
+            const isDismissCooldownActive = Date.now() - lastDismissedTime < 10 * 60 * 1000;
+
             if (
                 !latestFinishedEvent.completed &&
                 !promptedIds.has(latestFinishedEvent.id) &&
+                !promptedIds.has(semanticKey) &&
+                !isDismissCooldownActive &&
                 !activePrompt
             ) {
                 const latestEndMins = latestFinishedEvent.startHour * 60 + latestFinishedEvent.startMinute + latestFinishedEvent.durationMinutes;
                 // Only prompt if finished within the last 60 minutes (otherwise silence into debug panel)
                 if (currentTotalMinutes - latestEndMins <= 60) {
                     setActivePrompt(latestFinishedEvent);
-                    markPrompted(latestFinishedEvent.id);
+                    markPrompted(latestFinishedEvent);
                 } else {
-                    markPrompted(latestFinishedEvent.id);
+                    markPrompted(latestFinishedEvent);
                 }
             }
         };
@@ -194,15 +203,15 @@ export const ActivityConfirmationPopup: React.FC = () => {
         checkRoutines();
         const timer = setInterval(checkRoutines, 30000);
         return () => clearInterval(timer);
-    }, [isMonitoring, activities, promptedIds, activePrompt, markPrompted]);
+    }, [isMonitoring, activities, promptedIds, activePrompt, markPrompted, lastDismissedTime]);
 
-    // Auto-dismiss popup after 10 seconds and keep in Debug Panel notifications
+    // Auto-dismiss popup after 5 seconds and keep in Notification & Debug Center
     useEffect(() => {
         if (!activePrompt) return;
         const timer = setTimeout(() => {
-            markPrompted(activePrompt.id);
+            markPrompted(activePrompt);
             setActivePrompt(null);
-        }, 10000);
+        }, 5000);
         return () => clearTimeout(timer);
     }, [activePrompt, markPrompted]);
 
@@ -215,7 +224,8 @@ export const ActivityConfirmationPopup: React.FC = () => {
             saveStoredRoutines(updated);
         }
 
-        markPrompted(activePrompt.id);
+        markPrompted(activePrompt);
+        setLastDismissedTime(Date.now());
         setActivePrompt(null);
     };
 
@@ -239,15 +249,15 @@ export const ActivityConfirmationPopup: React.FC = () => {
                 </div>
             )}
 
-            {/* Bottom-Right Confirmation Popup - Compact & Translucent */}
+            {/* Bottom-Right Confirmation Popup - Ultra-Compact & Translucent */}
             {activePrompt && (
                 <div
-                    className="fixed bottom-6 right-6 z-50 w-72 rounded-2xl p-3.5 shadow-xl border flex flex-col gap-2.5 animate-fade-in-up opacity-90 hover:opacity-100 transition-opacity duration-200"
+                    className="fixed bottom-6 right-6 z-50 w-64 rounded-xl p-2.5 px-3 shadow-lg border flex flex-col gap-2 animate-fade-in-up opacity-90 hover:opacity-100 transition-opacity duration-200 text-xs"
                     style={{
-                        background: isDark ? 'rgba(22, 23, 31, 0.82)' : 'rgba(255, 255, 255, 0.88)',
+                        background: isDark ? 'rgba(22, 23, 31, 0.9)' : 'rgba(255, 255, 255, 0.92)',
                         borderColor: isDark ? 'rgba(99, 102, 241, 0.35)' : 'rgba(99, 102, 241, 0.3)',
                         backdropFilter: 'blur(14px)',
-                        boxShadow: '0 15px 35px rgba(0,0,0,0.35), 0 0 20px rgba(99, 102, 241, 0.15)',
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
                     }}
                 >
                     {/* Header */}
@@ -262,7 +272,8 @@ export const ActivityConfirmationPopup: React.FC = () => {
                         </div>
                         <button
                             onClick={() => {
-                                markPrompted(activePrompt.id);
+                                markPrompted(activePrompt);
+                                setLastDismissedTime(Date.now());
                                 setActivePrompt(null);
                             }}
                             className="p-1 text-slate-400 hover:text-white rounded transition-colors"

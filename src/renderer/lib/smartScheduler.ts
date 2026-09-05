@@ -409,9 +409,33 @@ export interface ForwardScheduleOptions {
 }
 
 /**
+ * Detects if a task represents a fixed occupation block (job, school, college, office).
+ * These tasks occupy 9 AM - 5 PM with a lunch break in between.
+ */
+export const isOccupationBlock = (title: string): boolean => {
+    const t = title.toLowerCase().trim();
+    const occupationKeywords = [
+        'job', 'office', 'work shift', '9 to 5', '9-5', '9to5',
+        'school', 'college', 'uni', 'university', 'class', 'classes', 'lecture', 'lectures',
+        'internship', 'intern', 'placement', 'corporate', 'day job',
+        'clinic', 'hospital shift', 'teaching', 'tutoring hours',
+    ];
+    return occupationKeywords.some((kw) => {
+        if (kw === 'uni') {
+            return t === 'uni' || t.startsWith('uni ') || t.endsWith(' uni') || t.includes(' uni ');
+        }
+        return t.includes(kw);
+    });
+};
+
+/**
  * Forward Smart Schedule Generator.
  * Allocates the full user-allotted time to their work tasks, placing relevant breaks/meals
  * cleanly without stealing their work budget, and strictly in future hours.
+ *
+ * If an occupation block (job/school/college/uni/office) is detected among tasks, it reserves
+ * 9 AM - 5 PM for that occupation with a lunch break, and schedules all other tasks
+ * before 9 AM or after 5 PM.
  */
 export const generateForwardSmartSchedule = ({
     tasks,
@@ -432,50 +456,8 @@ export const generateForwardSmartSchedule = ({
     const initialStartMins = startHour * 60 + startMinute;
     const schedule: PlannedRoutineItem[] = [];
 
-    // 1. Allocate the FULL allottedMinutes to the user's productive tasks
-    const allocatedWorkTasks = allocateProductiveTaskDurations(tasks, allottedMinutes);
-    const n = allocatedWorkTasks.length;
-
-    // Determine how many tasks to allocate per daily energy zone
-    // Morning (9:00 AM - 12:30 PM), Afternoon (1:30 PM - 5:30 PM), Evening (5:30 PM - 8:00 PM)
-    let morningCount = 0;
-    let afternoonCount = 0;
-    let eveningCount = 0;
-
-    if (initialStartMins >= 1080) { // >= 6:00 PM (Late evening start)
-        eveningCount = n;
-    } else if (initialStartMins >= 780) { // >= 1:00 PM (Afternoon start)
-        afternoonCount = Math.min(n, Math.ceil(n * 0.7));
-        eveningCount = n - afternoonCount;
-    } else { // Normal morning start (e.g. 9:00 AM)
-        if (n === 1) {
-            morningCount = 1;
-        } else if (n === 2) {
-            morningCount = 1;
-            afternoonCount = 1;
-        } else if (n === 3) {
-            morningCount = 1;
-            afternoonCount = 1;
-            eveningCount = 1;
-        } else if (n === 4) {
-            morningCount = 2;
-            afternoonCount = 1;
-            eveningCount = 1;
-        } else {
-            // 5 or more tasks
-            morningCount = Math.min(2, Math.floor(n * 0.4));
-            afternoonCount = Math.min(2, Math.floor(n * 0.4));
-            eveningCount = n - morningCount - afternoonCount;
-        }
-    }
-
-    const morningTasks = allocatedWorkTasks.slice(0, morningCount);
-    const afternoonTasks = allocatedWorkTasks.slice(morningCount, morningCount + afternoonCount);
-    const eveningTasks = allocatedWorkTasks.slice(morningCount + afternoonCount);
-
     let currentMins = initialStartMins;
 
-    // Helper to append a routine item cleanly with zero overlap
     const appendItem = (item: {
         title: string;
         category: PlannedRoutineItem['category'];
@@ -501,6 +483,162 @@ export const generateForwardSmartSchedule = ({
         currentMins += item.duration;
     };
 
+    // ─── OCCUPATION BLOCK PATH ───
+    // If any task is a job/school/college/uni/office block, reserve 9 AM - 5 PM for it
+    const occupationTask = (tasks || []).find((t) => isOccupationBlock(t.title));
+    if (occupationTask) {
+        const otherTasks = (tasks || []).filter((t) => t !== occupationTask && !isOccupationBlock(t.title));
+        const occupationCategory = occupationTask.category || 'other';
+
+        // Pre-occupation: only breakfast before 9 AM
+        if (includeBreakfast && initialStartMins <= 510) {
+            currentMins = Math.max(currentMins, 480); // 8:00 AM
+            appendItem({
+                title: 'Morning Routine & Breakfast',
+                category: 'meal',
+                priority: 'medium',
+                duration: 45,
+                subtitle: 'Healthy breakfast, shower & prep',
+            });
+        }
+
+        // Occupation Morning Session: 9:00 AM - 12:30 PM (210 mins)
+        currentMins = 540; // 9:00 AM
+        appendItem({
+            title: occupationTask.title,
+            category: occupationCategory,
+            priority: occupationTask.priority || 'high',
+            duration: 210,
+            subtitle: 'Morning session',
+        });
+
+        // Small lunch break at normal lunch time: 12:30 PM - 1:30 PM (60 mins)
+        currentMins = 750; // 12:30 PM
+        appendItem({
+            title: 'Lunch Break',
+            category: 'meal',
+            priority: 'medium',
+            duration: 60,
+            subtitle: 'Midday meal & rest',
+        });
+
+        // Occupation Afternoon Session: 1:30 PM - 5:00 PM (210 mins)
+        currentMins = 810; // 1:30 PM
+        appendItem({
+            title: `${occupationTask.title} (Afternoon)`,
+            category: occupationCategory,
+            priority: occupationTask.priority || 'high',
+            duration: 210,
+            subtitle: 'Afternoon session',
+        });
+
+        // Post-occupation: 5:00 PM onwards - schedule remaining personal tasks
+        currentMins = 1020; // 5:00 PM
+
+        if (includeRestBlocks) {
+            appendItem({
+                title: 'Evening Transition & Decompress',
+                category: 'break',
+                priority: 'medium',
+                duration: 30,
+                subtitle: 'Shift from work mode to personal time',
+            });
+        }
+
+        // Allocate remaining personal tasks between 5:30 PM and dinner
+        const DINNER_TIME_OCC = 1170; // 7:30 PM
+        if (otherTasks.length > 0) {
+            const availableEvening = DINNER_TIME_OCC - currentMins;
+            if (availableEvening >= 30) {
+                const personalAllocated = allocateProductiveTaskDurations(otherTasks, availableEvening);
+                for (const task of personalAllocated) {
+                    if (currentMins >= DINNER_TIME_OCC) break;
+                    const taskDuration = Math.min(task.duration, DINNER_TIME_OCC - currentMins);
+                    if (taskDuration < 15) break;
+                    appendItem({
+                        title: task.title,
+                        category: task.category,
+                        priority: task.priority,
+                        duration: taskDuration,
+                        subtitle: 'Personal time',
+                    });
+                }
+            }
+        }
+
+        // Dinner: 7:30 PM
+        if (includeDinner) {
+            currentMins = Math.max(currentMins, DINNER_TIME_OCC);
+            appendItem({
+                title: 'Dinner & Family Relaxation',
+                category: 'meal',
+                priority: 'medium',
+                duration: 60,
+                subtitle: 'Family & nourishing dinner',
+            });
+        }
+
+        // All remaining personal tasks after dinner - 100% priority on user-entered tasks
+        const unscheduledOtherTasks = otherTasks.filter((t) => !schedule.some((s) => s.title === t.title));
+        if (unscheduledOtherTasks.length > 0) {
+            const postDinnerAllocated = allocateProductiveTaskDurations(
+                unscheduledOtherTasks,
+                Math.max(60, unscheduledOtherTasks.length * 30)
+            );
+            for (const task of postDinnerAllocated) {
+                appendItem({
+                    title: task.title,
+                    category: task.category,
+                    priority: task.priority,
+                    duration: task.duration,
+                    subtitle: 'Evening personal time',
+                });
+            }
+        }
+
+        // Night Sleep Block: starts after all tasks are completed
+        if (!schedule.some((s) => s.category === 'sleep')) {
+            currentMins = Math.max(currentMins, 1380); // 11:00 PM or later
+            appendItem({
+                title: 'Night Sleep & Recovery',
+                category: 'sleep',
+                priority: 'high',
+                duration: 60,
+                subtitle: 'Essential 7-8 hrs rest for peak performance',
+            });
+        }
+
+        return schedule;
+    }
+
+    // ─── STANDARD PATH (No occupation block detected) ───
+
+    // 1. Allocate the FULL allottedMinutes to the user's productive tasks
+    const rawAllocated = allocateProductiveTaskDurations(tasks, allottedMinutes);
+
+    // If any single continuous block exceeds 120m, split into focused work blocks so meals & breaks fit realistically
+    const allocatedWorkTasks: typeof rawAllocated = [];
+    for (const t of rawAllocated) {
+        if (t.duration > 120 && !t.isUnproductive) {
+            let rem = t.duration;
+            let part = 1;
+            while (rem > 0) {
+                const chunk = Math.min(120, rem);
+                allocatedWorkTasks.push({
+                    ...t,
+                    title: part === 1 ? t.title : `${t.title} (Part ${part})`,
+                    duration: chunk,
+                });
+                rem -= chunk;
+                part++;
+            }
+        } else {
+            allocatedWorkTasks.push(t);
+        }
+    }
+
+    const workQueue = [...allocatedWorkTasks];
+
     // ─── ZONE 1: MORNING ROUTINE & FOCUS (Start -> 12:30 PM) ───
     if (includeBreakfast && initialStartMins <= 510) {
         currentMins = Math.max(currentMins, 480); // 8:00 AM
@@ -508,39 +646,66 @@ export const generateForwardSmartSchedule = ({
             title: 'Morning Routine & Breakfast ☕',
             category: 'meal',
             priority: 'medium',
-            duration: 60,
+            duration: 45,
             subtitle: 'Healthy breakfast, shower & prep',
         });
     }
 
-    // Schedule Morning Focus Tasks
-    for (let i = 0; i < morningTasks.length; i++) {
-        const task = morningTasks[i];
-        if (i > 0) {
-            // Space morning tasks with a 30m stretch & hydration break
-            if (includeRestBlocks && currentMins <= 690) {
+    // Schedule morning work tasks up to 12:30 PM (750 mins)
+    const LUNCH_TIME = 750; // 12:30 PM
+    while (workQueue.length > 0 && currentMins < LUNCH_TIME && initialStartMins < LUNCH_TIME) {
+        const nextTask = workQueue[0];
+        const availableBeforeLunch = LUNCH_TIME - currentMins;
+
+        if (availableBeforeLunch < 20) {
+            break;
+        }
+
+        if (nextTask.duration <= availableBeforeLunch) {
+            workQueue.shift();
+            appendItem({
+                title: nextTask.title,
+                category: nextTask.category,
+                priority: nextTask.priority,
+                duration: nextTask.duration,
+                subtitle: nextTask.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
+            });
+            if (includeRestBlocks && LUNCH_TIME - currentMins >= 45 && workQueue.length > 0) {
                 appendItem({
                     title: 'Morning Stretch & Hydration 💧',
                     category: 'break',
                     priority: 'medium',
-                    duration: 30,
+                    duration: 15,
                     subtitle: 'Quick stretch, posture reset & water',
                 });
             }
+        } else {
+            workQueue.shift();
+            const morningPartDuration = Math.max(30, Math.floor(availableBeforeLunch / 15) * 15);
+            const remainingDuration = nextTask.duration - morningPartDuration;
+
+            appendItem({
+                title: nextTask.title,
+                category: nextTask.category,
+                priority: nextTask.priority,
+                duration: morningPartDuration,
+                subtitle: nextTask.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
+            });
+
+            if (remainingDuration >= 15) {
+                workQueue.unshift({
+                    ...nextTask,
+                    title: nextTask.title.includes('(Part') ? nextTask.title : `${nextTask.title} (Continuation)`,
+                    duration: remainingDuration,
+                });
+            }
+            break;
         }
-        appendItem({
-            title: task.title,
-            category: task.category,
-            priority: task.priority,
-            duration: task.duration,
-            subtitle: task.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
-        });
     }
 
-    // ─── ZONE 2: MIDDAY NOURISHMENT & LUNCH (12:30 PM - 1:30 PM) ───
-    if (includeLunch && initialStartMins <= 780 && (afternoonTasks.length > 0 || eveningTasks.length > 0 || currentMins >= 720)) {
-        // Fast-forward to at least 12:30 PM (750 mins) for lunch
-        currentMins = Math.max(currentMins, 750);
+    // ─── ZONE 2: MIDDAY NOURISHMENT & LUNCH (Strictly 12:30 PM - 1:30 PM) ───
+    if (includeLunch && initialStartMins <= 780) {
+        currentMins = Math.max(currentMins, LUNCH_TIME); // 12:30 PM
         appendItem({
             title: 'Lunch Break & Mindful Rest 🥗',
             category: 'meal',
@@ -550,73 +715,73 @@ export const generateForwardSmartSchedule = ({
         });
     }
 
-    // ─── ZONE 3: AFTERNOON EXECUTION & RECHARGE (1:30 PM - 5:30 PM) ───
-    if (afternoonTasks.length > 0) {
-        // Start afternoon session cleanly at 1:30 PM (810 mins)
-        currentMins = Math.max(currentMins, 810);
+    const isEveningStart = initialStartMins >= 1080; // >= 6:00 PM
+    const isLateEveningStart = initialStartMins >= 1140; // >= 7:00 PM
+    const isNightStart = initialStartMins >= 1260; // >= 9:00 PM (Dinner is already past; user tasks start immediately)
 
-        for (let i = 0; i < afternoonTasks.length; i++) {
-            const task = afternoonTasks[i];
-            if (i > 0 && includeRestBlocks) {
-                // Spacing break between afternoon tasks at ~3:00 PM or 3:30 PM
+    // ─── ZONE 3: AFTERNOON / EARLY EVENING (1:30 PM - Dinner) ───
+    const DINNER_TIME = isLateEveningStart ? 1260 : 1170; // 9:00 PM or 7:30 PM
+    if (currentMins < 810 && initialStartMins <= 810) {
+        currentMins = 810; // 1:30 PM
+    }
+
+    let workCount = 0;
+    while (workQueue.length > 0 && currentMins < DINNER_TIME && !isNightStart) {
+        const nextTask = workQueue[0];
+        const availableBeforeDinner = DINNER_TIME - currentMins;
+
+        if (availableBeforeDinner < 20) {
+            break;
+        }
+
+        if (nextTask.duration <= availableBeforeDinner) {
+            workQueue.shift();
+            workCount++;
+            appendItem({
+                title: nextTask.title,
+                category: nextTask.category,
+                priority: nextTask.priority,
+                duration: nextTask.duration,
+                subtitle: nextTask.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
+            });
+
+            if (includeRestBlocks && workCount === 1 && DINNER_TIME - currentMins >= 60) {
                 appendItem({
-                    title: 'Afternoon Recharge & Coffee ☕',
+                    title: isEveningStart ? 'Mental Refresh & Stretch 🧘' : 'Afternoon Recharge & Coffee ☕',
                     category: 'break',
                     priority: 'medium',
                     duration: 30,
                     subtitle: 'Hydration & short walk',
                 });
             }
+        } else {
+            workQueue.shift();
+            const afternoonPartDuration = Math.max(30, Math.floor(availableBeforeDinner / 15) * 15);
+            const remainingDuration = nextTask.duration - afternoonPartDuration;
+
             appendItem({
-                title: task.title,
-                category: task.category,
-                priority: task.priority,
-                duration: task.duration,
-                subtitle: task.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
+                title: nextTask.title,
+                category: nextTask.category,
+                priority: nextTask.priority,
+                duration: afternoonPartDuration,
+                subtitle: nextTask.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
             });
-        }
-    }
 
-    // ─── ZONE 4: EVENING REVIEW & WRAP-UP (5:30 PM - 7:30 PM) ───
-    if (eveningTasks.length > 0) {
-        // Fast-forward to evening zone (~5:30 PM = 1050 mins)
-        currentMins = Math.max(currentMins, 1050);
-
-        for (let i = 0; i < eveningTasks.length; i++) {
-            const task = eveningTasks[i];
-            if (i > 0 && includeRestBlocks) {
-                appendItem({
-                    title: 'Mental Refresh & Stretch 🧘',
-                    category: 'break',
-                    priority: 'medium',
-                    duration: 30,
-                    subtitle: 'Eye rest & stretch',
+            if (remainingDuration >= 15) {
+                workQueue.unshift({
+                    ...nextTask,
+                    title: nextTask.title.includes('(Continuation') ? nextTask.title : `${nextTask.title} (Evening Session)`,
+                    duration: remainingDuration,
                 });
             }
-            appendItem({
-                title: task.title,
-                category: task.category,
-                priority: task.priority,
-                duration: task.duration,
-                subtitle: task.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
-            });
+            break;
         }
     }
 
-    // ─── ZONE 5: EVENING WALK, DINNER & NIGHT RECOVERY (6:30 PM - 11:00 PM) ───
-    if (includeRestBlocks && currentMins <= 1170) { // Before 7:30 PM
-        currentMins = Math.max(currentMins, 1110); // 6:30 PM
-        appendItem({
-            title: 'Evening Walk & Mental Recovery 🌿',
-            category: 'break',
-            priority: 'medium',
-            duration: 30,
-            subtitle: 'Fresh air & decompression',
-        });
-    }
-
-    if (includeDinner && currentMins <= 1260) { // Before 9:00 PM
-        currentMins = Math.max(currentMins, 1200); // 8:00 PM
+    // ─── ZONE 4: EVENING WALK, DINNER & NIGHT RECOVERY ───
+    // Only schedule Dinner if start was before 9:00 PM. For late starts (>= 9:00 PM), dinner has passed and user tasks start immediately.
+    if (includeDinner && initialStartMins < 1260) {
+        currentMins = Math.max(currentMins, isLateEveningStart ? 1260 : 1170); // 9:00 PM or 7:30 PM
         appendItem({
             title: 'Dinner & Family Relaxation 🍽️',
             category: 'meal',
@@ -626,9 +791,26 @@ export const generateForwardSmartSchedule = ({
         });
     }
 
-    // Night Sleep Block
-    if (currentMins >= 1320 && !schedule.some((s) => s.category === 'sleep')) {
-        currentMins = Math.max(currentMins, 1380); // 11:00 PM
+    // ─── ZONE 5: EVENING REVIEW & REMAINING USER TASKS ───
+    // 100% priority on user-entered tasks: ALL tasks in workQueue MUST be scheduled with full duration!
+    if (currentMins < 1260 && initialStartMins < 1260 && includeDinner) {
+        currentMins = Math.max(currentMins, 1320); // 10:00 PM (after dinner)
+    }
+
+    while (workQueue.length > 0) {
+        const nextTask = workQueue.shift()!;
+        appendItem({
+            title: nextTask.title,
+            category: nextTask.category,
+            priority: nextTask.priority,
+            duration: nextTask.duration,
+            subtitle: nextTask.category === 'development' ? 'Deep Work Block' : 'Scheduled Plan',
+        });
+    }
+
+    // Night Sleep Block: starts after all work tasks are completed (at least 11:00 PM or after late tasks finish)
+    if (!schedule.some((s) => s.category === 'sleep')) {
+        currentMins = Math.max(currentMins, 1380); // 11:00 PM or later
         appendItem({
             title: 'Night Sleep & Recovery 🌙',
             category: 'sleep',
@@ -854,7 +1036,7 @@ export const resolveCollisionsSequentially = (
 
         const sH = Math.floor(itemStartMins / 60) % 24;
         const sM = itemStartMins % 60;
-        const duration = Math.max(15, item.durationMinutes || 30);
+        const duration = Math.max(5, item.durationMinutes || 30);
 
         resolved.push({
             ...item,

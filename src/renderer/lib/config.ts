@@ -26,3 +26,12 @@ export const WEB_BASE_URL: string =
  * e.g. https://api.produchive.com → wss://api.produchive.com
  */
 export const WS_BASE_URL: string = API_BASE_URL.replace(/^http/, 'ws');
+
+/**
+ * Google Form URL for user feedback on auto-detected calendar activity accuracy and functionalities.
+ */
+export const FEEDBACK_GOOGLE_FORM_URL: string =
+  import.meta.env.VITE_FEEDBACK_GOOGLE_FORM_URL
+  || 'https://forms.gle/z9tUqZpfrDA8C3Di8';
+
+

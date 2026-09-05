@@ -1,14 +1,25 @@
-import React, { useMemo, useRef, useCallback } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import {
     Clock,
     Activity as ActivityIcon,
     ArrowUpRight,
     Zap,
-    Hourglass
+    Hourglass,
+    Calendar as CalendarIcon,
+    CheckCircle2,
+    Circle,
+    ArrowRight,
+    ThumbsUp,
+    ThumbsDown,
+    Target,
+    Layers,
+    ChevronDown,
+    ChevronUp
 } from 'lucide-react';
 import { useStore } from '../lib/store';
 import { useTheme } from './ThemeProvider';
 import { analyticsService, websocketService } from '../lib/services';
+import { submitActivityFeedback, inferActivityDetails } from '../lib/activityAutoTracker';
 
 import { TotoroBg } from './TotoroBg';
 import { NoFaceBg } from './NoFaceBg';
@@ -28,7 +39,7 @@ const formatDuration = (seconds: number) => {
 };
 
 // Interactive Metric Card with tilt + shimmer
-const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any) => {
+const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0, onClick }: any) => {
     const { isDark } = useTheme();
     const cardRef = useRef<HTMLDivElement>(null);
     const shimmerRef = useRef<HTMLDivElement>(null);
@@ -70,14 +81,18 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any
     return (
         <div
             ref={cardRef}
+            onClick={onClick}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
-            className="glass-card rounded-2xl p-6 cursor-default animate-fade-in-up relative overflow-hidden"
+            className={`glass-card rounded-2xl p-6 ${
+                onClick ? 'cursor-pointer group hover:border-indigo-500/40 hover:shadow-lg' : 'cursor-default'
+            } animate-fade-in-up relative overflow-hidden`}
             style={{
                 animationDelay: `${delay}ms`,
-                transition: 'transform 0.15s ease-out, box-shadow 0.3s ease',
+                transition: 'transform 0.15s ease-out, box-shadow 0.3s ease, border-color 0.2s ease',
                 willChange: 'transform',
             }}
+            title={onClick ? 'Click to open Live Monitor' : undefined}
         >
             {BgComponent && <BgComponent className="opacity-30 dark:opacity-20 transition-opacity duration-500 group-hover:opacity-40 dark:group-hover:opacity-30" />}
 
@@ -111,6 +126,12 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any
                             {trend}
                         </div>
                     )}
+                    {onClick && !trend && (
+                        <span className="text-[10px] font-semibold text-indigo-400 group-hover:text-indigo-300 flex items-center gap-1 transition-colors opacity-80 group-hover:opacity-100">
+                            Live Monitor
+                            <ArrowRight size={11} className="transition-transform group-hover:translate-x-0.5" />
+                        </span>
+                    )}
                 </div>
                 <div>
                     <h3 className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>{title}</h3>
@@ -123,8 +144,57 @@ const MetricCard = ({ title, value, subtext, icon: Icon, trend, delay = 0 }: any
 };
 
 export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
-    const { activities, isMonitoring, setMonitoring, stats: userStats, analytics, setAnalytics } = useStore();
+    const { activities, isMonitoring, setMonitoring, stats: userStats, analytics, setAnalytics, routines, toggleRoutineComplete, ratings } = useStore();
     const { isDark } = useTheme();
+
+    const todayStr = useMemo(() => {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }, []);
+
+    const todayRoutines = useMemo(() => {
+        return (routines || []).filter((r) => r.dateStr === todayStr);
+    }, [routines, todayStr]);
+
+    const nowMinutes = useMemo(() => {
+        const now = new Date();
+        return now.getHours() * 60 + now.getMinutes();
+    }, []);
+
+    const currentActiveRoutine = useMemo(() => {
+        return todayRoutines.find((r) => {
+            const start = r.startHour * 60 + r.startMinute;
+            const end = start + r.durationMinutes;
+            return nowMinutes >= start && nowMinutes < end;
+        });
+    }, [todayRoutines, nowMinutes]);
+
+    const nextUpcomingRoutine = useMemo(() => {
+        const upcoming = todayRoutines
+            .filter((r) => r.startHour * 60 + r.startMinute > nowMinutes)
+            .sort((a, b) => a.startHour * 60 + a.startMinute - (b.startHour * 60 + b.startMinute));
+        return upcoming[0] || null;
+    }, [todayRoutines, nowMinutes]);
+
+    const routineStats = useMemo(() => {
+        const scheduled = todayRoutines.filter((r) => !r.isAutoDetected);
+        const total = scheduled.length;
+        const completed = scheduled.filter((r) => r.completed).length;
+        const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+        const autoDetected = todayRoutines.filter((r) => r.isAutoDetected);
+        return { total, completed, percent, autoDetected };
+    }, [todayRoutines]);
+
+    const [isAutoTrayExpanded, setIsAutoTrayExpanded] = useState(false);
+
+    const openLiveMonitor = () => {
+        sessionStorage.setItem('analytics_initial_period', 'live');
+        if (onNavigate) onNavigate('analytics');
+        window.dispatchEvent(new CustomEvent('produchive_open_live_monitor'));
+    };
 
     const usageStats = useMemo(() => {
         const appUsage: Record<string, number> = {};
@@ -145,6 +215,100 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
 
         return { totalDuration, topApps: sortedApps, mostUsed: sortedApps[0], activeCount: activities.length };
     }, [activities]);
+
+    const focusScoreData = useMemo(() => {
+        // 1. If remote backend returned a valid focusScore, use it
+        if (analytics?.focusScore && analytics.focusScore > 0) {
+            const val = Math.min(100, Math.round(analytics.focusScore));
+            const label = val >= 80 ? 'Deep Focus' : val >= 50 ? 'Good Focus' : 'Needs Focus';
+            return {
+                value: `${val}/100`,
+                subtext: `${label} · Real-time activity ratio`,
+            };
+        }
+
+        // 2. If an AI evaluation rating exists for today, scale to 100
+        const latestRating = ratings && ratings.length > 0 ? ratings[ratings.length - 1] : null;
+        if (latestRating && typeof latestRating.rating === 'number') {
+            const scaled = Math.min(100, Math.round(latestRating.rating * 10));
+            const verdictLabel = latestRating.verdict ? `${latestRating.verdict.charAt(0).toUpperCase() + latestRating.verdict.slice(1)} Day` : 'AI Evaluated';
+            return {
+                value: `${scaled}/100`,
+                subtext: `${verdictLabel} · AI productivity score`,
+            };
+        }
+
+        // 3. Compute live from local activities & today's planned calendar targets
+        if (!activities || activities.length === 0) {
+            return {
+                value: '—',
+                subtext: isMonitoring ? 'Listening for active window...' : 'Enable monitor to measure focus',
+            };
+        }
+
+        // Extract today's planned calendar targets (exclude meals/breaks/sleep)
+        const plannedTitles = todayRoutines
+            .filter((r) => !r.isAutoDetected && r.category !== 'meal' && r.category !== 'break' && r.category !== 'sleep')
+            .map((r) => r.title.toLowerCase().trim())
+            .filter(Boolean);
+
+        let productiveSec = 0;
+        let distractingSec = 0;
+        let totalSec = 0;
+
+        activities.forEach((act) => {
+            const sec = act.duration ? act.duration / 1000 : 1;
+            totalSec += sec;
+
+            const appName = (act.owner?.name || '').toLowerCase();
+            const winTitle = (act.title || '').toLowerCase();
+
+            // Check if activity matches any planned routine task
+            const matchesPlan = plannedTitles.some((target) =>
+                target && (winTitle.includes(target) || appName.includes(target))
+            );
+
+            const inferred = inferActivityDetails(act.owner?.name || '', act.title || '');
+
+            if (matchesPlan) {
+                productiveSec += sec;
+            } else if (inferred.category === 'break') {
+                distractingSec += sec;
+            } else if (
+                inferred.category === 'development' ||
+                inferred.category === 'research' ||
+                inferred.category === 'writing' ||
+                inferred.category === 'design' ||
+                inferred.category === 'meeting'
+            ) {
+                productiveSec += sec;
+            } else {
+                // Neutral/other: 60% productive weight
+                productiveSec += sec * 0.6;
+            }
+        });
+
+        if (totalSec < 10) {
+            return {
+                value: '—',
+                subtext: 'Gathering active session data...',
+            };
+        }
+
+        const score = Math.min(100, Math.max(10, Math.round((productiveSec / totalSec) * 100)));
+        const productiveMins = Math.round(productiveSec / 60);
+
+        let label = 'Balanced';
+        if (score >= 80) label = 'Deep Focus';
+        else if (score >= 60) label = 'Good Focus';
+        else if (score >= 40) label = 'Moderate Focus';
+        else label = 'Needs Focus';
+
+        return {
+            value: `${score}/100`,
+            subtext: `${label} · ${productiveMins}m productive time`,
+        };
+    }, [analytics?.focusScore, ratings, activities, todayRoutines, isMonitoring]);
 
     const handleToggleMonitoring = async () => {
         if (isMonitoring) {
@@ -277,6 +441,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     subtext="Today's activity"
                     icon={Clock}
                     delay={0}
+                    onClick={openLiveMonitor}
                 />
                 <MetricCard
                     title="Most Used App"
@@ -284,6 +449,7 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     subtext={usageStats.mostUsed ? formatDuration(usageStats.mostUsed.duration) : 'No data'}
                     icon={Zap}
                     delay={80}
+                    onClick={openLiveMonitor}
                 />
                 <MetricCard
                     title="Active Sessions"
@@ -291,16 +457,286 @@ export const Dashboard = ({ onNavigate }: { onNavigate?: (view: string) => void 
                     subtext="Distinct activities logged"
                     icon={ActivityIcon}
                     delay={160}
+                    onClick={openLiveMonitor}
                 />
                 <MetricCard
                     title="Focus Score"
-                    value={analytics?.focusScore ? `${analytics.focusScore}/100` : 'Calculating...'}
-                    subtext={analytics?.productivityDna?.dominantCategory ? `DNA: ${analytics.productivityDna.dominantCategory}` : 'Context & Focus Analytics'}
+                    value={focusScoreData.value}
+                    subtext={focusScoreData.subtext}
                     icon={Hourglass}
                     delay={240}
                 />
             </div>
 
+            {/* Today's Calendar & Routine Integration */}
+            <div className="glass-card-static rounded-2xl p-6 relative overflow-hidden animate-fade-in-up">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
+                    <div className="flex items-center gap-3">
+                        <div
+                            className="p-2.5 rounded-xl transition-all"
+                            style={{
+                                background: 'rgba(91, 95, 199, 0.15)',
+                                color: '#5b5fc7',
+                                border: '1px solid rgba(91, 95, 199, 0.25)',
+                            }}
+                        >
+                            <CalendarIcon size={20} />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Today's Schedule & Routine</h3>
+                                <span
+                                    className="text-xs px-2.5 py-0.5 rounded-full font-semibold"
+                                    style={{
+                                        background: routineStats.percent >= 80 ? 'rgba(34, 197, 94, 0.15)' : 'rgba(91, 95, 199, 0.15)',
+                                        color: routineStats.percent >= 80 ? '#4ade80' : '#818cf8',
+                                        border: `1px solid ${routineStats.percent >= 80 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(91, 95, 199, 0.3)'}`,
+                                    }}
+                                >
+                                    {routineStats.percent}% Adherence
+                                </span>
+                            </div>
+                            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                                Live unified calendar • {routineStats.completed} of {routineStats.total} planned blocks completed
+                            </p>
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={() => onNavigate && onNavigate('routine')}
+                        className="self-start sm:self-auto px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95"
+                        style={{
+                            background: 'var(--bg-elevated)',
+                            color: 'var(--text-primary)',
+                            border: '1px solid var(--border-primary)',
+                        }}
+                    >
+                        <span>Open Calendar</span>
+                        <ArrowRight size={13} style={{ color: '#5b5fc7' }} />
+                    </button>
+                </div>
+
+                {/* 3 Overview Columns: Current Active Block, Next Up, Routine Progress */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    {/* Active Block */}
+                    <div
+                        className="p-4 rounded-xl relative overflow-hidden transition-all duration-200"
+                        style={{
+                            background: 'var(--bg-elevated)',
+                            border: '1px solid var(--border-secondary)',
+                        }}
+                    >
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md"
+                                style={{
+                                    background: currentActiveRoutine ? 'rgba(91, 95, 199, 0.18)' : 'rgba(148, 163, 184, 0.15)',
+                                    color: currentActiveRoutine ? '#818cf8' : 'var(--text-muted)',
+                                }}
+                            >
+                                {currentActiveRoutine ? '● Current Block' : 'Free Time'}
+                            </span>
+                            {currentActiveRoutine && (
+                                <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>
+                                    {String(currentActiveRoutine.startHour).padStart(2, '0')}:{String(currentActiveRoutine.startMinute).padStart(2, '0')} -{' '}
+                                    {(() => {
+                                        const endMins = currentActiveRoutine.startHour * 60 + currentActiveRoutine.startMinute + currentActiveRoutine.durationMinutes;
+                                        return `${String(Math.floor(endMins / 60) % 24).padStart(2, '0')}:${String(endMins % 60).padStart(2, '0')}`;
+                                    })()}
+                                </span>
+                            )}
+                        </div>
+
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                                <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>
+                                    {currentActiveRoutine ? currentActiveRoutine.title : 'No active block scheduled right now'}
+                                </p>
+                                <p className="text-xs truncate mt-1" style={{ color: 'var(--text-muted)' }}>
+                                    {currentActiveRoutine?.subtitle || (todayRoutines.length > 0 ? 'Enjoy your break or focus freely.' : 'Plan today in Routine Calendar.')}
+                                </p>
+                            </div>
+
+                            {currentActiveRoutine && (
+                                <button
+                                    onClick={() => toggleRoutineComplete(currentActiveRoutine.id)}
+                                    className="p-1.5 rounded-lg transition-transform hover:scale-110 active:scale-95 shrink-0"
+                                    title={currentActiveRoutine.completed ? 'Mark uncompleted' : 'Mark completed'}
+                                    style={{
+                                        color: currentActiveRoutine.completed ? '#4ade80' : 'var(--text-muted)',
+                                        background: currentActiveRoutine.completed ? 'rgba(34, 197, 94, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+                                    }}
+                                >
+                                    {currentActiveRoutine.completed ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Next Upcoming Block */}
+                    <div
+                        className="p-4 rounded-xl relative overflow-hidden transition-all duration-200"
+                        style={{
+                            background: 'var(--bg-elevated)',
+                            border: '1px solid var(--border-secondary)',
+                        }}
+                    >
+                        <div className="flex items-center justify-between mb-2">
+                            <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md"
+                                style={{
+                                    background: 'rgba(59, 130, 246, 0.15)',
+                                    color: '#60a5fa',
+                                }}
+                            >
+                                Next Up
+                            </span>
+                            {nextUpcomingRoutine && (
+                                <span className="text-xs font-mono font-medium" style={{ color: '#60a5fa' }}>
+                                    {String(nextUpcomingRoutine.startHour).padStart(2, '0')}:{String(nextUpcomingRoutine.startMinute).padStart(2, '0')}
+                                </span>
+                            )}
+                        </div>
+
+                        <div>
+                            <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>
+                                {nextUpcomingRoutine ? nextUpcomingRoutine.title : 'All scheduled blocks complete! 🎉'}
+                            </p>
+                            <p className="text-xs truncate mt-1" style={{ color: 'var(--text-muted)' }}>
+                                {nextUpcomingRoutine
+                                    ? `Starts in ${Math.max(0, (nextUpcomingRoutine.startHour * 60 + nextUpcomingRoutine.startMinute) - nowMinutes)} mins (${nextUpcomingRoutine.durationMinutes}m block)`
+                                    : 'No further routine items on today’s calendar.'}
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Progress Bar & Adherence */}
+                    <div
+                        className="p-4 rounded-xl relative overflow-hidden transition-all duration-200 flex flex-col justify-between"
+                        style={{
+                            background: 'var(--bg-elevated)',
+                            border: '1px solid var(--border-secondary)',
+                        }}
+                    >
+                        <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+                                Today's Progress
+                            </span>
+                            <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                {routineStats.completed}/{routineStats.total} Done
+                            </span>
+                        </div>
+
+                        {/* Visual Bar */}
+                        <div className="my-2">
+                            <div className="w-full h-2 rounded-full overflow-hidden" style={{ background: isDark ? 'rgba(30,41,59,0.5)' : 'rgba(168,162,158,0.2)' }}>
+                                <div
+                                    className="h-full rounded-full transition-all duration-500"
+                                    style={{
+                                        width: `${routineStats.percent}%`,
+                                        background: '#5b5fc7',
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+                            {routineStats.total === 0
+                                ? 'No routine items set for today.'
+                                : routineStats.percent >= 100
+                                ? 'Outstanding! 100% of routine completed.'
+                                : `${routineStats.total - routineStats.completed} block(s) remaining today.`}
+                        </p>
+                    </div>
+                </div>
+
+                {/* Auto-Detected Activity Collapsible Tray (Bottom Right) */}
+                {routineStats.autoDetected.length > 0 && (
+                    <div className="pt-3 mt-1 flex flex-col items-end" style={{ borderTop: '1px solid var(--border-secondary)' }}>
+                        <button
+                            type="button"
+                            onClick={() => setIsAutoTrayExpanded((prev) => !prev)}
+                            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer shadow-sm"
+                            style={{
+                                background: isAutoTrayExpanded ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-elevated)',
+                                borderColor: isAutoTrayExpanded ? 'rgba(99, 102, 241, 0.35)' : 'var(--border-secondary)',
+                                color: isAutoTrayExpanded ? '#818cf8' : 'var(--text-secondary)',
+                            }}
+                            title={isAutoTrayExpanded ? 'Collapse auto-detected activity tray' : 'Expand auto-detected activity tray'}
+                        >
+                            <Layers size={13} className="text-emerald-400" />
+                            <span>Auto-Detected Activity ({routineStats.autoDetected.length})</span>
+                            {isAutoTrayExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                        </button>
+
+                        {/* Expanded Tray Content */}
+                        {isAutoTrayExpanded && (
+                            <div className="w-full mt-3 space-y-2 animate-fade-in">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                                        Logged to Calendar
+                                    </span>
+                                    <span className="text-[11px] text-slate-500">
+                                        Click thumbs to submit accuracy feedback
+                                    </span>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                                    {routineStats.autoDetected.slice(-6).reverse().map((autoItem) => (
+                                        <div
+                                            key={autoItem.id}
+                                            className="p-3 rounded-xl flex items-center justify-between gap-2.5 text-xs border transition-all"
+                                            style={{
+                                                background: 'var(--bg-elevated)',
+                                                borderColor: 'var(--border-secondary)',
+                                            }}
+                                        >
+                                            <div className="min-w-0 flex-1">
+                                                <p className="font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                                    {autoItem.title}
+                                                </p>
+                                                <p className="text-[10px] truncate opacity-70 font-mono" style={{ color: 'var(--text-muted)' }}>
+                                                    {autoItem.detectedApp || 'Screen'} • {autoItem.durationMinutes}m
+                                                </p>
+                                            </div>
+
+                                            {/* Feedback state */}
+                                            {autoItem.detectionFeedback ? (
+                                                <span
+                                                    className="px-2 py-0.5 rounded text-[10px] font-semibold shrink-0"
+                                                    style={{
+                                                        background: autoItem.detectionFeedback === 'accurate' ? 'rgba(34, 197, 94, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                                                        color: autoItem.detectionFeedback === 'accurate' ? '#4ade80' : '#f87171',
+                                                    }}
+                                                >
+                                                    {autoItem.detectionFeedback === 'accurate' ? 'Verified' : 'Corrected'}
+                                                </span>
+                                            ) : (
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => submitActivityFeedback(autoItem.id, 'accurate')}
+                                                        className="p-1 rounded hover:bg-emerald-500/20 text-emerald-400 transition-colors"
+                                                        title="Confirm accurate detection"
+                                                    >
+                                                        <ThumbsUp size={12} />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => submitActivityFeedback(autoItem.id, 'inaccurate')}
+                                                        className="p-1 rounded hover:bg-rose-500/20 text-rose-400 transition-colors"
+                                                        title="Report inaccurate detection"
+                                                    >
+                                                        <ThumbsDown size={12} />
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
 
             {/* Activity Table */}
             <div className="glass-card-static rounded-2xl overflow-hidden relative">

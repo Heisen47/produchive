@@ -2,23 +2,26 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StudyRooms } from './components/StudyRooms';
 import { FocusRoom } from './components/FocusRoom';
 import { PremiumPaywall } from './components/PremiumPaywall';
-import { GoalSetter } from './components/GoalSetter';
 import { ActivityMonitor } from './components/ActivityMonitor';
 import { ProductivityJudge } from './components/ProductivityJudge';
-import { DebugPanel } from './components/DebugPanel';
 import { Dashboard } from './components/Dashboard';
 import { UsageCharts } from './components/UsageCharts';
 import { WelcomeModal } from './components/WelcomeModal';
 import { ActivityConfirmationPopup } from './components/ActivityConfirmationPopup';
+import { DebugPanel } from './components/DebugPanel';
+import { Toaster, toast } from 'sonner';
 import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { initEngine } from './lib/ai';
+import { initEngine, parseAIErrorMessage } from './lib/ai';
 import { useStore } from './lib/store';
 import { apiClient } from './lib/api';
 import { syncEngine } from './lib/services';
 import { setGoogleAuthToken } from './lib/googleCalendar';
+import { activityAutoTracker } from './lib/activityAutoTracker';
+import { aiNudgeService } from './lib/aiNudgeService';
+import { studyAssistantService } from './lib/studyAssistantService';
 import {
     Loader2,
     Sparkles,
@@ -57,7 +60,7 @@ const viewLabels: Record<string, string> = {
     analytics: 'Analytics',
     routine: 'Routine',
     monitor: 'Routine',
-    ai: 'Goals & AI',
+    ai: 'AI Insights',
     focusroom: 'Focus Rooms ✦',
 };
 
@@ -84,13 +87,83 @@ const AppContent = () => {
         setViewKey(prev => prev + 1);
     };
 
+    // Forcibly clear any orphaned or stuck 'Logged to Calendar' toasts and purge SnippingTool events
+    useEffect(() => {
+        const cleanupLegacy = () => {
+            try {
+                toast.dismiss();
+                const toasts = document.querySelectorAll('[data-sonner-toast]');
+                toasts.forEach((el) => {
+                    const txt = el.textContent || '';
+                    if (txt.includes('Logged to Calendar') || txt.includes('Accurate detection?')) {
+                        el.remove();
+                    }
+                });
+
+                const raw = localStorage.getItem('produchive_master_routines');
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    const filtered = parsed.filter((r: any) => {
+                        if (!r.isAutoDetected) return true;
+                        const app = (r.detectedApp || '').toLowerCase();
+                        const title = (r.title || '').toLowerCase();
+                        if (app.includes('snippingtool') || title.includes('snippingtool') || app.includes('screenclipping')) {
+                            return false;
+                        }
+                        if ((r.durationMinutes || 0) < 5 && (r.actualDurationSeconds || 0) < 300) {
+                            return false;
+                        }
+                        return true;
+                    });
+                    if (filtered.length !== parsed.length) {
+                        localStorage.setItem('produchive_master_routines', JSON.stringify(filtered));
+                        window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
+                    }
+                }
+            } catch (_) {}
+        };
+
+        cleanupLegacy();
+        const interval = setInterval(cleanupLegacy, 2000);
+        return () => clearInterval(interval);
+    }, []);
+
     // Listen for activity updates and deep link auth tokens
     useEffect(() => {
         syncEngine.start();
+        activityAutoTracker.init();
+        studyAssistantService.init();
 
         window.electronAPI.onActivityUpdate((activity) => {
             addActivity(activity);
             syncEngine.enqueueActivity(activity);
+            aiNudgeService.handleActivity(activity);
+
+            // Trigger Pomodoro technique strictly when user is studying
+            const appLower = (activity.owner?.name || '').toLowerCase();
+            const titleLower = (activity.title || '').toLowerCase();
+            const isStudyApp =
+                appLower.includes('pdf') ||
+                appLower.includes('preview') ||
+                appLower.includes('acrobat') ||
+                appLower.includes('anki') ||
+                appLower.includes('quizlet') ||
+                appLower.includes('coursera') ||
+                appLower.includes('khan') ||
+                titleLower.includes('photosynthesis') ||
+                titleLower.includes('.pdf') ||
+                titleLower.includes('textbook') ||
+                titleLower.includes('lecture') ||
+                titleLower.includes('chapter');
+
+            if (isStudyApp) {
+                let topic = 'General Study';
+                if (titleLower.includes('photosynthesis')) topic = 'Photosynthesis';
+                else if (activity.title && activity.title.length > 3) {
+                    topic = activity.title.split(/[-—|]/)[0].trim().substring(0, 35);
+                }
+                studyAssistantService.startStudy(topic);
+            }
         });
 
 
@@ -203,11 +276,12 @@ const AppContent = () => {
             if (loadingRef.current) {
                 setEngine(result.engine);
                 setModelName(result.modelName);
+                aiNudgeService.setEngine(result.engine);
                 setLoading(false);
             }
         } catch (err: any) {
             if (loadingRef.current) {
-                setError(err.message || "Failed to initialize AI");
+                setError(parseAIErrorMessage(err, selectedModelId || undefined));
                 setLoading(false);
             }
         }
@@ -215,6 +289,7 @@ const AppContent = () => {
 
     const cancelEngine = () => {
         loadingRef.current = false;
+        aiNudgeService.setEngine(null);
         setLoading(false);
         setProgress({ text: '' });
     };
@@ -240,6 +315,24 @@ const AppContent = () => {
             <ErrorModal />
             <ActivityConfirmationPopup />
             <DebugPanel />
+            <Toaster
+                position="bottom-right"
+                theme={isDark ? 'dark' : 'light'}
+                duration={3500}
+                visibleToasts={1}
+                toastOptions={{
+                    duration: 3500,
+                    style: {
+                        background: 'var(--bg-card-solid)',
+                        color: 'var(--text-primary)',
+                        border: '1px solid var(--border-card)',
+                        boxShadow: 'var(--shadow-card)',
+                        borderRadius: '12px',
+                        fontSize: '12px',
+                        padding: '10px 14px',
+                    },
+                }}
+            />
             {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
             {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
             {showPromptEditor && <PromptEditorModal onClose={() => setShowPromptEditor(false)} />}
@@ -413,7 +506,7 @@ const AppContent = () => {
                 </header>
 
                 {/* Content Area */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+                <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar p-8">
                     <div className="max-w-6xl mx-auto space-y-8">
                         {/* Loading State */}
                         {loading && (
@@ -432,8 +525,7 @@ const AppContent = () => {
 
                             {currentView === 'ai' && (
                                 <div className="space-y-6">
-                                    <GoalSetter />
-                                    <ProductivityJudge engine={engine} />
+                                    <ProductivityJudge engine={engine} onNavigate={handleViewChange} />
                                 </div>
                             )}
 

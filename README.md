@@ -23,12 +23,12 @@ Produchive is a self-hosted, offline-first productivity application that helps y
 
 ## Key Features
 
-*   **Interactive Routine & Calendar Scheduler (v3.0.3)**: 7-day visual calendar, double-click quick event creation, circadian rhythm balance (deep work, meetings, breaks, sleep), intelligent auto-balancing, and bidirectional task synchronization.
-*   **Automatic Screen Activity Detection (v3.0.3)**: Automatically detects active windows and logs focus sessions into the calendar with duration, handling multi-app overflow (`+N apps detected`) and 1-click user verification.
-*   **AI Insights & Productivity Telemetry (v3.0.3)**: Real-time focus scoring, context switch tracking, app distraction evaluation, and detailed visual timelines.
-*   **On-Device AI Distraction Judge & Native Nudges (v3.0.3)**: Local LLM monitors active windows against goals and delivers polite native desktop notifications when off-task.
-*   **Study-Only Pomodoro & Spaced Revision (v3.0.3)**: 25/5 Pomodoro cycles activated strictly during study mode, plus gentle 4-5 day spaced repetition check-ins with 3-action controls.
-*   **3D Virtual Focus Rooms (v3.0.3)**: Three.js powered study environments (Classroom, Café, Library) with ambient audio, timer sync, and NPC study companions.
+*   **Interactive Routine & Calendar Scheduler (v3.0.31)**: 7-day visual calendar, double-click quick event creation, circadian rhythm balance (deep work, meetings, breaks, sleep), intelligent auto-balancing, and bidirectional task synchronization.
+*   **Automatic Screen Activity Detection (v3.0.31)**: Automatically detects active windows and logs focus sessions into the calendar with duration, handling multi-app overflow (`+N apps detected`) and 1-click user verification.
+*   **AI Insights & Productivity Telemetry (v3.0.31)**: Real-time focus scoring, context switch tracking, app distraction evaluation, and detailed visual timelines.
+*   **On-Device AI Distraction Judge & Native Nudges (v3.0.31)**: Local LLM monitors active windows against goals and delivers polite native desktop notifications when off-task.
+*   **Study-Only Pomodoro & Spaced Revision (v3.0.31)**: 25/5 Pomodoro cycles activated strictly during study mode, plus gentle 4-5 day spaced repetition check-ins with 3-action controls.
+*   **3D Virtual Focus Rooms (v3.0.31)**: Three.js powered study environments (Classroom, Café, Library) with ambient audio, timer sync, and NPC study companions.
 *   **Focus Telemetry & Custom AI Prompts (v3.0.1)**: Real-time context switch tracking, Focus Score analytics, and built-in Prompt Editor for custom AI Judge personas.
 *   **Offline & Strictly Private**: All data is stored locally on your device in LowDB JSON. No cloud, no tracking.
 *   **Self-Hosted & Open Source**: You own your data 100%. Optional local AI runs on WebGPU.

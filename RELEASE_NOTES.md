@@ -2,6 +2,18 @@
 
 ---
 
+## Produchive v3.0.31 (Hotfix)
+
+Hotfix addressing the "Analyze with AI" feature to ensure reliable and seamless on-device productivity evaluation.
+
+### Fixes & Improvements
+- **Seamless "Analyze with AI" Workflow**: Fixed an issue where clicking "Analyze with AI" did not trigger analysis if the WebLLM neural engine was still initializing or if routine calendar tasks were empty.
+- **Intelligent Activity & Tab Classifier**: Integrated unified tab-level productivity classification with automatic fallback to heuristic activity evaluation when local WebGPU models are offline or uninitialized.
+- **Sleek Shareable Productivity Card**: Enhanced shareable image generation with dynamic canvas sizing, active model badge, and produchive.com branding.
+- **Clean Activity Breakdown Modal**: Added detailed activity inspection dialog with domain-only URL display and category breakdown.
+
+---
+
 ## Produchive v3.0.3
 
 A major feature release introducing Double-Click Calendar Scheduling, Direct Time Planning, AI Insights & Focus Telemetry, Automatic Screen Activity Detection, On-Device AI Distraction Nudges, and Study-Triggered Spaced Revision.

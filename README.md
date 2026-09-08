@@ -5,10 +5,12 @@
       <img src="https://img.shields.io/github/stars/Heisen47/produchive?style=for-the-badge&color=eab308&logo=github&labelColor=333333" alt="GitHub stars" />
     </a>
   </p>
-  <strong>If you find Produchive useful, please consider giving it a star on GitHub!</strong>
+   <strong>If you find Produchive useful, please consider giving it a star on GitHub!</strong>
   <br/>
   It helps the project grow and is the best way to motivate me to keep improving it.
 </div>
+
+https://github.com/user-attachments/assets/63b09869-6c26-429d-a989-b294e613eaa3 
 
 [![produchive v3](https://img.youtube.com/vi/qC3bvMewD70/maxresdefault.jpg)](https://youtu.be/qC3bvMewD70?si=cGpMAaJhc83PT7Lm)
 

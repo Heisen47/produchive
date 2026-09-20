@@ -449,32 +449,53 @@ export interface CalendarScheduleRequest {
     includeDinner?: boolean;
     includeRestBlocks?: boolean;
     role?: string;
+    compiledUserPrompt?: string;
 }
 
-export const CALENDAR_SCHEDULER_SYSTEM_PROMPT = `You are an expert productivity planner. Generate a realistic, focused calendar routine based on the user's tasks, goals, target days, and schedule constraints.
+export const CALENDAR_SCHEDULER_SYSTEM_PROMPT = `You are an elite productivity architect and cognitive performance coach. Your mission is to build a realistic, high-impact calendar routine tailored to the user's tasks, energy rhythms, and time budget.
 
-Rules:
-1. Output ONLY a valid JSON array of objects. No markdown formatting, no explanations, no text outside the JSON.
-2. Structure each item as:
-[
-  {
-    "dateStr": "YYYY-MM-DD",
-    "title": "Specific task title",
-    "category": "development" | "research" | "meeting" | "design" | "writing" | "meal" | "break" | "other",
-    "startHour": <0-23>,
-    "startMinute": <0-59>,
-    "durationMinutes": <15-120>,
-    "priority": "high" | "medium" | "low",
-    "subtitle": "Short focus tip"
-  }
-]
-3. Time & Day Rules:
-   - For today ({currentHour}:{currentMinuteFormatted}), all items must start at or after {currentHour}:{currentMinuteFormatted}. Do not schedule past times.
-   - For future days or multi-day plans, schedule items starting from the indicated start hour.
-   - For weekends, schedule a balanced flow blending focused learning/creative sprints with restorative breaks and outdoor time.
-   - For weekdays, prioritize deep work blocks, core project milestones, and healthy breaks.
-4. Schedule items with realistic, focused pacing for each date. Leave natural breathing room or buffer time (10-30 min) between major tasks unless tight back-to-back blocks are requested. Allocate 45-90 min for deep work, 10-15 min for breaks, and 30-45 min for meals.
-5. Emphasize the user's priority tasks and maintain momentum.`;
+Core Principles for Intelligent Scheduling:
+1. Chronotype & Energy Curve:
+   - Early/Mid Morning (9:00 - 12:30): Peak focus window. Schedule demanding cognitive deep work (coding, architecture, complex problem-solving, algorithmic thinking).
+   - Midday (12:30 - 14:00): Natural digestive dip. Place lunch (30-60m) and light recovery.
+   - Early Afternoon (14:00 - 16:30): Secondary focus window for collaborative or creative execution (code reviews, meetings, design, research, documentation).
+   - Late Afternoon (16:30 - 18:30): Tactical execution, bug verification, testing, or skill-building sprints.
+   - Evening (19:00 - 21:30): Dinner (45-60m) followed by low-intensity review, reading, or wind-down. Never schedule high-stress tasks late at night.
+
+2. Realistic Pacing & Human Breathing Room:
+   - Never schedule rigid, unbroken conveyor-belt chains. Humans need transitions.
+   - Provide natural buffer periods (10-20 min) or dedicated recharge pauses between demanding blocks.
+   - Sprints should typically be 45-75 min (up to 90 min max for deep flow) followed by a 10-15 min break.
+
+3. Task Duration Estimation & Complexity:
+   - Deep engineering/development (e.g. coding, leetcode, debugging): 60-90 min.
+   - Design, writing, and research: 45-60 min.
+   - Quick administrative, standup, review tasks: 15-30 min.
+   - Meals: Lunch 45-60 min, Dinner 45-60 min, Breakfast 30 min.
+
+4. Actionable Focus Subtitles:
+   - For every task, generate a specific, practical execution technique in the "subtitle" field (e.g. "Pomodoro 50/10: Isolate single unit test & silence notifications", "Active Recall: Solve 2 mediums before checking hints", "Timeboxed 30m: Review PR changes and test edge cases").
+
+5. Output Format:
+   Output ONLY a valid JSON array of objects. No markdown formatting, no explanations, no text outside the JSON.
+   Structure:
+   [
+     {
+       "dateStr": "YYYY-MM-DD",
+       "title": "Specific task title",
+       "category": "development" | "research" | "meeting" | "design" | "writing" | "meal" | "break" | "other",
+       "startHour": <0-23>,
+       "startMinute": <0-59>,
+       "durationMinutes": <15-120>,
+       "priority": "high" | "medium" | "low",
+       "subtitle": "Actionable focus technique"
+     }
+   ]
+
+6. Time & Boundary Constraints:
+   - For today ({currentHour}:{currentMinuteFormatted}), all items must start strictly at or after {currentHour}:{currentMinuteFormatted}. Never schedule in the past.
+   - Distribute the remaining available hours thoughtfully without squeezing impossible workloads.
+   - Assign the highest priority and prime timeslots to the user's specified high-priority tasks.`;
 
 export const extractJSONFromAIResponse = <T = any>(rawText: string): T => {
     let clean = (rawText || '').trim();
@@ -484,7 +505,7 @@ export const extractJSONFromAIResponse = <T = any>(rawText: string): T => {
             clean = matches[1].trim();
         }
     }
-    const firstBracket = clean.search(/[\[\{]/);
+    const firstBracket = clean.search(/[[{]/);
     if (firstBracket !== -1) {
         const isArray = clean[firstBracket] === '[';
         const lastBracket = isArray ? clean.lastIndexOf(']') : clean.lastIndexOf('}');
@@ -493,7 +514,7 @@ export const extractJSONFromAIResponse = <T = any>(rawText: string): T => {
         }
     }
 
-    clean = clean.replace(/,\s*([\]\}])/g, '$1');
+    clean = clean.replace(/,\s*([\]}])/g, '$1');
 
     try {
         return JSON.parse(clean);
@@ -546,7 +567,7 @@ export const sanitizeAndValidateScheduleItems = (
 
         let startHour = typeof item.startHour === 'number' && !isNaN(item.startHour) ? Math.max(0, Math.min(23, Math.floor(item.startHour))) : request.currentHour;
         let startMinute = typeof item.startMinute === 'number' && !isNaN(item.startMinute) ? Math.max(0, Math.min(59, Math.floor(item.startMinute))) : 0;
-        let durationMinutes = typeof item.durationMinutes === 'number' && !isNaN(item.durationMinutes) ? Math.max(15, Math.min(180, Math.floor(item.durationMinutes))) : 45;
+        const durationMinutes = typeof item.durationMinutes === 'number' && !isNaN(item.durationMinutes) ? Math.max(15, Math.min(180, Math.floor(item.durationMinutes))) : 45;
 
         if (isItemToday) {
             const itemMins = startHour * 60 + startMinute;
@@ -586,65 +607,134 @@ export const sanitizeAndValidateScheduleItems = (
     return resolved;
 };
 
-export const generateAICalendarSchedule = async (
-    engine: any,
+export interface CompiledSchedulePrompts {
+    systemPrompt: string;
+    userPrompt: string;
+    summary: {
+        scope: 'day' | 'week';
+        targetDates: string[];
+        taskCount: number;
+        budgetHours: number;
+        startTime: string;
+        meals: string[];
+    };
+}
+
+export const compileCalendarSchedulePrompts = (
     request: CalendarScheduleRequest
-): Promise<PlannedRoutineItem[]> => {
-    const tz = request.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local Time';
+): CompiledSchedulePrompts => {
+    const tz = request.timezone || (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'Local Time');
     const currentMinStr = request.currentMinute < 10 ? `0${request.currentMinute}` : `${request.currentMinute}`;
     const timePrompt = `${request.currentHour}:${currentMinStr}`;
 
-    const taskLines = (request.tasks || [])
-        .map(t => `- ${t.title}${t.priority ? ` (${t.priority} priority)` : ''}`)
-        .join('\n');
+    const formattedTasks = (request.tasks || []).map((t, idx) => {
+        const title = t?.title || 'Task';
+        const cat = t?.category ? ` [${t.category}]` : '';
+        const prio = (t?.priority && typeof t.priority === 'string') ? ` [Priority: ${t.priority.toUpperCase()}]` : '';
+        return `${idx + 1}. "${title}"${cat}${prio}`;
+    }).join('\n');
 
-    let dayContextPrompt = '';
+    const meals: string[] = [];
+    if (request.includeBreakfast) meals.push('Breakfast (30m)');
+    if (request.includeLunch) meals.push('Lunch (45-60m)');
+    if (request.includeDinner) meals.push('Dinner (45-60m)');
+    if (request.includeRestBlocks) meals.push('Rest & Hydration Buffers (10-15m)');
+
+    let scopeDetails = '';
     if (request.planScope === 'week' && request.targetDates && request.targetDates.length > 0) {
         const datesList = request.targetDates.join(', ');
-        dayContextPrompt = [
-            `Plan Scope: Multi-Day Week Schedule across target dates: [${datesList}].`,
-            `Total weekly target: ~${request.totalWeeklyHours || 20} hours.`,
-            `Distribute the user's tasks across these dates. Assign "dateStr" to each item matching one of these dates.`,
-            `For each date, schedule items sequentially starting around ${request.currentHour}:00 with meals and breaks.`
-        ].join(' ');
+        scopeDetails = [
+            `PLAN SCOPE: Multi-Day Weekly Schedule across ${request.targetDates.length} days [${datesList}].`,
+            `TOTAL WEEKLY BUDGET: ~${request.totalWeeklyHours || 20} hours of productive engagement.`,
+            `DISTRIBUTION DIRECTIVE: Distribute the tasks thoughtfully across these target dates. Prevent overloading any single day. Every item MUST have "dateStr" set to one of these valid dates: [${datesList}].`,
+            `PACING: Start each day at ~${request.currentHour}:00, embedding meal slots and natural transition buffers between demanding work blocks.`
+        ].join('\n');
     } else {
         const dayName = request.dayOfWeekName || 'Day';
-        const weekendNote = request.isWeekend ? ' (Weekend - create a balanced, rejuvenating routine)' : ' (Weekday - focused, productive momentum)';
-        const todayNote = request.isToday
-            ? `TODAY (${dayName}, ${request.targetDateStr}). Current local time is ${timePrompt}. CRITICAL: All items MUST start at or after ${timePrompt}.`
-            : `Future date: ${dayName}, ${request.targetDateStr}. Start the day from ${request.currentHour}:00.`;
+        const dayType = request.isWeekend ? 'Weekend (Balance learning with restorative recovery)' : 'Weekday (High-leverage focus & execution momentum)';
+        const timingLine = request.isToday
+            ? `TIMING CONSTRAINT: Today is ${dayName} (${request.targetDateStr}). Current time is ${timePrompt} (${tz}). Schedule MUST start at or after ${timePrompt}. Never schedule items in the past.`
+            : `TIMING CONSTRAINT: Target day is ${dayName} (${request.targetDateStr}). Day starts at ${request.currentHour}:00.`;
 
-        dayContextPrompt = [
-            `Target Day: ${dayName}${weekendNote}.`,
-            todayNote,
-            request.allottedHours ? `Target productive hours for this day: ${request.allottedHours} hours.` : null
-        ].filter(Boolean).join(' ');
+        scopeDetails = [
+            `PLAN SCOPE: Single Day Routine for ${dayName} (${request.targetDateStr}) - ${dayType}.`,
+            timingLine,
+            `TIME BUDGET: User has allocated ${request.allottedHours || 6} hours of available focus time today.`
+        ].join('\n');
     }
 
-    const promptBody = [
-        `Local Context: Timezone ${tz}.`,
-        dayContextPrompt,
-        request.userPrompt ? `User Desired Focus: "${request.userPrompt}"` : null,
-        request.role ? `User Role: ${request.role}` : null,
-        request.tasks && request.tasks.length > 0 ? `Tasks to schedule:\n${taskLines}` : 'No specific task list provided. Craft an optimal productive day flow with deep focus, research, and breaks.',
-        `Preferences: Breakfast: ${request.includeBreakfast ?? false}, Lunch: ${request.includeLunch ?? true}, Dinner: ${request.includeDinner ?? true}, Breaks: ${request.includeRestBlocks ?? true}.`,
-        `CRITICAL: Output ONLY the valid JSON array.`
-    ].filter(Boolean).join('\n\n');
+    const userInstructions = request.userPrompt && request.userPrompt.trim()
+        ? `USER SPECIFIC GUIDANCE:\n"${request.userPrompt.trim()}"`
+        : null;
+
+    const userPromptLines = [
+        `ENVIRONMENT CONTEXT:`,
+        `- Timezone: ${tz}`,
+        `- User Role: ${request.role || 'Productivity Practitioner'}`,
+        ``,
+        scopeDetails,
+        ``,
+        `TASKS TO SCHEDULE:`,
+        request.tasks && request.tasks.length > 0
+            ? formattedTasks
+            : `(No specific task list provided. Craft an optimal productive day flow with deep focus, research, and breaks.)`,
+        ``,
+        `NUTRITION & RECOVERY PREFERENCES:`,
+        meals.length > 0 ? `- Include: ${meals.join(', ')}` : `- No meal or break preferences requested.`,
+        ``,
+        userInstructions,
+        ``,
+        `SCHEDULING EXECUTION DIRECTIVES:`,
+        `1. Sizing: Size cognitive deep-work tasks realistically (45-90 min). For quick reviews or admin tasks, use 15-30 min.`,
+        `2. Breathing Room: Insert 10-20 min buffer intervals between separate demanding blocks to avoid conveyor-belt burnout.`,
+        `3. Subtitles: Provide an actionable, high-performance technique for each task (e.g. "Pomodoro 50/10: Isolate edge cases", "Active Recall: Solve before reviewing answers").`,
+        `4. Strict Output: Return ONLY the raw JSON array of objects. No markdown wrappers, no introductory or concluding explanations.`
+    ].filter((line) => line !== null).join('\n');
 
     const systemPromptTemplate = request.customSystemPrompt && request.customSystemPrompt.trim()
         ? request.customSystemPrompt.trim()
         : CALENDAR_SCHEDULER_SYSTEM_PROMPT;
 
+    const systemPrompt = systemPromptTemplate
+        .replace('{currentHour}', String(request.currentHour))
+        .replace('{currentMinuteFormatted}', currentMinStr);
+
+    return {
+        systemPrompt,
+        userPrompt: userPromptLines,
+        summary: {
+            scope: request.planScope || 'day',
+            targetDates: request.planScope === 'week' && request.targetDates ? request.targetDates : [request.targetDateStr],
+            taskCount: request.tasks ? request.tasks.length : 0,
+            budgetHours: (request.planScope === 'week' ? request.totalWeeklyHours : request.allottedHours) || 6,
+            startTime: timePrompt,
+            meals,
+        },
+    };
+};
+
+export const generateAICalendarSchedule = async (
+    engine: any,
+    request: CalendarScheduleRequest
+): Promise<PlannedRoutineItem[]> => {
+    const compiled = compileCalendarSchedulePrompts(request);
+
+    const userPromptContent = request.compiledUserPrompt && request.compiledUserPrompt.trim()
+        ? request.compiledUserPrompt.trim()
+        : compiled.userPrompt;
+
+    const systemPromptContent = request.customSystemPrompt && request.customSystemPrompt.trim()
+        ? request.customSystemPrompt.trim()
+        : compiled.systemPrompt;
+
     const messages = [
         {
             role: 'system',
-            content: systemPromptTemplate
-                .replace('{currentHour}', String(request.currentHour))
-                .replace('{currentMinuteFormatted}', currentMinStr)
+            content: systemPromptContent
         },
         {
             role: 'user',
-            content: promptBody
+            content: userPromptContent
         }
     ];
 

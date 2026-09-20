@@ -12,6 +12,7 @@ import {
     parseAIErrorMessage,
     isEngineInstanceError,
     generateAICalendarSchedule,
+    compileCalendarSchedulePrompts,
 } from '../renderer/lib/ai';
 
 describe('AI Calendar Schedule Planner', () => {
@@ -289,6 +290,117 @@ describe('AI Calendar Schedule Planner', () => {
             expect(callArgs.messages[0].content).toContain('Custom expert planner instructions with 30m gaps.');
             expect(callArgs.messages[1].role).toBe('user');
             expect(callArgs.messages[1].content).toContain('User wants 30m buffer between each task');
+        });
+
+        it('prioritizes compiledUserPrompt when user explicitly edited prompt in confirmation dialog', async () => {
+            const mockEngine = {
+                chat: {
+                    completions: {
+                        create: vi.fn().mockResolvedValue({
+                            choices: [
+                                {
+                                    message: {
+                                        content: JSON.stringify([
+                                            { title: 'User Edited Task', category: 'development', startHour: 11, startMinute: 0, durationMinutes: 60 }
+                                        ])
+                                    }
+                                }
+                            ]
+                        })
+                    }
+                }
+            };
+
+            const req: CalendarScheduleRequest = {
+                currentHour: 10,
+                currentMinute: 0,
+                targetDateStr: '2026-09-20',
+                compiledUserPrompt: 'CONFIRMED_USER_PROMPT_CUSTOMIZED_BY_USER: SPRINT 1 CODING',
+            };
+
+            const result = await generateAICalendarSchedule(mockEngine, req);
+            expect(result.length).toBe(1);
+            expect(result[0].title).toBe('User Edited Task');
+
+            const callArgs = mockEngine.chat.completions.create.mock.calls[0][0];
+            expect(callArgs.messages[1].content).toBe('CONFIRMED_USER_PROMPT_CUSTOMIZED_BY_USER: SPRINT 1 CODING');
+        });
+    });
+
+    describe('Smart Schedule Prompt Compilation (compileCalendarSchedulePrompts)', () => {
+        it('compiles detailed cognitive scheduling prompt with task sizing, buffers, and nutrition', () => {
+            const compiled = compileCalendarSchedulePrompts({
+                tasks: [
+                    { title: 'Leetcode Algorithms', category: 'development', priority: 'high' },
+                    { title: 'Write Design Doc', category: 'writing', priority: 'medium' }
+                ],
+                userPrompt: 'Leave 20m gaps between tasks',
+                currentHour: 10,
+                currentMinute: 15,
+                targetDateStr: '2026-09-20',
+                dayOfWeekName: 'Sunday',
+                isToday: true,
+                allottedHours: 6,
+                includeLunch: true,
+                includeDinner: true,
+                includeRestBlocks: true,
+                role: 'Software Engineer',
+            });
+
+            expect(compiled.systemPrompt).toContain('Chronotype & Energy Curve');
+            expect(compiled.systemPrompt).toContain('Realistic Pacing & Human Breathing Room');
+            expect(compiled.systemPrompt).toContain('Task Duration Estimation & Complexity');
+            expect(compiled.systemPrompt).toContain('Actionable Focus Subtitles');
+
+            expect(compiled.userPrompt).toContain('Leetcode Algorithms');
+            expect(compiled.userPrompt).toContain('[development]');
+            expect(compiled.userPrompt).toContain('[Priority: HIGH]');
+            expect(compiled.userPrompt).toContain('Leave 20m gaps between tasks');
+            expect(compiled.userPrompt).toContain('Lunch (45-60m)');
+            expect(compiled.userPrompt).toContain('Rest & Hydration Buffers (10-15m)');
+            expect(compiled.userPrompt).toContain('TIMING CONSTRAINT: Today is Sunday (2026-09-20)');
+
+            expect(compiled.summary.taskCount).toBe(2);
+            expect(compiled.summary.budgetHours).toBe(6);
+            expect(compiled.summary.startTime).toBe('10:15');
+        });
+
+        it('compiles multi-day weekly distribution directives in week mode', () => {
+            const compiled = compileCalendarSchedulePrompts({
+                tasks: [{ title: 'Feature Alpha', category: 'development', priority: 'high' }],
+                planScope: 'week',
+                targetDates: ['2026-09-21', '2026-09-22', '2026-09-23'],
+                totalWeeklyHours: 18,
+                currentHour: 9,
+                currentMinute: 0,
+                targetDateStr: '2026-09-21',
+            });
+
+            expect(compiled.userPrompt).toContain('PLAN SCOPE: Multi-Day Weekly Schedule across 3 days');
+            expect(compiled.userPrompt).toContain('TOTAL WEEKLY BUDGET: ~18 hours');
+            expect(compiled.userPrompt).toContain('DISTRIBUTION DIRECTIVE: Distribute the tasks thoughtfully');
+            expect(compiled.summary.scope).toBe('week');
+            expect(compiled.summary.targetDates.length).toBe(3);
+        });
+
+        it('safely handles tasks with missing, undefined, or non-standard priorities without throwing', () => {
+            const compiled = compileCalendarSchedulePrompts({
+                tasks: [
+                    { title: 'Video Editing' } as any,
+                    { title: 'to do leetcode', priority: undefined } as any,
+                    { title: 'System Architecture', category: 'development', priority: 'high' },
+                ],
+                currentHour: 15,
+                currentMinute: 0,
+                targetDateStr: '2026-09-20',
+                allottedHours: 6,
+            });
+
+            expect(compiled.userPrompt).toContain('1. "Video Editing"');
+            expect(compiled.userPrompt).toContain('2. "to do leetcode"');
+            expect(compiled.userPrompt).toContain('3. "System Architecture" [development] [Priority: HIGH]');
+            expect(compiled.summary.taskCount).toBe(3);
+            expect(compiled.summary.budgetHours).toBe(6);
         });
     });
 

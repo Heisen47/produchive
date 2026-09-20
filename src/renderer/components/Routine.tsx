@@ -48,7 +48,8 @@ import {
     generateAICalendarSchedule,
     CALENDAR_SCHEDULER_SYSTEM_PROMPT,
     AVAILABLE_MODELS,
-    parseAIErrorMessage
+    parseAIErrorMessage,
+    compileCalendarSchedulePrompts
 } from '../lib/ai';
 import {
     distributeSmartSchedule,
@@ -730,7 +731,22 @@ export const Routine = ({
         }
     });
     const [userFocusPrompt, setUserFocusPrompt] = useState<string>('');
-    const [isPromptExpanded, setIsPromptExpanded] = useState<boolean>(false);
+    const [promptConfirmModal, setPromptConfirmModal] = useState<{
+        isOpen: boolean;
+        compiledUserPrompt: string;
+        customSystemPrompt: string;
+        userGuidance: string;
+        modelDisplayName: string;
+        activeTab: 'user' | 'system';
+        summary: {
+            scope: 'day' | 'week';
+            targetDates: string[];
+            taskCount: number;
+            budgetHours: number;
+            startTime: string;
+            meals: string[];
+        };
+    } | null>(null);
 
     // Active week dates (Monday to Friday default; includes Sat/Sun if user opts in)
     const activeWeekDates = useMemo(() => {
@@ -918,19 +934,83 @@ export const Routine = ({
         setMakerPhase('preview');
     };
 
-    // ─── Schedule Generator (AI powered in Day & Week mode with day-contextual awareness) ───
-    const handleGenerateSchedule = async () => {
-        if (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast) return;
+    // ─── Schedule Generator (Initiate with Prompt Confirmation Dialog, then Execute) ───
+    const handleInitiateGenerate = async () => {
+        try {
+            if (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast) return;
 
-        // Step 1: Check for model already downloaded by the user
+            // Step 1: Check for model already downloaded by the user
+            const currentModelId = await resolveDownloadedModelId();
+            if (!currentModelId) {
+                setShowNoModelPrompt(true);
+                return;
+            }
+
+            if (detectedModelId !== currentModelId) {
+                setDetectedModelId(currentModelId);
+            }
+
+            const modelObj = AVAILABLE_MODELS.find((m) => m.id === currentModelId);
+            const modelDisplayName = modelObj?.name || downloadedModelName || currentModelId;
+
+            const now = new Date();
+            const targetDateStr = formatDateStr(selectedDate);
+            const isSelectedToday = targetDateStr === todayStr;
+            const actualStartHour = planScope === 'week'
+                ? weekStartHourInput
+                : (isSelectedToday ? Math.max(startHourInput, now.getHours()) : startHourInput);
+            const actualStartMinute = (planScope === 'day' && isSelectedToday) ? now.getMinutes() : 0;
+            const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const [y, m, d] = targetDateStr.split('-').map(Number);
+            const dayDate = new Date(y, m - 1, d);
+            const dayOfWeekName = dayNames[dayDate.getDay()];
+            const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
+
+            const compiled = compileCalendarSchedulePrompts({
+                tasks: makerTasks,
+                userPrompt: userFocusPrompt.trim() ? userFocusPrompt.trim() : undefined,
+                customSystemPrompt: customSystemPrompt.trim() ? customSystemPrompt.trim() : undefined,
+                currentHour: actualStartHour,
+                currentMinute: actualStartMinute,
+                targetDateStr,
+                targetDates: planScope === 'week' ? activeWeekDates : undefined,
+                dayOfWeekName,
+                isWeekend,
+                isToday: isSelectedToday,
+                planScope,
+                timezone: userTimezone,
+                allottedHours,
+                totalWeeklyHours: weeklyTotalHours,
+                includeBreakfast,
+                includeLunch,
+                includeDinner,
+                includeRestBlocks,
+                role: user?.role || selectedRole || 'Professional',
+            });
+
+            setPromptConfirmModal({
+                isOpen: true,
+                compiledUserPrompt: compiled.userPrompt,
+                customSystemPrompt: customSystemPrompt.trim() || compiled.systemPrompt,
+                userGuidance: userFocusPrompt,
+                modelDisplayName,
+                activeTab: 'user',
+                summary: compiled.summary,
+            });
+        } catch (err) {
+            console.error('Failed to initiate schedule generation:', err);
+        }
+    };
+
+    const handleExecuteGeneration = async (approvedUserPrompt?: string, approvedSystemPrompt?: string) => {
+        setPromptConfirmModal(null);
+
         const currentModelId = await resolveDownloadedModelId();
         if (!currentModelId) {
             setShowNoModelPrompt(true);
             return;
-        }
-
-        if (detectedModelId !== currentModelId) {
-            setDetectedModelId(currentModelId);
         }
 
         const modelObj = AVAILABLE_MODELS.find((m) => m.id === currentModelId);
@@ -938,6 +1018,21 @@ export const Routine = ({
 
         setIsAIGenerating(true);
         setAiStatusMessage(`Connecting to on-device model (${modelDisplayName})...`);
+
+        const now = new Date();
+        const targetDateStr = formatDateStr(selectedDate);
+        const isSelectedToday = targetDateStr === todayStr;
+        const actualStartHour = planScope === 'week'
+            ? weekStartHourInput
+            : (isSelectedToday ? Math.max(startHourInput, now.getHours()) : startHourInput);
+        const actualStartMinute = (planScope === 'day' && isSelectedToday) ? now.getMinutes() : 0;
+        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const [y, m, d] = targetDateStr.split('-').map(Number);
+        const dayDate = new Date(y, m - 1, d);
+        const dayOfWeekName = dayNames[dayDate.getDay()];
+        const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
 
         if (planScope === 'week') {
             try {
@@ -953,23 +1048,17 @@ export const Routine = ({
 
                 setAiStatusMessage(`AI distributing tasks across ${activeWeekDates.length} days with ${modelDisplayName}...`);
 
-                const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
-                const targetDateStr = formatDateStr(selectedDate);
-
-                const promptToUse = userFocusPrompt.trim()
-                    ? userFocusPrompt.trim()
-                    : 'Generate a balanced, productive multi-day weekly schedule distributing these priorities across the week.';
-
                 const aiItems = await generateAICalendarSchedule(activeEngine, {
                     tasks: makerTasks,
-                    userPrompt: promptToUse,
-                    customSystemPrompt: customSystemPrompt.trim() ? customSystemPrompt.trim() : undefined,
+                    userPrompt: userFocusPrompt.trim() ? userFocusPrompt.trim() : undefined,
+                    compiledUserPrompt: approvedUserPrompt,
+                    customSystemPrompt: approvedSystemPrompt,
                     currentHour: weekStartHourInput,
                     currentMinute: 0,
                     targetDateStr,
                     targetDates: activeWeekDates,
                     planScope: 'week',
-                    totalWeeklyHours,
+                    totalWeeklyHours: weeklyTotalHours,
                     timezone: userTimezone,
                     includeBreakfast,
                     includeLunch,
@@ -989,9 +1078,9 @@ export const Routine = ({
                     const fallbackItems = generateWeeklySmartSchedule({
                         weekDates: activeWeekDates,
                         tasks: makerTasks,
-                        totalWeeklyHours,
+                        totalWeeklyHours: weeklyTotalHours,
                         defaultStartHour: weekStartHourInput,
-                        todayDateStr,
+                        todayDateStr: todayStr,
                         todayCurrentHour: currentH,
                         includeBreakfast,
                         includeLunch,
@@ -1016,9 +1105,9 @@ export const Routine = ({
                 const fallbackItems = generateWeeklySmartSchedule({
                     weekDates: activeWeekDates,
                     tasks: makerTasks,
-                    totalWeeklyHours,
+                    totalWeeklyHours: weeklyTotalHours,
                     defaultStartHour: weekStartHourInput,
-                    todayDateStr,
+                    todayDateStr: todayStr,
                     todayCurrentHour: currentH,
                     includeBreakfast,
                     includeLunch,
@@ -1047,36 +1136,15 @@ export const Routine = ({
                 throw new Error('Local AI engine could not be initialized');
             }
 
-            const now = new Date();
-            const targetDateStr = formatDateStr(selectedDate);
-            const isSelectedToday = targetDateStr === todayStr;
-            const currentHour = isSelectedToday ? Math.max(startHourInput, now.getHours()) : startHourInput;
-            const currentMinute = isSelectedToday ? now.getMinutes() : 0;
-            const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
-
-            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            const [y, m, d] = targetDateStr.split('-').map(Number);
-            const dayDate = new Date(y, m - 1, d);
-            const dayOfWeekName = dayNames[dayDate.getDay()];
-            const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
-
             setAiStatusMessage(`AI generating routine for ${dayOfWeekName} with ${modelDisplayName}...`);
-
-            const baseFocusGoal = isWeekend
-                ? `I want a balanced, rejuvenating ${dayOfWeekName} combining focused learning with restorative breaks.`
-                : isSelectedToday
-                ? `I want a productive, focused day starting now for ${dayOfWeekName}.`
-                : `I want a structured, high-output plan for ${dayOfWeekName}.`;
-            const promptToUse = userFocusPrompt.trim()
-                ? `${baseFocusGoal} User Instructions: ${userFocusPrompt.trim()}`
-                : baseFocusGoal;
 
             const aiItems = await generateAICalendarSchedule(activeEngine, {
                 tasks: makerTasks,
-                userPrompt: promptToUse,
-                customSystemPrompt: customSystemPrompt.trim() ? customSystemPrompt.trim() : undefined,
-                currentHour,
-                currentMinute,
+                userPrompt: userFocusPrompt.trim() ? userFocusPrompt.trim() : undefined,
+                compiledUserPrompt: approvedUserPrompt,
+                customSystemPrompt: approvedSystemPrompt,
+                currentHour: actualStartHour,
+                currentMinute: actualStartMinute,
                 targetDateStr,
                 dayOfWeekName,
                 isWeekend,
@@ -2196,7 +2264,7 @@ export const Routine = ({
                         >
                             <div className="flex items-center gap-3">
                                 <div className="p-2.5 rounded-2xl bg-[#5b5fc7]/20 text-[#5b5fc7] dark:text-[#7b83eb] border border-[#5b5fc7]/40">
-                                    <Sparkles size={18} />
+                                    <Clock size={18} />
                                 </div>
                                 <div>
                                     <h3 className="text-base font-display font-bold" style={{ color: 'var(--text-primary)' }}>
@@ -3792,102 +3860,6 @@ export const Routine = ({
                                     </div>
                                 </div>
 
-                                {/* Section 4: AI Prompt & Pacing Instructions */}
-                                <div
-                                    className="p-3.5 rounded-2xl border space-y-2.5 shadow-sm transition-all"
-                                    style={{
-                                        background: 'rgba(255, 255, 255, 0.03)',
-                                        borderColor: 'rgba(255, 255, 255, 0.08)',
-                                    }}
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <Bot size={14} className="text-[#5b5fc7]" />
-                                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
-                                                AI Prompt & Pacing
-                                            </label>
-                                            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
-                                                {activeModelDisplayName}
-                                            </span>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setIsPromptExpanded(!isPromptExpanded)}
-                                            className="text-[11px] font-semibold text-[#7b83eb] hover:underline flex items-center gap-1 cursor-pointer"
-                                        >
-                                            {isPromptExpanded ? (
-                                                <>
-                                                    <ChevronUp size={12} />
-                                                    <span>Hide Prompt</span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <ChevronDown size={12} />
-                                                    <span>View & Edit Prompt</span>
-                                                </>
-                                            )}
-                                        </button>
-                                    </div>
-
-                                    {/* User Custom Instructions Input */}
-                                    <div className="space-y-1">
-                                        <input
-                                            type="text"
-                                            value={userFocusPrompt}
-                                            onChange={(e) => setUserFocusPrompt(e.target.value)}
-                                            placeholder="Add custom prompt guidance (e.g. 'Leave 20m gaps between tasks', 'Finish coding before lunch')..."
-                                            className="w-full text-xs px-3 py-2 rounded-xl border transition-all placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#5b5fc7]"
-                                            style={{
-                                                background: 'var(--bg-input)',
-                                                borderColor: 'var(--border-secondary)',
-                                                color: 'var(--text-primary)',
-                                            }}
-                                        />
-                                    </div>
-
-                                    {/* Collapsible System Prompt Rules Editor */}
-                                    {isPromptExpanded && (
-                                        <div className="space-y-2 pt-2 border-t border-white/5">
-                                            <div className="flex items-center justify-between text-[11px]">
-                                                <span className="text-slate-400 font-medium">System Instructions sent to {activeModelDisplayName}:</span>
-                                                {customSystemPrompt && customSystemPrompt !== CALENDAR_SCHEDULER_SYSTEM_PROMPT && (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => {
-                                                            setCustomSystemPrompt('');
-                                                            try {
-                                                                localStorage.removeItem('produchive_custom_ai_routine_prompt');
-                                                            } catch {}
-                                                        }}
-                                                        className="text-[10px] text-amber-400 hover:text-amber-300 underline cursor-pointer"
-                                                    >
-                                                        Reset to Default
-                                                    </button>
-                                                )}
-                                            </div>
-                                            <textarea
-                                                value={customSystemPrompt || CALENDAR_SCHEDULER_SYSTEM_PROMPT}
-                                                onChange={(e) => {
-                                                    setCustomSystemPrompt(e.target.value);
-                                                    try {
-                                                        localStorage.setItem('produchive_custom_ai_routine_prompt', e.target.value);
-                                                    } catch {}
-                                                }}
-                                                rows={8}
-                                                className="w-full text-[11px] font-mono leading-relaxed p-2.5 rounded-xl border transition-all resize-y focus:outline-none focus:ring-1 focus:ring-[#5b5fc7]"
-                                                style={{
-                                                    background: 'rgba(0, 0, 0, 0.3)',
-                                                    borderColor: 'var(--border-secondary)',
-                                                    color: 'var(--text-primary)',
-                                                }}
-                                            />
-                                            <p className="text-[10px] text-slate-400 leading-tight">
-                                                You can modify Rule 4 to specify your desired spacing, pacing, or gap sizes between tasks.
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-
                                 {/* Footer Phase 1 */}
                                 <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
                                     <div className="text-xs text-slate-400">
@@ -3934,7 +3906,8 @@ export const Routine = ({
                                         </button>
                                         <button
                                             type="button"
-                                            onClick={handleGenerateSchedule}
+                                            onClick={handleInitiateGenerate}
+                                            title={`Review prompt and generate routine with ${activeModelDisplayName}`}
                                             disabled={isGenerating || isAIGenerating || (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast)}
                                             className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs shadow-md shadow-[#5b5fc7]/20 transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                                         >
@@ -4206,6 +4179,255 @@ export const Routine = ({
                         )}
                     </div>
                 </div>
+            )}
+
+            {/* AI Prompt Confirmation Modal: Ask user if they are ok to proceed, show prompt, allow edits */}
+            {promptConfirmModal?.isOpen && createPortal(
+                <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+                    <div
+                        className="w-full max-w-2xl rounded-3xl border shadow-2xl p-5 space-y-4 max-h-[90vh] flex flex-col transition-all"
+                        style={{
+                            background: 'var(--bg-card-solid, #131722)',
+                            borderColor: 'var(--border-secondary, rgba(255, 255, 255, 0.1))',
+                        }}
+                    >
+                        {/* Header */}
+                        <div className="flex items-start justify-between border-b pb-3" style={{ borderColor: 'var(--border-secondary)' }}>
+                            <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                    <Bot size={18} className="text-[#7b83eb]" />
+                                    <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
+                                        Ready to Generate Schedule?
+                                    </h3>
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                                        100% Offline AI
+                                    </span>
+                                </div>
+                                <p className="text-xs text-slate-400">
+                                    Review the prompt and cognitive scheduling parameters sent to {promptConfirmModal.modelDisplayName}. You can customize the instructions before proceeding.
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setPromptConfirmModal(null)}
+                                className="p-1.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
+                            >
+                                <X size={16} />
+                            </button>
+                        </div>
+
+                        {/* Metadata summary chips */}
+                        <div className="flex items-center gap-2 flex-wrap text-xs">
+                            <div className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 text-slate-300 flex items-center gap-1.5">
+                                <CalendarIcon size={12} className="text-[#7b83eb]" />
+                                <span className="font-semibold text-white">
+                                    {promptConfirmModal.summary.scope === 'week'
+                                        ? `${promptConfirmModal.summary.targetDates.length} Days (Week)`
+                                        : promptConfirmModal.summary.targetDates[0]}
+                                </span>
+                            </div>
+                            <div className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 text-slate-300 flex items-center gap-1.5">
+                                <Clock size={12} className="text-[#7b83eb]" />
+                                <span>{promptConfirmModal.summary.budgetHours}h budget from {promptConfirmModal.summary.startTime}</span>
+                            </div>
+                            <div className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 text-slate-300 flex items-center gap-1.5">
+                                <Target size={12} className="text-[#7b83eb]" />
+                                <span>{promptConfirmModal.summary.taskCount} task{promptConfirmModal.summary.taskCount !== 1 ? 's' : ''}</span>
+                            </div>
+                            <div className="px-2.5 py-1 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-300 font-mono text-[11px] ml-auto">
+                                {promptConfirmModal.modelDisplayName}
+                            </div>
+                        </div>
+
+                        {/* Custom Guidance input */}
+                        <div className="space-y-1">
+                            <label className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider block">
+                                Custom Prompt Guidance (Optional)
+                            </label>
+                            <input
+                                type="text"
+                                value={promptConfirmModal.userGuidance}
+                                onChange={(e) => {
+                                    const newGuidance = e.target.value;
+                                    setUserFocusPrompt(newGuidance);
+
+                                    const now = new Date();
+                                    const targetDateStr = formatDateStr(selectedDate);
+                                    const isSelectedToday = targetDateStr === todayStr;
+                                    const actualStartHour = planScope === 'week'
+                                        ? weekStartHourInput
+                                        : (isSelectedToday ? Math.max(startHourInput, now.getHours()) : startHourInput);
+                                    const actualStartMinute = (planScope === 'day' && isSelectedToday) ? now.getMinutes() : 0;
+                                    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+
+                                    const recompiled = compileCalendarSchedulePrompts({
+                                        tasks: makerTasks,
+                                        userPrompt: newGuidance.trim() || undefined,
+                                        customSystemPrompt: customSystemPrompt.trim() || undefined,
+                                        currentHour: actualStartHour,
+                                        currentMinute: actualStartMinute,
+                                        targetDateStr,
+                                        targetDates: planScope === 'week' ? activeWeekDates : undefined,
+                                        planScope,
+                                        timezone: userTimezone,
+                                        allottedHours,
+                                        totalWeeklyHours: weeklyTotalHours,
+                                        includeBreakfast,
+                                        includeLunch,
+                                        includeDinner,
+                                        includeRestBlocks,
+                                        role: user?.role || selectedRole || 'Professional',
+                                    });
+
+                                    setPromptConfirmModal((prev) => prev ? {
+                                        ...prev,
+                                        userGuidance: newGuidance,
+                                        compiledUserPrompt: recompiled.userPrompt,
+                                    } : null);
+                                }}
+                                placeholder="Add guidance (e.g. 'Leave 20m gaps between tasks', 'Finish coding before lunch')..."
+                                className="w-full text-xs px-3 py-2 rounded-xl border transition-all placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#5b5fc7]"
+                                style={{
+                                    background: 'var(--bg-input, rgba(0,0,0,0.2))',
+                                    borderColor: 'var(--border-secondary, rgba(255,255,255,0.1))',
+                                    color: 'var(--text-primary, #fff)',
+                                }}
+                            />
+                        </div>
+
+                        {/* Prompt Tabs & Editor */}
+                        <div className="flex-1 min-h-0 flex flex-col space-y-2">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1 bg-black/20 p-0.5 rounded-xl border border-white/5">
+                                    <button
+                                        type="button"
+                                        onClick={() => setPromptConfirmModal((prev) => prev ? { ...prev, activeTab: 'user' } : null)}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                                            promptConfirmModal.activeTab === 'user'
+                                                ? 'bg-[#5b5fc7] text-white'
+                                                : 'text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        User Prompt & Tasks
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setPromptConfirmModal((prev) => prev ? { ...prev, activeTab: 'system' } : null)}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                                            promptConfirmModal.activeTab === 'system'
+                                                ? 'bg-[#5b5fc7] text-white'
+                                                : 'text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        System Rules & Pacing
+                                    </button>
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const now = new Date();
+                                        const targetDateStr = formatDateStr(selectedDate);
+                                        const isSelectedToday = targetDateStr === todayStr;
+                                        const actualStartHour = planScope === 'week'
+                                            ? weekStartHourInput
+                                            : (isSelectedToday ? Math.max(startHourInput, now.getHours()) : startHourInput);
+                                        const actualStartMinute = (planScope === 'day' && isSelectedToday) ? now.getMinutes() : 0;
+                                        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+
+                                        const recompiled = compileCalendarSchedulePrompts({
+                                            tasks: makerTasks,
+                                            userPrompt: undefined,
+                                            customSystemPrompt: undefined,
+                                            currentHour: actualStartHour,
+                                            currentMinute: actualStartMinute,
+                                            targetDateStr,
+                                            targetDates: planScope === 'week' ? activeWeekDates : undefined,
+                                            planScope,
+                                            timezone: userTimezone,
+                                            allottedHours,
+                                            totalWeeklyHours: weeklyTotalHours,
+                                            includeBreakfast,
+                                            includeLunch,
+                                            includeDinner,
+                                            includeRestBlocks,
+                                            role: user?.role || selectedRole || 'Professional',
+                                        });
+                                        setUserFocusPrompt('');
+                                        setCustomSystemPrompt('');
+                                        try {
+                                            localStorage.removeItem('produchive_custom_ai_routine_prompt');
+                                        } catch {}
+                                        setPromptConfirmModal((prev) => prev ? {
+                                            ...prev,
+                                            userGuidance: '',
+                                            compiledUserPrompt: recompiled.userPrompt,
+                                            customSystemPrompt: recompiled.systemPrompt,
+                                        } : null);
+                                    }}
+                                    className="text-[11px] text-amber-400 hover:text-amber-300 underline cursor-pointer"
+                                >
+                                    Reset to Default Prompt
+                                </button>
+                            </div>
+
+                            <div className="flex-1 min-h-[160px] overflow-hidden rounded-xl border border-white/10">
+                                <textarea
+                                    value={promptConfirmModal.activeTab === 'user' ? promptConfirmModal.compiledUserPrompt : promptConfirmModal.customSystemPrompt}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (promptConfirmModal.activeTab === 'user') {
+                                            setPromptConfirmModal((prev) => prev ? { ...prev, compiledUserPrompt: val } : null);
+                                        } else {
+                                            setCustomSystemPrompt(val);
+                                            try {
+                                                localStorage.setItem('produchive_custom_ai_routine_prompt', val);
+                                            } catch {}
+                                            setPromptConfirmModal((prev) => prev ? { ...prev, customSystemPrompt: val } : null);
+                                        }
+                                    }}
+                                    rows={9}
+                                    className="w-full h-full text-[11px] font-mono leading-relaxed p-3 rounded-xl border-none transition-all resize-none focus:outline-none"
+                                    style={{
+                                        background: 'rgba(0, 0, 0, 0.35)',
+                                        color: 'var(--text-primary, #e2e8f0)',
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Footer Buttons */}
+                        <div className="flex items-center justify-between pt-2 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
+                            <button
+                                type="button"
+                                onClick={() => setPromptConfirmModal(null)}
+                                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
+                            >
+                                Back to Edit Plan
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => handleExecuteGeneration(promptConfirmModal.compiledUserPrompt, promptConfirmModal.customSystemPrompt)}
+                                disabled={isAIGenerating}
+                                className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs shadow-md shadow-[#5b5fc7]/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                            >
+                                {isAIGenerating ? (
+                                    <>
+                                        <Loader2 size={14} className="animate-spin text-white" />
+                                        <span>Generating Schedule...</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Bot size={14} className="text-white" />
+                                        <span>Proceed & Generate</span>
+                                    </>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
             )}
 
             {/* Sync Success Toast */}

@@ -362,8 +362,15 @@ export const initEngine = async (
 export const generateCompletion = async (
     engine: any,
     messages: { role: string; content: string }[],
-    temperature = 0.7
+    temperature = 0.7,
+    signal?: AbortSignal
 ) => {
+    if (signal?.aborted) {
+        const err = new Error("Operation cancelled by user");
+        err.name = "AbortError";
+        throw err;
+    }
+
     if (!engine) {
         log('error', 'generateCompletion called with null engine');
         throw new Error("AI Engine not initialized: Please download and activate an on-device AI model.");
@@ -377,12 +384,18 @@ export const generateCompletion = async (
         const completion = await engine.chat.completions.create({
             messages,
             temperature,
+            ...(signal ? { signal } : {}),
         });
         const duration = Date.now() - startTime;
 
         log('info', `Completion generated in ${duration}ms`);
         return completion.choices[0]?.message?.content || "";
     } catch (e: any) {
+        if (signal?.aborted || e?.name === 'AbortError' || e?.message?.toLowerCase().includes('abort') || e?.message?.toLowerCase().includes('cancel')) {
+            const abortErr = new Error("Operation cancelled by user");
+            abortErr.name = "AbortError";
+            throw abortErr;
+        }
         const friendlyMsg = parseAIErrorMessage(e);
         log('error', 'Completion generation failed:', friendlyMsg);
         const wrappedErr = new Error(friendlyMsg);
@@ -450,6 +463,7 @@ export interface CalendarScheduleRequest {
     includeRestBlocks?: boolean;
     role?: string;
     compiledUserPrompt?: string;
+    signal?: AbortSignal;
 }
 
 export const CALENDAR_SCHEDULER_SYSTEM_PROMPT = `You are an elite productivity architect and cognitive performance coach. Your mission is to build a realistic, high-impact calendar routine tailored to the user's tasks, energy rhythms, and time budget.
@@ -717,6 +731,12 @@ export const generateAICalendarSchedule = async (
     engine: any,
     request: CalendarScheduleRequest
 ): Promise<PlannedRoutineItem[]> => {
+    if (request.signal?.aborted) {
+        const abortErr = new Error("Operation cancelled by user");
+        abortErr.name = "AbortError";
+        throw abortErr;
+    }
+
     const compiled = compileCalendarSchedulePrompts(request);
 
     const userPromptContent = request.compiledUserPrompt && request.compiledUserPrompt.trim()
@@ -739,10 +759,20 @@ export const generateAICalendarSchedule = async (
     ];
 
     try {
-        const rawResponse = await generateCompletion(engine, messages, 0.4);
+        const rawResponse = await generateCompletion(engine, messages, 0.4, request.signal);
+        if (request.signal?.aborted) {
+            const abortErr = new Error("Operation cancelled by user");
+            abortErr.name = "AbortError";
+            throw abortErr;
+        }
         const parsed = extractJSONFromAIResponse<any[]>(rawResponse);
         return sanitizeAndValidateScheduleItems(parsed, request);
     } catch (e: any) {
+        if (request.signal?.aborted || e?.name === 'AbortError' || e?.message?.toLowerCase().includes('abort') || e?.message?.toLowerCase().includes('cancel')) {
+            const abortErr = new Error("Operation cancelled by user");
+            abortErr.name = "AbortError";
+            throw abortErr;
+        }
         const friendly = parseAIErrorMessage(e);
         log('warn', 'generateAICalendarSchedule failed:', friendly);
         const wrapped = new Error(friendly);

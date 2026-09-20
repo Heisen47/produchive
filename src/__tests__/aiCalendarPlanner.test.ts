@@ -325,6 +325,55 @@ describe('AI Calendar Schedule Planner', () => {
             const callArgs = mockEngine.chat.completions.create.mock.calls[0][0];
             expect(callArgs.messages[1].content).toBe('CONFIRMED_USER_PROMPT_CUSTOMIZED_BY_USER: SPRINT 1 CODING');
         });
+
+        it('aborts immediately and throws AbortError when AbortSignal is already aborted', async () => {
+            const mockEngine = {
+                chat: {
+                    completions: {
+                        create: vi.fn(),
+                    }
+                }
+            };
+
+            const controller = new AbortController();
+            controller.abort();
+
+            const req: CalendarScheduleRequest = {
+                currentHour: 9,
+                currentMinute: 0,
+                targetDateStr: '2026-09-20',
+                signal: controller.signal,
+            };
+
+            await expect(generateAICalendarSchedule(mockEngine, req)).rejects.toThrow(/cancelled/i);
+            expect(mockEngine.chat.completions.create).not.toHaveBeenCalled();
+        });
+
+        it('passes AbortSignal to engine completion call and throws when aborted during completion', async () => {
+            const controller = new AbortController();
+            const mockEngine = {
+                chat: {
+                    completions: {
+                        create: vi.fn().mockImplementation(async (params: any) => {
+                            expect(params.signal).toBe(controller.signal);
+                            controller.abort();
+                            const abortErr = new Error('The operation was aborted');
+                            abortErr.name = 'AbortError';
+                            throw abortErr;
+                        }),
+                    }
+                }
+            };
+
+            const req: CalendarScheduleRequest = {
+                currentHour: 9,
+                currentMinute: 0,
+                targetDateStr: '2026-09-20',
+                signal: controller.signal,
+            };
+
+            await expect(generateAICalendarSchedule(mockEngine, req)).rejects.toThrow(/cancelled|aborted/i);
+        });
     });
 
     describe('Smart Schedule Prompt Compilation (compileCalendarSchedulePrompts)', () => {

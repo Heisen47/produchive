@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
     Calendar as CalendarIcon,
@@ -731,22 +731,46 @@ export const Routine = ({
         }
     });
     const [userFocusPrompt, setUserFocusPrompt] = useState<string>('');
-    const [promptConfirmModal, setPromptConfirmModal] = useState<{
-        isOpen: boolean;
+    const [reviewPrompts, setReviewPrompts] = useState<{
         compiledUserPrompt: string;
         customSystemPrompt: string;
         userGuidance: string;
         modelDisplayName: string;
         activeTab: 'user' | 'system';
-        summary: {
-            scope: 'day' | 'week';
-            targetDates: string[];
-            taskCount: number;
-            budgetHours: number;
-            startTime: string;
-            meals: string[];
-        };
     } | null>(null);
+    const [showPromptAccordion, setShowPromptAccordion] = useState<boolean>(false);
+    const generationCancelledRef = useRef<boolean>(false);
+    const generationAbortControllerRef = useRef<AbortController | null>(null);
+
+    const handleCancelGeneration = () => {
+        generationCancelledRef.current = true;
+        if (generationAbortControllerRef.current) {
+            generationAbortControllerRef.current.abort();
+            generationAbortControllerRef.current = null;
+        }
+        try {
+            if (typeof engine?.interruptGenerate === 'function') {
+                engine.interruptGenerate();
+            }
+        } catch (e) {
+            console.warn('Failed to interrupt AI engine:', e);
+        }
+        setIsAIGenerating(false);
+        setAiStatusMessage('');
+        setSyncToast('Plan generation cancelled.');
+        setTimeout(() => setSyncToast(null), 3000);
+    };
+
+    useEffect(() => {
+        if (!isAIGenerating) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                handleCancelGeneration();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isAIGenerating]);
 
     // Active week dates (Monday to Friday default; includes Sat/Sun if user opts in)
     const activeWeekDates = useMemo(() => {
@@ -990,24 +1014,30 @@ export const Routine = ({
                 role: user?.role || selectedRole || 'Professional',
             });
 
-            setPromptConfirmModal({
-                isOpen: true,
-                compiledUserPrompt: compiled.userPrompt,
-                customSystemPrompt: customSystemPrompt.trim() || compiled.systemPrompt,
+            const userP = compiled.userPrompt;
+            const sysP = customSystemPrompt.trim() || compiled.systemPrompt;
+
+            setReviewPrompts({
+                compiledUserPrompt: userP,
+                customSystemPrompt: sysP,
                 userGuidance: userFocusPrompt,
                 modelDisplayName,
                 activeTab: 'user',
-                summary: compiled.summary,
             });
+
+            await handleExecuteGeneration(userP, sysP);
         } catch (err) {
             console.error('Failed to initiate schedule generation:', err);
         }
     };
 
     const handleExecuteGeneration = async (approvedUserPrompt?: string, approvedSystemPrompt?: string) => {
-        setPromptConfirmModal(null);
+        generationCancelledRef.current = false;
+        const controller = new AbortController();
+        generationAbortControllerRef.current = controller;
 
         const currentModelId = await resolveDownloadedModelId();
+        if (generationCancelledRef.current || controller.signal.aborted) return;
         if (!currentModelId) {
             setShowNoModelPrompt(true);
             return;
@@ -1042,6 +1072,8 @@ export const Routine = ({
                     activeEngine = await onStartEngine(currentModelId);
                 }
 
+                if (generationCancelledRef.current || controller.signal.aborted) return;
+
                 if (!activeEngine) {
                     throw new Error('Local AI engine could not be initialized');
                 }
@@ -1065,7 +1097,10 @@ export const Routine = ({
                     includeDinner,
                     includeRestBlocks,
                     role: user?.role || selectedRole || 'Professional',
+                    signal: controller.signal,
                 });
+
+                if (generationCancelledRef.current || controller.signal.aborted) return;
 
                 if (aiItems && aiItems.length > 0) {
                     setPreviewSchedule(aiItems);
@@ -1074,6 +1109,7 @@ export const Routine = ({
                     setSyncToast(`Generated ${activeWeekDates.length}-day schedule with ${modelDisplayName}.`);
                     setTimeout(() => setSyncToast(null), 4000);
                 } else {
+                    if (generationCancelledRef.current || controller.signal.aborted) return;
                     const currentH = new Date().getHours();
                     const fallbackItems = generateWeeklySmartSchedule({
                         weekDates: activeWeekDates,
@@ -1094,6 +1130,9 @@ export const Routine = ({
                     setTimeout(() => setSyncToast(null), 4000);
                 }
             } catch (err: any) {
+                if (generationCancelledRef.current || controller.signal.aborted || err?.name === 'AbortError' || err?.message?.toLowerCase().includes('cancel') || err?.message?.toLowerCase().includes('abort')) {
+                    return;
+                }
                 console.warn('AI weekly schedule generation error, falling back to smart scheduler:', err);
                 useStore.getState().setError(null);
                 const friendly = parseAIErrorMessage(err);
@@ -1120,6 +1159,9 @@ export const Routine = ({
             } finally {
                 setIsAIGenerating(false);
                 setAiStatusMessage('');
+                if (generationAbortControllerRef.current === controller) {
+                    generationAbortControllerRef.current = null;
+                }
             }
             return;
         }
@@ -1131,6 +1173,8 @@ export const Routine = ({
                 setAiStatusMessage(`Starting on-device model (${modelDisplayName})...`);
                 activeEngine = await onStartEngine(currentModelId);
             }
+
+            if (generationCancelledRef.current || controller.signal.aborted) return;
 
             if (!activeEngine) {
                 throw new Error('Local AI engine could not be initialized');
@@ -1157,7 +1201,10 @@ export const Routine = ({
                 includeDinner,
                 includeRestBlocks,
                 role: user?.role || selectedRole || 'Professional',
+                signal: controller.signal,
             });
+
+            if (generationCancelledRef.current || controller.signal.aborted) return;
 
             if (aiItems && aiItems.length > 0) {
                 setPreviewSchedule(aiItems);
@@ -1165,11 +1212,15 @@ export const Routine = ({
                 setSyncToast(`Generated ${dayOfWeekName} schedule with ${modelDisplayName}.`);
                 setTimeout(() => setSyncToast(null), 4000);
             } else {
+                if (generationCancelledRef.current || controller.signal.aborted) return;
                 setSyncToast('Schedule planned using smart day scheduler.');
                 setTimeout(() => setSyncToast(null), 4000);
                 runAlgorithmicDaySchedule();
             }
         } catch (err: any) {
+            if (generationCancelledRef.current || controller.signal.aborted || err?.name === 'AbortError' || err?.message?.toLowerCase().includes('cancel') || err?.message?.toLowerCase().includes('abort')) {
+                return;
+            }
             console.warn('AI schedule generation error, falling back to smart scheduler:', err);
             useStore.getState().setError(null);
             const friendly = parseAIErrorMessage(err);
@@ -1180,6 +1231,9 @@ export const Routine = ({
         } finally {
             setIsAIGenerating(false);
             setAiStatusMessage('');
+            if (generationAbortControllerRef.current === controller) {
+                generationAbortControllerRef.current = null;
+            }
         }
     };
 
@@ -3279,6 +3333,61 @@ export const Routine = ({
                             </button>
                         </div>
 
+                        {/* Wizard Stepper: 1. Setup -> 2. Review & Apply */}
+                        <div className="flex items-center justify-center py-1 border-b border-white/5">
+                            <div className="flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setMakerPhase('input')}
+                                    className="flex items-center gap-2 group cursor-pointer"
+                                >
+                                    <div
+                                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
+                                            makerPhase === 'preview'
+                                                ? 'bg-[#5b5fc7] text-white'
+                                                : 'bg-[#5b5fc7] text-white ring-2 ring-[#5b5fc7]/30'
+                                        }`}
+                                    >
+                                        {makerPhase === 'preview' ? <Check size={11} /> : '1'}
+                                    </div>
+                                    <span
+                                        className={`text-xs font-semibold transition-all ${
+                                            makerPhase === 'input'
+                                                ? 'text-white font-bold'
+                                                : 'text-slate-400 group-hover:text-slate-200'
+                                        }`}
+                                    >
+                                        Setup
+                                    </span>
+                                </button>
+
+                                <div
+                                    className={`w-10 h-0.5 rounded-full transition-all ${
+                                        makerPhase === 'preview' ? 'bg-[#5b5fc7]' : 'bg-white/10'
+                                    }`}
+                                />
+
+                                <div className="flex items-center gap-2">
+                                    <div
+                                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
+                                            makerPhase === 'preview'
+                                                ? 'bg-[#5b5fc7] text-white ring-2 ring-[#5b5fc7]/30'
+                                                : 'border border-slate-600 text-slate-400'
+                                        }`}
+                                    >
+                                        2
+                                    </div>
+                                    <span
+                                        className={`text-xs font-semibold transition-all ${
+                                            makerPhase === 'preview' ? 'text-white font-bold' : 'text-slate-500'
+                                        }`}
+                                    >
+                                        Review & Apply
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
                         {/* Centered Scope Selector: Day Plan vs Week Plan */}
                         {makerPhase === 'input' && (
                             <div className="flex justify-center w-full py-0.5">
@@ -3323,6 +3432,7 @@ export const Routine = ({
                                     style={{
                                         background: 'rgba(255, 255, 255, 0.03)',
                                         borderColor: 'rgba(255, 255, 255, 0.08)',
+                                        borderLeft: '3px solid #5b5fc7',
                                     }}
                                 >
                                     <div className="flex items-center justify-between">
@@ -3400,9 +3510,10 @@ export const Routine = ({
                                         borderColor: 'rgba(255, 255, 255, 0.08)',
                                     }}
                                 >
-                                    {/* Row 1: Routine blocks + Start selector */}
+                                    {/* Row 1: Meals / Break Toggles + Start selector */}
                                     <div className="flex items-center justify-between gap-2 flex-wrap">
                                         <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mr-0.5">Include:</span>
                                             <button
                                                 type="button"
                                                 onClick={() => setIncludeBreakfast(!includeBreakfast)}
@@ -3447,67 +3558,6 @@ export const Routine = ({
                                             >
                                                 Dinner
                                             </button>
-
-                                            <span className="w-px h-4 bg-white/10 mx-0.5" />
-
-                                            {/* Occupation Bubbles: School, College, Office, Uni (Mutually Exclusive: Either-Or) */}
-                                            {(() => {
-                                                const OCCUPATION_OPTIONS = [
-                                                    { label: 'School', title: 'School' },
-                                                    { label: 'College', title: 'College' },
-                                                    { label: 'Office', title: 'Office' },
-                                                    { label: 'Uni', title: 'Uni' },
-                                                ];
-
-                                                const selectedOccupation = OCCUPATION_OPTIONS.find((occ) =>
-                                                    makerTasks.some((t) => {
-                                                        const low = t.title.toLowerCase().trim();
-                                                        if (occ.label === 'Uni') {
-                                                            return low === 'uni' || low.startsWith('uni ') || low.endsWith(' uni') || low.includes(' uni ') || low.includes('university');
-                                                        }
-                                                        return low.includes(occ.label.toLowerCase());
-                                                    })
-                                                );
-                                                const hasOccupationSelected = Boolean(selectedOccupation);
-
-                                                return OCCUPATION_OPTIONS.map((occ) => {
-                                                    const isSelected = selectedOccupation?.label === occ.label;
-                                                    const isDisabled = hasOccupationSelected && !isSelected;
-
-                                                    return (
-                                                        <button
-                                                            key={occ.label}
-                                                            type="button"
-                                                            disabled={isDisabled}
-                                                            title={isDisabled ? 'Only one occupation can be chosen at a time' : undefined}
-                                                            onClick={() => {
-                                                                if (isSelected) {
-                                                                    // Deselect: remove all occupation tasks
-                                                                    setMakerTasks((prev) => prev.filter((t) => !isOccupationBlock(t.title)));
-                                                                } else if (!isDisabled) {
-                                                                    // Select: replace any occupation tasks, add this one, and set start time to 9 AM
-                                                                    setMakerTasks((prev) => [
-                                                                        ...prev.filter((t) => !isOccupationBlock(t.title)),
-                                                                        { title: occ.title, category: 'development', priority: 'high' },
-                                                                    ]);
-                                                                    if (startHourInput > 9) {
-                                                                        setStartHourInput(9);
-                                                                    }
-                                                                }
-                                                            }}
-                                                            className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all select-none ${
-                                                                isSelected
-                                                                    ? 'bg-[#5b5fc7]/25 border-[#5b5fc7]/80 text-[#8b92f8] shadow-sm font-bold cursor-pointer'
-                                                                    : isDisabled
-                                                                    ? 'bg-black/10 dark:bg-white/5 border-slate-800/40 text-slate-500 opacity-40 cursor-not-allowed'
-                                                                    : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white hover:border-slate-500 cursor-pointer'
-                                                            }`}
-                                                        >
-                                                            {occ.label}
-                                                        </button>
-                                                    );
-                                                });
-                                            })()}
                                         </div>
 
                                         <div className="flex items-center gap-1.5 shrink-0 text-xs text-slate-300">
@@ -3531,6 +3581,66 @@ export const Routine = ({
                                                     ))}
                                             </select>
                                         </div>
+                                    </div>
+
+                                    {/* Row 2: Occupation Context (Mutually Exclusive) */}
+                                    <div className="flex items-center gap-1.5 flex-wrap pt-1.5 border-t border-white/5">
+                                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mr-0.5">Context:</span>
+                                        {(() => {
+                                            const OCCUPATION_OPTIONS = [
+                                                { label: 'School', title: 'School' },
+                                                { label: 'College', title: 'College' },
+                                                { label: 'Office', title: 'Office' },
+                                                { label: 'Uni', title: 'Uni' },
+                                            ];
+
+                                            const selectedOccupation = OCCUPATION_OPTIONS.find((occ) =>
+                                                makerTasks.some((t) => {
+                                                    const low = t.title.toLowerCase().trim();
+                                                    if (occ.label === 'Uni') {
+                                                        return low === 'uni' || low.startsWith('uni ') || low.endsWith(' uni') || low.includes(' uni ') || low.includes('university');
+                                                    }
+                                                    return low.includes(occ.label.toLowerCase());
+                                                })
+                                            );
+                                            const hasOccupationSelected = Boolean(selectedOccupation);
+
+                                            return OCCUPATION_OPTIONS.map((occ) => {
+                                                const isSelected = selectedOccupation?.label === occ.label;
+                                                const isDisabled = hasOccupationSelected && !isSelected;
+
+                                                return (
+                                                    <button
+                                                        key={occ.label}
+                                                        type="button"
+                                                        disabled={isDisabled}
+                                                        title={isDisabled ? 'Only one occupation can be chosen at a time' : undefined}
+                                                        onClick={() => {
+                                                            if (isSelected) {
+                                                                setMakerTasks((prev) => prev.filter((t) => !isOccupationBlock(t.title)));
+                                                            } else if (!isDisabled) {
+                                                                setMakerTasks((prev) => [
+                                                                    ...prev.filter((t) => !isOccupationBlock(t.title)),
+                                                                    { title: occ.title, category: 'development', priority: 'high' },
+                                                                ]);
+                                                                if (startHourInput > 9) {
+                                                                    setStartHourInput(9);
+                                                                }
+                                                            }
+                                                        }}
+                                                        className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all select-none ${
+                                                            isSelected
+                                                                ? 'bg-[#5b5fc7]/25 border-[#5b5fc7]/80 text-[#8b92f8] shadow-sm font-bold cursor-pointer'
+                                                                : isDisabled
+                                                                ? 'bg-black/10 dark:bg-white/5 border-slate-800/40 text-slate-500 opacity-40 cursor-not-allowed'
+                                                                : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white hover:border-slate-500 cursor-pointer'
+                                                        }`}
+                                                    >
+                                                        {occ.label}
+                                                    </button>
+                                                );
+                                            });
+                                        })()}
                                     </div>
 
                                     {/* Row 2: Fixed height & aligned sub-row for both Day and Week */}
@@ -3767,14 +3877,14 @@ export const Routine = ({
                                         )}
                                     </form>
 
-                                    {/* Personalized Quick Suggestions */}
+                                    {/* Personalized Quick Suggestions (Capped to 4) */}
                                     {personalizedTaskSuggestions.length > 0 && (
                                         <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
                                             <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1 shrink-0">
-                                                <Lightbulb size={15} className="text-[#5b5fc7]" /> 
+                                                <Lightbulb size={13} className="text-[#5b5fc7]" /> 
                                                 Suggested:
                                             </span>
-                                            {personalizedTaskSuggestions.map((sug, idx) => (
+                                            {personalizedTaskSuggestions.slice(0, 4).map((sug, idx) => (
                                                 <button
                                                     key={idx}
                                                     type="button"
@@ -3874,42 +3984,16 @@ export const Routine = ({
                                         <button
                                             type="button"
                                             onClick={() => setIsMakerOpen(false)}
-                                            className="px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 cursor-pointer"
+                                            className="px-3.5 py-1.5 rounded-xl text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 cursor-pointer"
                                         >
                                             Cancel
                                         </button>
                                         <button
                                             type="button"
-                                            onClick={() => {
-                                                const targetDateStr = formatDateStr(selectedDate);
-                                                const isSelectedToday = targetDateStr === todayStr;
-                                                const currentH = new Date().getHours();
-                                                const actualStartHour = isSelectedToday ? Math.max(directStartHour, currentH) : directStartHour;
-                                                setIsMakerOpen(false);
-                                                setQuickCreateModal({
-                                                    dateStr: targetDateStr,
-                                                    startHour: Math.min(23, actualStartHour),
-                                                    startMinute: directStartMinute,
-                                                    title: newTaskTitle.trim() || (makerTasks[0]?.title || ''),
-                                                    category: directCategory,
-                                                    priority: 'high',
-                                                    durationMinutes: directDuration,
-                                                    subtitle: '',
-                                                    addToTasks: false,
-                                                });
-                                            }}
-                                            className="px-3 py-1.5 rounded-lg border border-[#5b5fc7]/40 bg-[#5b5fc7]/15 hover:bg-[#5b5fc7]/25 text-[#7b83eb] font-semibold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-                                            title="Plan at a specific time directly without running the auto-generator"
-                                        >
-                                            <Clock size={13} />
-                                            <span>Plan</span>
-                                        </button>
-                                        <button
-                                            type="button"
                                             onClick={handleInitiateGenerate}
-                                            title={`Review prompt and generate routine with ${activeModelDisplayName}`}
+                                            title={`Generate routine with ${activeModelDisplayName}`}
                                             disabled={isGenerating || isAIGenerating || (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast)}
-                                            className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs shadow-md shadow-[#5b5fc7]/20 transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                                            className="px-4 py-2 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] text-white font-semibold text-xs shadow-sm shadow-[#5b5fc7]/20 transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                                         >
                                             {isGenerating || isAIGenerating ? (
                                                 <>
@@ -3926,7 +4010,92 @@ export const Routine = ({
                         ) : (
                             <>
                                 {/* Phase 2: Schedule Preview & Duration Adjustment */}
-                                <div className="space-y-3.5">
+                                <div className="space-y-3">
+                                    {/* AI Model Attribution & Prompt Accordion Toggle */}
+                                    <div
+                                        className="flex items-center justify-between px-3.5 py-2 rounded-xl border text-xs"
+                                        style={{
+                                            background: 'rgba(255, 255, 255, 0.03)',
+                                            borderColor: 'rgba(255, 255, 255, 0.08)',
+                                        }}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <Bot size={14} className="text-[#7b83eb]" />
+                                            <span className="text-slate-300 font-medium">
+                                                Generated with <span className="text-white font-semibold">{reviewPrompts?.modelDisplayName || activeModelDisplayName}</span>
+                                            </span>
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 font-semibold">
+                                                100% Offline
+                                            </span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPromptAccordion(!showPromptAccordion)}
+                                            className="text-xs font-semibold text-[#7b83eb] hover:text-[#9da4ff] transition-all flex items-center gap-1 cursor-pointer"
+                                        >
+                                            <span>{showPromptAccordion ? 'Hide Prompt' : 'Edit AI Prompt'}</span>
+                                            {showPromptAccordion ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                                        </button>
+                                    </div>
+
+                                    {/* Prompt Accordion (Expandable) */}
+                                    {showPromptAccordion && reviewPrompts && (
+                                        <div className="p-3.5 rounded-2xl border space-y-2.5 bg-black/40 border-white/10 animate-fade-in">
+                                            <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                                                <div className="flex items-center gap-1.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setReviewPrompts((prev) => prev ? { ...prev, activeTab: 'user' } : null)}
+                                                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                                                            reviewPrompts.activeTab === 'user'
+                                                                ? 'bg-[#5b5fc7] text-white'
+                                                                : 'text-slate-400 hover:text-white bg-white/5'
+                                                        }`}
+                                                    >
+                                                        User Prompt
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setReviewPrompts((prev) => prev ? { ...prev, activeTab: 'system' } : null)}
+                                                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                                                            reviewPrompts.activeTab === 'system'
+                                                                ? 'bg-[#5b5fc7] text-white'
+                                                                : 'text-slate-400 hover:text-white bg-white/5'
+                                                        }`}
+                                                    >
+                                                        System Rules
+                                                    </button>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleExecuteGeneration(reviewPrompts.compiledUserPrompt, reviewPrompts.customSystemPrompt)}
+                                                    disabled={isAIGenerating}
+                                                    className="px-3 py-1 rounded-lg bg-[#5b5fc7] hover:bg-[#4f52b2] text-white font-semibold text-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                                >
+                                                    {isAIGenerating ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                                                    <span>Regenerate</span>
+                                                </button>
+                                            </div>
+                                            <textarea
+                                                rows={5}
+                                                value={reviewPrompts.activeTab === 'user' ? reviewPrompts.compiledUserPrompt : reviewPrompts.customSystemPrompt}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    if (reviewPrompts.activeTab === 'user') {
+                                                        setReviewPrompts((prev) => prev ? { ...prev, compiledUserPrompt: val } : null);
+                                                    } else {
+                                                        setReviewPrompts((prev) => prev ? { ...prev, customSystemPrompt: val } : null);
+                                                        setCustomSystemPrompt(val);
+                                                        try {
+                                                            localStorage.setItem('produchive_custom_ai_routine_prompt', val);
+                                                        } catch {}
+                                                    }
+                                                }}
+                                                className="w-full p-2.5 rounded-xl text-[11px] font-mono border bg-slate-950/80 text-slate-200 border-white/10 focus:outline-none focus:border-[#5b5fc7] resize-none leading-relaxed"
+                                            />
+                                        </div>
+                                    )}
+
                                     {/* Allotted Budget Summary Bar */}
                                     {(() => {
                                         const productiveMins = previewSchedule
@@ -3938,7 +4107,7 @@ export const Routine = ({
                                             : startHourInput;
 
                                         return (
-                                            <div className="p-3.5 rounded-2xl border space-y-2.5 bg-[#5b5fc7]/10 border-[#5b5fc7]/30">
+                                            <div className="p-3 rounded-2xl border space-y-2 bg-[#5b5fc7]/10 border-[#5b5fc7]/30">
                                                 <div className="flex items-center justify-between text-xs font-semibold">
                                                     <span className="text-[#5b5fc7] dark:text-[#7b83eb] flex items-center gap-1.5 font-bold">
                                                         <Clock size={13} /> {planScope === 'day' ? `${formatHourLabel(previewSchedule[0]?.startHour || startHourInput)} → ${formatHourLabel(endHour)} Routine` : `${scheduledDaysCount}-Day Weekly Plan (${previewSchedule.length} total blocks)`}
@@ -3948,97 +4117,11 @@ export const Routine = ({
                                                     </span>
                                                 </div>
 
-                                                <div className="w-full h-2 rounded-full bg-slate-800/60 overflow-hidden">
+                                                <div className="w-full h-1.5 rounded-full bg-slate-800/60 overflow-hidden">
                                                     <div
                                                         className="h-full transition-all duration-300 rounded-full bg-[#5b5fc7] w-full"
                                                     />
                                                 </div>
-                                            </div>
-                                        );
-                                    })()}
-
-                                    {/* Mindset & Focus / Recovery Card - Prominently Highlighted Sections */}
-                                    {(() => {
-                                        const budgetForMindset = planScope === 'day' ? allottedHours : Math.round(weeklyTotalHours / Math.max(1, activeWeekDates.length));
-                                        const mindsetData = getMindsetCardData(previewSchedule, budgetForMindset, startHourInput);
-                                        const isSleepType = mindsetData.type === 'sleep';
-
-                                        return (
-                                            <div
-                                                className="p-4 rounded-2xl border space-y-3 backdrop-blur-md shadow-sm transition-all"
-                                                style={{
-                                                    background: isDark
-                                                        ? 'rgba(91, 95, 199, 0.08)'
-                                                        : 'rgba(91, 95, 199, 0.04)',
-                                                    borderColor: isDark
-                                                        ? 'rgba(91, 95, 199, 0.28)'
-                                                        : 'rgba(91, 95, 199, 0.22)',
-                                                }}
-                                            >
-                                                {/* 1. Header Section: Title & Badge */}
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center gap-2 font-bold text-xs text-[#5b5fc7] dark:text-[#8b92f7]">
-                                                        {isSleepType ? <Moon size={15} /> : <Target size={15} />}
-                                                        <span className="tracking-tight text-sm font-display">{mindsetData.title}</span>
-                                                    </div>
-                                                    <span
-                                                        className="text-[10px] uppercase font-bold tracking-wider px-2.5 py-1 rounded-full border shadow-sm"
-                                                        style={{
-                                                            background: isSleepType
-                                                                ? 'rgba(129, 140, 248, 0.15)'
-                                                                : 'rgba(91, 95, 199, 0.2)',
-                                                            borderColor: isSleepType
-                                                                ? 'rgba(129, 140, 248, 0.3)'
-                                                                : 'rgba(91, 95, 199, 0.4)',
-                                                            color: isSleepType ? '#a5b4fc' : '#8b92f7',
-                                                        }}
-                                                    >
-                                                        {mindsetData.badge}
-                                                    </span>
-                                                </div>
-
-                                                {/* 2. Highlighted Quote Block */}
-                                                <div
-                                                    className="p-3.5 rounded-xl border relative overflow-hidden"
-                                                    style={{
-                                                        background: isDark ? 'rgba(0, 0, 0, 0.35)' : 'rgba(255, 255, 255, 0.6)',
-                                                        borderColor: 'rgba(91, 95, 199, 0.25)',
-                                                        borderLeft: '4px solid #5b5fc7',
-                                                    }}
-                                                >
-                                                    <div className="flex items-start gap-2.5">
-                                                        <Quote size={18} className="text-[#5b5fc7] shrink-0 mt-0.5 opacity-80" />
-                                                        <div className="space-y-1.5 flex-1 min-w-0">
-                                                            <p className="text-[13px] font-medium leading-snug" style={{ color: 'var(--text-primary)' }}>
-                                                                “{mindsetData.quote}”
-                                                            </p>
-                                                            <div className="flex items-center gap-2 pt-0.5">
-                                                                <span className="text-[11px] font-semibold text-[#5b5fc7] dark:text-[#a5b4fc]">
-                                                                    — {mindsetData.author}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-
-                                                {/* 3. Highlighted Insight / Strategy Tip */}
-                                                {mindsetData.tip && (
-                                                    <div
-                                                        className="flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold"
-                                                        style={{
-                                                            background: isSleepType
-                                                                ? 'rgba(245, 158, 11, 0.1)'
-                                                                : 'rgba(16, 185, 129, 0.1)',
-                                                            borderColor: isSleepType
-                                                                ? 'rgba(245, 158, 11, 0.25)'
-                                                                : 'rgba(16, 185, 129, 0.25)',
-                                                            color: isSleepType ? '#fbbf24' : '#34d399',
-                                                        }}
-                                                    >
-                                                        <span className="text-sm shrink-0">{isSleepType ? '🌙' : '⚡'}</span>
-                                                        <span className="leading-snug">{mindsetData.tip}</span>
-                                                    </div>
-                                                )}
                                             </div>
                                         );
                                     })()}
@@ -4081,23 +4164,34 @@ export const Routine = ({
                                         </div>
                                     )}
 
-                                    {/* Generated Schedule Timeline Items */}
-                                    <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar pr-1">
+                                    {/* Generated Schedule Timeline Items with Vertical Dotted Line */}
+                                    <div className="relative pl-5 space-y-2 max-h-56 overflow-y-auto custom-scrollbar pr-1">
+                                        <div className="absolute left-2 top-3 bottom-3 w-px border-l-2 border-dotted border-[#5b5fc7]/40 pointer-events-none" />
+
                                         {previewSchedule
                                             .filter((item) => selectedPreviewDay === 'all' || item.dateStr === selectedPreviewDay)
                                             .map((item) => {
                                                 const dayLabel = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(item.dateStr).getDay()];
+                                                const itemColors = getEventColors(item.category, isDark);
+                                                const QUICK_PRESETS = [15, 30, 45, 60, 90];
+                                                const pillOptions = Array.from(new Set([...QUICK_PRESETS, item.durationMinutes])).sort((a, b) => a - b);
 
                                                 return (
                                                     <div
                                                         key={item.id}
-                                                        className="flex items-center justify-between p-2.5 rounded-xl border gap-2 group transition-all"
+                                                        className="relative flex items-center justify-between p-2.5 rounded-xl border gap-2 group transition-all"
                                                         style={{
                                                             background: 'var(--bg-input)',
                                                             borderColor: 'var(--border-secondary)',
                                                         }}
                                                     >
-                                                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                        {/* Node Dot on Timeline */}
+                                                        <div
+                                                            className="absolute -left-[17px] top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full ring-2 ring-slate-900 transition-all"
+                                                            style={{ background: itemColors.accent || '#5b5fc7' }}
+                                                        />
+
+                                                        <div className="flex items-center gap-2 min-w-0 flex-1">
                                                             {planScope === 'week' && (
                                                                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400 uppercase shrink-0">
                                                                     {dayLabel}
@@ -4112,35 +4206,27 @@ export const Routine = ({
                                                         </div>
 
                                                         <div className="flex items-center gap-2 shrink-0">
-                                                            {/* Duration Selector with auto balancing & full range support */}
-                                                            {(() => {
-                                                                const DURATION_PRESETS = [15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 210, 240, 270, 300, 360, 420, 480];
-                                                                const allOptions = Array.from(new Set([...DURATION_PRESETS, item.durationMinutes])).sort((a, b) => a - b);
-
-                                                                const formatMins = (mins: number) => {
-                                                                    if (mins < 60) return `${mins}m`;
-                                                                    const h = Math.floor(mins / 60);
-                                                                    const m = mins % 60;
-                                                                    if (m === 0) return `${h}h`;
-                                                                    if (m === 30) return `${h}.5h`;
-                                                                    return `${h}h ${m}m`;
-                                                                };
-
-                                                                return (
-                                                                    <select
-                                                                        value={item.durationMinutes}
-                                                                        onChange={(e) => handleUpdatePreviewDuration(item.id, Number(e.target.value))}
-                                                                        className="px-2.5 py-1 rounded-lg text-xs font-mono border bg-transparent focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
-                                                                        style={{ color: 'var(--text-primary)', borderColor: 'var(--border-card)' }}
-                                                                    >
-                                                                        {allOptions.map((mins) => (
-                                                                            <option key={mins} value={mins} className="bg-slate-900 text-white">
-                                                                                {formatMins(mins)}
-                                                                            </option>
-                                                                        ))}
-                                                                    </select>
-                                                                );
-                                                            })()}
+                                                            {/* Inline Duration Pill Buttons */}
+                                                            <div className="flex items-center gap-1 bg-black/25 dark:bg-white/5 p-0.5 rounded-lg border border-white/5">
+                                                                {pillOptions.map((mins) => {
+                                                                    const isSelected = item.durationMinutes === mins;
+                                                                    const label = mins < 60 ? `${mins}m` : mins === 60 ? '1h' : mins === 90 ? '1.5h' : `${Math.floor(mins / 60)}h${mins % 60 ? (mins % 60) + 'm' : ''}`;
+                                                                    return (
+                                                                        <button
+                                                                            key={mins}
+                                                                            type="button"
+                                                                            onClick={() => handleUpdatePreviewDuration(item.id, mins)}
+                                                                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold transition-all cursor-pointer ${
+                                                                                isSelected
+                                                                                    ? 'bg-[#5b5fc7] text-white shadow-sm'
+                                                                                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                                                                            }`}
+                                                                        >
+                                                                            {label}
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
 
                                                             <button
                                                                 type="button"
@@ -4154,6 +4240,35 @@ export const Routine = ({
                                                 );
                                             })}
                                     </div>
+
+                                    {/* Mindset Single-Line Banner */}
+                                    {(() => {
+                                        const budgetForMindset = planScope === 'day' ? allottedHours : Math.round(weeklyTotalHours / Math.max(1, activeWeekDates.length));
+                                        const mindsetData = getMindsetCardData(previewSchedule, budgetForMindset, startHourInput);
+                                        if (!mindsetData) return null;
+                                        return (
+                                            <div
+                                                className="flex items-center justify-between px-3.5 py-2 rounded-xl border text-xs gap-3"
+                                                style={{
+                                                    background: isDark ? 'rgba(91, 95, 199, 0.08)' : 'rgba(91, 95, 199, 0.04)',
+                                                    borderColor: isDark ? 'rgba(91, 95, 199, 0.25)' : 'rgba(91, 95, 199, 0.2)',
+                                                }}
+                                            >
+                                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                                    <Quote size={13} className="text-[#7b83eb] shrink-0" />
+                                                    <span className="text-[11px] truncate italic" style={{ color: 'var(--text-primary)' }}>
+                                                        “{mindsetData.quote}”
+                                                    </span>
+                                                    <span className="text-[10px] text-[#7b83eb] shrink-0 font-medium">— {mindsetData.author}</span>
+                                                </div>
+                                                {mindsetData.tip && (
+                                                    <span className="text-[10px] font-semibold text-emerald-400 shrink-0 hidden md:inline">
+                                                        {mindsetData.tip}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        );
+                                    })()}
                                 </div>
 
                                 {/* Footer Phase 2 */}
@@ -4163,14 +4278,14 @@ export const Routine = ({
                                         onClick={() => setMakerPhase('input')}
                                         className="px-3.5 py-2 rounded-xl text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 flex items-center gap-1.5 cursor-pointer"
                                     >
-                                        <ArrowLeft size={13} /> Back to Tasks
+                                        <ArrowLeft size={13} /> Back to Setup
                                     </button>
 
                                     <button
                                         type="button"
                                         onClick={handleApplySchedule}
                                         disabled={previewSchedule.length === 0}
-                                        className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white font-semibold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                                        className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                                     >
                                         <Check size={14} /> {planScope === 'day' ? 'Apply to Day Routine' : 'Apply to Week Routine'}
                                     </button>
@@ -4181,254 +4296,7 @@ export const Routine = ({
                 </div>
             )}
 
-            {/* AI Prompt Confirmation Modal: Ask user if they are ok to proceed, show prompt, allow edits */}
-            {promptConfirmModal?.isOpen && createPortal(
-                <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-                    <div
-                        className="w-full max-w-2xl rounded-3xl border shadow-2xl p-5 space-y-4 max-h-[90vh] flex flex-col transition-all"
-                        style={{
-                            background: 'var(--bg-card-solid, #131722)',
-                            borderColor: 'var(--border-secondary, rgba(255, 255, 255, 0.1))',
-                        }}
-                    >
-                        {/* Header */}
-                        <div className="flex items-start justify-between border-b pb-3" style={{ borderColor: 'var(--border-secondary)' }}>
-                            <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                    <Bot size={18} className="text-[#7b83eb]" />
-                                    <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-                                        Ready to Generate Schedule?
-                                    </h3>
-                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
-                                        100% Offline AI
-                                    </span>
-                                </div>
-                                <p className="text-xs text-slate-400">
-                                    Review the prompt and cognitive scheduling parameters sent to {promptConfirmModal.modelDisplayName}. You can customize the instructions before proceeding.
-                                </p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setPromptConfirmModal(null)}
-                                className="p-1.5 rounded-xl hover:bg-white/10 text-slate-400 hover:text-white transition-all cursor-pointer"
-                            >
-                                <X size={16} />
-                            </button>
-                        </div>
 
-                        {/* Metadata summary chips */}
-                        <div className="flex items-center gap-2 flex-wrap text-xs">
-                            <div className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 text-slate-300 flex items-center gap-1.5">
-                                <CalendarIcon size={12} className="text-[#7b83eb]" />
-                                <span className="font-semibold text-white">
-                                    {promptConfirmModal.summary.scope === 'week'
-                                        ? `${promptConfirmModal.summary.targetDates.length} Days (Week)`
-                                        : promptConfirmModal.summary.targetDates[0]}
-                                </span>
-                            </div>
-                            <div className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 text-slate-300 flex items-center gap-1.5">
-                                <Clock size={12} className="text-[#7b83eb]" />
-                                <span>{promptConfirmModal.summary.budgetHours}h budget from {promptConfirmModal.summary.startTime}</span>
-                            </div>
-                            <div className="px-2.5 py-1 rounded-xl bg-white/5 border border-white/10 text-slate-300 flex items-center gap-1.5">
-                                <Target size={12} className="text-[#7b83eb]" />
-                                <span>{promptConfirmModal.summary.taskCount} task{promptConfirmModal.summary.taskCount !== 1 ? 's' : ''}</span>
-                            </div>
-                            <div className="px-2.5 py-1 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-300 font-mono text-[11px] ml-auto">
-                                {promptConfirmModal.modelDisplayName}
-                            </div>
-                        </div>
-
-                        {/* Custom Guidance input */}
-                        <div className="space-y-1">
-                            <label className="text-[11px] font-semibold text-slate-300 uppercase tracking-wider block">
-                                Custom Prompt Guidance (Optional)
-                            </label>
-                            <input
-                                type="text"
-                                value={promptConfirmModal.userGuidance}
-                                onChange={(e) => {
-                                    const newGuidance = e.target.value;
-                                    setUserFocusPrompt(newGuidance);
-
-                                    const now = new Date();
-                                    const targetDateStr = formatDateStr(selectedDate);
-                                    const isSelectedToday = targetDateStr === todayStr;
-                                    const actualStartHour = planScope === 'week'
-                                        ? weekStartHourInput
-                                        : (isSelectedToday ? Math.max(startHourInput, now.getHours()) : startHourInput);
-                                    const actualStartMinute = (planScope === 'day' && isSelectedToday) ? now.getMinutes() : 0;
-                                    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
-
-                                    const recompiled = compileCalendarSchedulePrompts({
-                                        tasks: makerTasks,
-                                        userPrompt: newGuidance.trim() || undefined,
-                                        customSystemPrompt: customSystemPrompt.trim() || undefined,
-                                        currentHour: actualStartHour,
-                                        currentMinute: actualStartMinute,
-                                        targetDateStr,
-                                        targetDates: planScope === 'week' ? activeWeekDates : undefined,
-                                        planScope,
-                                        timezone: userTimezone,
-                                        allottedHours,
-                                        totalWeeklyHours: weeklyTotalHours,
-                                        includeBreakfast,
-                                        includeLunch,
-                                        includeDinner,
-                                        includeRestBlocks,
-                                        role: user?.role || selectedRole || 'Professional',
-                                    });
-
-                                    setPromptConfirmModal((prev) => prev ? {
-                                        ...prev,
-                                        userGuidance: newGuidance,
-                                        compiledUserPrompt: recompiled.userPrompt,
-                                    } : null);
-                                }}
-                                placeholder="Add guidance (e.g. 'Leave 20m gaps between tasks', 'Finish coding before lunch')..."
-                                className="w-full text-xs px-3 py-2 rounded-xl border transition-all placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#5b5fc7]"
-                                style={{
-                                    background: 'var(--bg-input, rgba(0,0,0,0.2))',
-                                    borderColor: 'var(--border-secondary, rgba(255,255,255,0.1))',
-                                    color: 'var(--text-primary, #fff)',
-                                }}
-                            />
-                        </div>
-
-                        {/* Prompt Tabs & Editor */}
-                        <div className="flex-1 min-h-0 flex flex-col space-y-2">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1 bg-black/20 p-0.5 rounded-xl border border-white/5">
-                                    <button
-                                        type="button"
-                                        onClick={() => setPromptConfirmModal((prev) => prev ? { ...prev, activeTab: 'user' } : null)}
-                                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                                            promptConfirmModal.activeTab === 'user'
-                                                ? 'bg-[#5b5fc7] text-white'
-                                                : 'text-slate-400 hover:text-white'
-                                        }`}
-                                    >
-                                        User Prompt & Tasks
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setPromptConfirmModal((prev) => prev ? { ...prev, activeTab: 'system' } : null)}
-                                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                                            promptConfirmModal.activeTab === 'system'
-                                                ? 'bg-[#5b5fc7] text-white'
-                                                : 'text-slate-400 hover:text-white'
-                                        }`}
-                                    >
-                                        System Rules & Pacing
-                                    </button>
-                                </div>
-
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        const now = new Date();
-                                        const targetDateStr = formatDateStr(selectedDate);
-                                        const isSelectedToday = targetDateStr === todayStr;
-                                        const actualStartHour = planScope === 'week'
-                                            ? weekStartHourInput
-                                            : (isSelectedToday ? Math.max(startHourInput, now.getHours()) : startHourInput);
-                                        const actualStartMinute = (planScope === 'day' && isSelectedToday) ? now.getMinutes() : 0;
-                                        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
-
-                                        const recompiled = compileCalendarSchedulePrompts({
-                                            tasks: makerTasks,
-                                            userPrompt: undefined,
-                                            customSystemPrompt: undefined,
-                                            currentHour: actualStartHour,
-                                            currentMinute: actualStartMinute,
-                                            targetDateStr,
-                                            targetDates: planScope === 'week' ? activeWeekDates : undefined,
-                                            planScope,
-                                            timezone: userTimezone,
-                                            allottedHours,
-                                            totalWeeklyHours: weeklyTotalHours,
-                                            includeBreakfast,
-                                            includeLunch,
-                                            includeDinner,
-                                            includeRestBlocks,
-                                            role: user?.role || selectedRole || 'Professional',
-                                        });
-                                        setUserFocusPrompt('');
-                                        setCustomSystemPrompt('');
-                                        try {
-                                            localStorage.removeItem('produchive_custom_ai_routine_prompt');
-                                        } catch {}
-                                        setPromptConfirmModal((prev) => prev ? {
-                                            ...prev,
-                                            userGuidance: '',
-                                            compiledUserPrompt: recompiled.userPrompt,
-                                            customSystemPrompt: recompiled.systemPrompt,
-                                        } : null);
-                                    }}
-                                    className="text-[11px] text-amber-400 hover:text-amber-300 underline cursor-pointer"
-                                >
-                                    Reset to Default Prompt
-                                </button>
-                            </div>
-
-                            <div className="flex-1 min-h-[160px] overflow-hidden rounded-xl border border-white/10">
-                                <textarea
-                                    value={promptConfirmModal.activeTab === 'user' ? promptConfirmModal.compiledUserPrompt : promptConfirmModal.customSystemPrompt}
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        if (promptConfirmModal.activeTab === 'user') {
-                                            setPromptConfirmModal((prev) => prev ? { ...prev, compiledUserPrompt: val } : null);
-                                        } else {
-                                            setCustomSystemPrompt(val);
-                                            try {
-                                                localStorage.setItem('produchive_custom_ai_routine_prompt', val);
-                                            } catch {}
-                                            setPromptConfirmModal((prev) => prev ? { ...prev, customSystemPrompt: val } : null);
-                                        }
-                                    }}
-                                    rows={9}
-                                    className="w-full h-full text-[11px] font-mono leading-relaxed p-3 rounded-xl border-none transition-all resize-none focus:outline-none"
-                                    style={{
-                                        background: 'rgba(0, 0, 0, 0.35)',
-                                        color: 'var(--text-primary, #e2e8f0)',
-                                    }}
-                                />
-                            </div>
-                        </div>
-
-                        {/* Footer Buttons */}
-                        <div className="flex items-center justify-between pt-2 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
-                            <button
-                                type="button"
-                                onClick={() => setPromptConfirmModal(null)}
-                                className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
-                            >
-                                Back to Edit Plan
-                            </button>
-
-                            <button
-                                type="button"
-                                onClick={() => handleExecuteGeneration(promptConfirmModal.compiledUserPrompt, promptConfirmModal.customSystemPrompt)}
-                                disabled={isAIGenerating}
-                                className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs shadow-md shadow-[#5b5fc7]/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                            >
-                                {isAIGenerating ? (
-                                    <>
-                                        <Loader2 size={14} className="animate-spin text-white" />
-                                        <span>Generating Schedule...</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Bot size={14} className="text-white" />
-                                        <span>Proceed & Generate</span>
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-                </div>,
-                document.body
-            )}
 
             {/* Sync Success Toast */}
             {syncToast && (
@@ -4703,31 +4571,41 @@ export const Routine = ({
             {isAIGenerating && (
                 <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fade-in">
                     <div
-                        className="w-full max-w-md rounded-3xl p-6 shadow-2xl border text-center space-y-4"
+                        className="relative w-full max-w-md rounded-2xl p-6 shadow-2xl border text-center space-y-4"
                         style={{
                             background: 'var(--bg-card-solid)',
-                            borderColor: 'rgba(99, 102, 241, 0.4)',
-                            boxShadow: '0 20px 50px rgba(99, 102, 241, 0.25)',
+                            borderColor: 'rgba(91, 95, 199, 0.4)',
+                            boxShadow: '0 20px 50px rgba(91, 95, 199, 0.2)',
                         }}
                     >
+                        <button
+                            type="button"
+                            onClick={handleCancelGeneration}
+                            className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-colors cursor-pointer"
+                            title="Cancel generation (Esc)"
+                            aria-label="Cancel generation"
+                        >
+                            <X size={16} />
+                        </button>
+
                         <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
-                            <div className="absolute inset-0 rounded-2xl bg-indigo-500/20 animate-ping opacity-40"></div>
-                            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-                                <Bot size={28} className="text-white animate-pulse" />
+                            <div className="absolute inset-0 rounded-2xl bg-[#5b5fc7]/20 animate-ping opacity-40"></div>
+                            <div className="w-14 h-14 rounded-2xl bg-[#5b5fc7] flex items-center justify-center shadow-lg shadow-[#5b5fc7]/25">
+                                <Bot size={26} className="text-white animate-pulse" />
                             </div>
                         </div>
 
                         <div>
                             <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-                                AI Generating Daily Schedule
+                                AI Generating {planScope === 'week' ? 'Weekly' : 'Daily'} Schedule
                             </h3>
-                            <p className="text-xs text-indigo-400 font-medium mt-1">
+                            <p className="text-xs text-[#7b83eb] font-medium mt-1">
                                 {aiStatusMessage || engineProgress?.text || 'Optimizing focus blocks based on local time...'}
                             </p>
                             {engineProgress?.progress !== undefined && engineProgress.progress > 0 && (
                                 <div className="w-full bg-black/30 rounded-full h-1.5 mt-3 overflow-hidden">
                                     <div
-                                        className="bg-indigo-500 h-full transition-all duration-300"
+                                        className="bg-[#5b5fc7] h-full transition-all duration-300"
                                         style={{ width: `${Math.round(engineProgress.progress * 100)}%` }}
                                     />
                                 </div>
@@ -4740,6 +4618,18 @@ export const Routine = ({
                                 {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({Intl.DateTimeFormat().resolvedOptions().timeZone})
                             </p>
                             <p className="text-[10px] opacity-75">Running on-device via WebGPU • Zero server requests</p>
+                        </div>
+
+                        <div className="pt-1 flex flex-col items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={handleCancelGeneration}
+                                className="px-4 py-2 rounded-xl text-xs font-semibold border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+                            >
+                                <X size={14} />
+                                <span>Cancel Generation</span>
+                            </button>
+                            <span className="text-[10px] text-slate-500">Press Esc to cancel at any time</span>
                         </div>
                     </div>
                 </div>

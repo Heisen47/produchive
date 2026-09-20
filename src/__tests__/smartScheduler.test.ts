@@ -166,6 +166,54 @@ describe('smartScheduler - Forward Planning & Auto-Balancing', () => {
         expect(collisions.get('task-2')!.colIndex).toBe(0);
     });
 
+    it('assigns 100% width to consecutive non-overlapping events within the same hour (15m break + 45m deep work)', () => {
+        const dayItems: any[] = [
+            { id: 'break-15m', title: 'Break', startHour: 16, startMinute: 0, durationMinutes: 15 },    // 4:00 PM - 4:15 PM
+            { id: 'leetcode-45m', title: 'Leetcode', startHour: 16, startMinute: 15, durationMinutes: 45 }, // 4:15 PM - 5:00 PM
+        ];
+
+        const collisions = calculateDayEventCollisions(dayItems);
+        expect(collisions.get('break-15m')!.totalCols).toBe(1);
+        expect(collisions.get('break-15m')!.colIndex).toBe(0);
+        expect(collisions.get('leetcode-45m')!.totalCols).toBe(1);
+        expect(collisions.get('leetcode-45m')!.colIndex).toBe(0);
+    });
+
+    it('gracefully allocates 3 distinct columns when three events collide at the same time', () => {
+        const dayItems: any[] = [
+            { id: 'call-a', title: 'Call A', startHour: 14, startMinute: 0, durationMinutes: 60 },
+            { id: 'call-b', title: 'Call B', startHour: 14, startMinute: 15, durationMinutes: 30 },
+            { id: 'call-c', title: 'Call C', startHour: 14, startMinute: 0, durationMinutes: 45 },
+        ];
+
+        const collisions = calculateDayEventCollisions(dayItems);
+        expect(collisions.get('call-a')!.totalCols).toBe(3);
+        expect(collisions.get('call-b')!.totalCols).toBe(3);
+        expect(collisions.get('call-c')!.totalCols).toBe(3);
+
+        const colIndices = new Set([
+            collisions.get('call-a')!.colIndex,
+            collisions.get('call-b')!.colIndex,
+            collisions.get('call-c')!.colIndex,
+        ]);
+        expect(colIndices.size).toBe(3);
+        expect(colIndices.has(0)).toBe(true);
+        expect(colIndices.has(1)).toBe(true);
+        expect(colIndices.has(2)).toBe(true);
+    });
+
+    it('handles items with undefined or missing durationMinutes without throwing or producing NaN', () => {
+        const dayItems: any[] = [
+            { id: 'item-no-duration', title: 'Task Without Duration', startHour: 10, startMinute: 0 },
+            { id: 'item-regular', title: 'Regular Task', startHour: 10, startMinute: 0, durationMinutes: 30 },
+        ];
+
+        const collisions = calculateDayEventCollisions(dayItems);
+        expect(collisions.get('item-no-duration')).toBeDefined();
+        expect(collisions.get('item-no-duration')!.totalCols).toBe(2);
+        expect(collisions.get('item-regular')!.totalCols).toBe(2);
+    });
+
     it('generates a full 7-day weekly schedule distributed across week dates', () => {
         const weekDates = [
             '2026-08-31',

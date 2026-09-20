@@ -252,6 +252,44 @@ describe('AI Calendar Schedule Planner', () => {
                 /AI Engine not initialized/
             );
         });
+
+        it('uses customSystemPrompt and userPrompt when supplied by user', async () => {
+            const mockEngine = {
+                chat: {
+                    completions: {
+                        create: vi.fn().mockResolvedValue({
+                            choices: [
+                                {
+                                    message: {
+                                        content: JSON.stringify([
+                                            { title: 'Custom Prompt Task', category: 'development', startHour: 10, startMinute: 0, durationMinutes: 60 }
+                                        ])
+                                    }
+                                }
+                            ]
+                        })
+                    }
+                }
+            };
+
+            const req: CalendarScheduleRequest = {
+                currentHour: 9,
+                currentMinute: 0,
+                targetDateStr: '2026-09-20',
+                customSystemPrompt: 'Custom expert planner instructions with 30m gaps.',
+                userPrompt: 'User wants 30m buffer between each task',
+            };
+
+            const result = await generateAICalendarSchedule(mockEngine, req);
+            expect(result.length).toBe(1);
+            expect(result[0].title).toBe('Custom Prompt Task');
+
+            const callArgs = mockEngine.chat.completions.create.mock.calls[0][0];
+            expect(callArgs.messages[0].role).toBe('system');
+            expect(callArgs.messages[0].content).toContain('Custom expert planner instructions with 30m gaps.');
+            expect(callArgs.messages[1].role).toBe('user');
+            expect(callArgs.messages[1].content).toContain('User wants 30m buffer between each task');
+        });
     });
 
     describe('Day and Multi-Day Contextual Scheduling', () => {

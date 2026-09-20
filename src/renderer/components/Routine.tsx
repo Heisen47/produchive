@@ -9,6 +9,7 @@ import {
     ChevronLeft,
     ChevronRight,
     ChevronDown,
+    ChevronUp,
     Trash2,
     RefreshCw,
     CheckCircle2,
@@ -30,7 +31,6 @@ import {
     ThumbsDown,
     Target,
     Quote,
-    Sparkles,
     Bot,
     HardDrive
 } from 'lucide-react';
@@ -46,6 +46,7 @@ import {
     hasAnyDownloadedModel,
     getAnyPersistedDownloadedModelId,
     generateAICalendarSchedule,
+    CALENDAR_SCHEDULER_SYSTEM_PROMPT,
     AVAILABLE_MODELS,
     parseAIErrorMessage
 } from '../lib/ai';
@@ -716,6 +717,17 @@ export const Routine = ({
     const [directDuration, setDirectDuration] = useState<number>(60);
     const [directCategory, setDirectCategory] = useState<PlannedRoutineItem['category']>('development');
 
+    // AI Prompt Customization & Transparency
+    const [customSystemPrompt, setCustomSystemPrompt] = useState<string>(() => {
+        try {
+            return localStorage.getItem('produchive_custom_ai_routine_prompt') || '';
+        } catch {
+            return '';
+        }
+    });
+    const [userFocusPrompt, setUserFocusPrompt] = useState<string>('');
+    const [isPromptExpanded, setIsPromptExpanded] = useState<boolean>(false);
+
     // Active week dates (Monday to Friday default; includes Sat/Sun if user opts in)
     const activeWeekDates = useMemo(() => {
         return displayDays
@@ -940,9 +952,14 @@ export const Routine = ({
                 const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
                 const targetDateStr = formatDateStr(selectedDate);
 
+                const promptToUse = userFocusPrompt.trim()
+                    ? userFocusPrompt.trim()
+                    : 'Generate a balanced, productive multi-day weekly schedule distributing these priorities across the week.';
+
                 const aiItems = await generateAICalendarSchedule(activeEngine, {
                     tasks: makerTasks,
-                    userPrompt: `Generate a balanced, productive multi-day weekly schedule distributing these priorities across the week.`,
+                    userPrompt: promptToUse,
+                    customSystemPrompt: customSystemPrompt.trim() ? customSystemPrompt.trim() : undefined,
                     currentHour: weekStartHourInput,
                     currentMinute: 0,
                     targetDateStr,
@@ -961,7 +978,7 @@ export const Routine = ({
                     setPreviewSchedule(aiItems);
                     setSelectedPreviewDay('all');
                     setMakerPhase('preview');
-                    setSyncToast(`Generated ${activeWeekDates.length}-day schedule with ${modelDisplayName}! 🚀`);
+                    setSyncToast(`Generated ${activeWeekDates.length}-day schedule with ${modelDisplayName}.`);
                     setTimeout(() => setSyncToast(null), 4000);
                 } else {
                     const currentH = new Date().getHours();
@@ -1041,15 +1058,19 @@ export const Routine = ({
 
             setAiStatusMessage(`AI generating routine for ${dayOfWeekName} with ${modelDisplayName}...`);
 
-            const focusGoal = isWeekend
+            const baseFocusGoal = isWeekend
                 ? `I want a balanced, rejuvenating ${dayOfWeekName} combining focused learning with restorative breaks.`
                 : isSelectedToday
                 ? `I want a productive, focused day starting now for ${dayOfWeekName}.`
                 : `I want a structured, high-output plan for ${dayOfWeekName}.`;
+            const promptToUse = userFocusPrompt.trim()
+                ? `${baseFocusGoal} User Instructions: ${userFocusPrompt.trim()}`
+                : baseFocusGoal;
 
             const aiItems = await generateAICalendarSchedule(activeEngine, {
                 tasks: makerTasks,
-                userPrompt: focusGoal,
+                userPrompt: promptToUse,
+                customSystemPrompt: customSystemPrompt.trim() ? customSystemPrompt.trim() : undefined,
                 currentHour,
                 currentMinute,
                 targetDateStr,
@@ -1069,7 +1090,7 @@ export const Routine = ({
             if (aiItems && aiItems.length > 0) {
                 setPreviewSchedule(aiItems);
                 setMakerPhase('preview');
-                setSyncToast(`Generated ${dayOfWeekName} schedule with ${modelDisplayName}! 🎯`);
+                setSyncToast(`Generated ${dayOfWeekName} schedule with ${modelDisplayName}.`);
                 setTimeout(() => setSyncToast(null), 4000);
             } else {
                 setSyncToast('Schedule planned using smart day scheduler.');
@@ -3765,6 +3786,102 @@ export const Routine = ({
                                             ))
                                         )}
                                     </div>
+                                </div>
+
+                                {/* Section 4: AI Prompt & Pacing Instructions */}
+                                <div
+                                    className="p-3.5 rounded-2xl border space-y-2.5 shadow-sm transition-all"
+                                    style={{
+                                        background: 'rgba(255, 255, 255, 0.03)',
+                                        borderColor: 'rgba(255, 255, 255, 0.08)',
+                                    }}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <Bot size={14} className="text-[#5b5fc7]" />
+                                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                                                AI Prompt & Pacing
+                                            </label>
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
+                                                {modelDisplayName}
+                                            </span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsPromptExpanded(!isPromptExpanded)}
+                                            className="text-[11px] font-semibold text-[#7b83eb] hover:underline flex items-center gap-1 cursor-pointer"
+                                        >
+                                            {isPromptExpanded ? (
+                                                <>
+                                                    <ChevronUp size={12} />
+                                                    <span>Hide Prompt</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <ChevronDown size={12} />
+                                                    <span>View & Edit Prompt</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+
+                                    {/* User Custom Instructions Input */}
+                                    <div className="space-y-1">
+                                        <input
+                                            type="text"
+                                            value={userFocusPrompt}
+                                            onChange={(e) => setUserFocusPrompt(e.target.value)}
+                                            placeholder="Add custom prompt guidance (e.g. 'Leave 20m gaps between tasks', 'Finish coding before lunch')..."
+                                            className="w-full text-xs px-3 py-2 rounded-xl border transition-all placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[#5b5fc7]"
+                                            style={{
+                                                background: 'var(--bg-input)',
+                                                borderColor: 'var(--border-secondary)',
+                                                color: 'var(--text-primary)',
+                                            }}
+                                        />
+                                    </div>
+
+                                    {/* Collapsible System Prompt Rules Editor */}
+                                    {isPromptExpanded && (
+                                        <div className="space-y-2 pt-2 border-t border-white/5">
+                                            <div className="flex items-center justify-between text-[11px]">
+                                                <span className="text-slate-400 font-medium">System Instructions sent to {modelDisplayName}:</span>
+                                                {customSystemPrompt && customSystemPrompt !== CALENDAR_SCHEDULER_SYSTEM_PROMPT && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setCustomSystemPrompt('');
+                                                            try {
+                                                                localStorage.removeItem('produchive_custom_ai_routine_prompt');
+                                                            } catch {}
+                                                        }}
+                                                        className="text-[10px] text-amber-400 hover:text-amber-300 underline cursor-pointer"
+                                                    >
+                                                        Reset to Default
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <textarea
+                                                value={customSystemPrompt || CALENDAR_SCHEDULER_SYSTEM_PROMPT}
+                                                onChange={(e) => {
+                                                    setCustomSystemPrompt(e.target.value);
+                                                    try {
+                                                        localStorage.setItem('produchive_custom_ai_routine_prompt', e.target.value);
+                                                    } catch {}
+                                                }}
+                                                rows={8}
+                                                className="w-full text-[11px] font-mono leading-relaxed p-2.5 rounded-xl border transition-all resize-y focus:outline-none focus:ring-1 focus:ring-[#5b5fc7]"
+                                                style={{
+                                                    background: 'rgba(0, 0, 0, 0.3)',
+                                                    borderColor: 'var(--border-secondary)',
+                                                    color: 'var(--text-primary)',
+                                                }}
+                                            />
+                                            <p className="text-[10px] text-slate-400 leading-tight">
+                                                You can modify Rule 4 to specify your desired spacing, pacing, or gap sizes between tasks.
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Footer Phase 1 */}

@@ -432,6 +432,7 @@ Output format:
 export interface CalendarScheduleRequest {
     tasks?: { title: string; category?: PlannedRoutineItem['category']; priority?: 'high' | 'medium' | 'low' }[];
     userPrompt?: string;
+    customSystemPrompt?: string;
     currentHour: number;
     currentMinute: number;
     targetDateStr: string;
@@ -472,7 +473,7 @@ Rules:
    - For future days or multi-day plans, schedule items starting from the indicated start hour.
    - For weekends, schedule a balanced flow blending focused learning/creative sprints with restorative breaks and outdoor time.
    - For weekdays, prioritize deep work blocks, core project milestones, and healthy breaks.
-4. Schedule items sequentially without time collisions for each date. Allocate 45-90 min for deep work, 10-15 min for breaks, and 30-45 min for meals.
+4. Schedule items with realistic, focused pacing for each date. Leave natural breathing room or buffer time (10-30 min) between major tasks unless tight back-to-back blocks are requested. Allocate 45-90 min for deep work, 10-15 min for breaks, and 30-45 min for meals.
 5. Emphasize the user's priority tasks and maintain momentum.`;
 
 export const extractJSONFromAIResponse = <T = any>(rawText: string): T => {
@@ -630,10 +631,14 @@ export const generateAICalendarSchedule = async (
         `CRITICAL: Output ONLY the valid JSON array.`
     ].filter(Boolean).join('\n\n');
 
+    const systemPromptTemplate = request.customSystemPrompt && request.customSystemPrompt.trim()
+        ? request.customSystemPrompt.trim()
+        : CALENDAR_SCHEDULER_SYSTEM_PROMPT;
+
     const messages = [
         {
             role: 'system',
-            content: CALENDAR_SCHEDULER_SYSTEM_PROMPT
+            content: systemPromptTemplate
                 .replace('{currentHour}', String(request.currentHour))
                 .replace('{currentMinuteFormatted}', currentMinStr)
         },

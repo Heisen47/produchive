@@ -124,7 +124,8 @@ export const hasModelInCache = async (modelId: string): Promise<boolean> => {
         if (typeof caches !== 'undefined') {
             const cache = await caches.open('webllm/model');
             const keys = await cache.keys();
-            const exists = keys.some(req => req.url.includes(modelId));
+            const lowerId = modelId.toLowerCase();
+            const exists = keys.some(req => req.url.toLowerCase().includes(lowerId));
             if (exists) {
                 markModelDownloaded(modelId);
                 return true;
@@ -136,16 +137,32 @@ export const hasModelInCache = async (modelId: string): Promise<boolean> => {
     }
 };
 
-export const hasAnyDownloadedModel = async (): Promise<string | null> => {
+export const getAnyPersistedDownloadedModelId = (): string | null => {
     try {
         const persisted = getPersistedDownloadedModels();
         if (persisted.length > 0) {
             const match = AVAILABLE_MODELS.find(m => persisted.includes(m.id));
             if (match) return match.id;
         }
+        const selected = typeof localStorage !== 'undefined' ? localStorage.getItem('selectedModelId') : null;
+        if (selected) {
+            const match = AVAILABLE_MODELS.find(m => m.id === selected);
+            if (match) return match.id;
+        }
+    } catch {}
+    return null;
+};
+
+export const hasAnyDownloadedModel = async (): Promise<string | null> => {
+    try {
+        const syncId = getAnyPersistedDownloadedModelId();
+        if (syncId) return syncId;
 
         const selected = typeof localStorage !== 'undefined' ? localStorage.getItem('selectedModelId') : null;
-        if (selected && (await hasModelInCache(selected))) return selected;
+        if (selected) {
+            const match = AVAILABLE_MODELS.find(m => m.id === selected);
+            if (match && (await hasModelInCache(selected))) return selected;
+        }
         for (const m of AVAILABLE_MODELS) {
             if (await hasModelInCache(m.id)) {
                 markModelDownloaded(m.id);
@@ -418,8 +435,14 @@ export interface CalendarScheduleRequest {
     currentHour: number;
     currentMinute: number;
     targetDateStr: string;
+    targetDates?: string[];
+    planScope?: 'day' | 'week';
+    dayOfWeekName?: string;
+    isWeekend?: boolean;
+    isToday?: boolean;
     timezone?: string;
     allottedHours?: number;
+    totalWeeklyHours?: number;
     includeBreakfast?: boolean;
     includeLunch?: boolean;
     includeDinner?: boolean;
@@ -427,13 +450,14 @@ export interface CalendarScheduleRequest {
     role?: string;
 }
 
-export const CALENDAR_SCHEDULER_SYSTEM_PROMPT = `You are an expert productivity planner. Generate a realistic, focused calendar routine for today based on the user's tasks, goals, and local time.
+export const CALENDAR_SCHEDULER_SYSTEM_PROMPT = `You are an expert productivity planner. Generate a realistic, focused calendar routine based on the user's tasks, goals, target days, and schedule constraints.
 
 Rules:
 1. Output ONLY a valid JSON array of objects. No markdown formatting, no explanations, no text outside the JSON.
 2. Structure each item as:
 [
   {
+    "dateStr": "YYYY-MM-DD",
     "title": "Specific task title",
     "category": "development" | "research" | "meeting" | "design" | "writing" | "meal" | "break" | "other",
     "startHour": <0-23>,
@@ -443,10 +467,13 @@ Rules:
     "subtitle": "Short focus tip"
   }
 ]
-3. Current local time constraint: The current time is {currentHour}:{currentMinuteFormatted} ({timezone}).
-   All items MUST start at or after {currentHour}:{currentMinuteFormatted}. Do NOT schedule anything before this time.
-4. Schedule items sequentially without time collisions. Allocate 45-90 min for deep work, 10-15 min for breaks, and 30-45 min for meals.
-5. Emphasize the user's priority tasks and maintain momentum throughout the day.`;
+3. Time & Day Rules:
+   - For today ({currentHour}:{currentMinuteFormatted}), all items must start at or after {currentHour}:{currentMinuteFormatted}. Do not schedule past times.
+   - For future days or multi-day plans, schedule items starting from the indicated start hour.
+   - For weekends, schedule a balanced flow blending focused learning/creative sprints with restorative breaks and outdoor time.
+   - For weekdays, prioritize deep work blocks, core project milestones, and healthy breaks.
+4. Schedule items sequentially without time collisions for each date. Allocate 45-90 min for deep work, 10-15 min for breaks, and 30-45 min for meals.
+5. Emphasize the user's priority tasks and maintain momentum.`;
 
 export const extractJSONFromAIResponse = <T = any>(rawText: string): T => {
     let clean = (rawText || '').trim();
@@ -465,7 +492,6 @@ export const extractJSONFromAIResponse = <T = any>(rawText: string): T => {
         }
     }
 
-    // Strip trailing commas before closing braces/brackets to prevent SyntaxErrors
     clean = clean.replace(/,\s*([\]\}])/g, '$1');
 
     try {
@@ -488,10 +514,8 @@ export const sanitizeAndValidateScheduleItems = (
         'development', 'research', 'meeting', 'design', 'writing', 'break', 'meal', 'sleep', 'other'
     ];
 
+    const todayDateStr = new Date().toISOString().split('T')[0];
     const currentTotalMins = request.currentHour * 60 + request.currentMinute;
-    const isTargetToday = request.targetDateStr === new Date().toISOString().split('T')[0];
-    const [y, m, d] = request.targetDateStr.split('-').map(Number);
-    const dayIndex = !isNaN(y) && !isNaN(m) && !isNaN(d) ? new Date(y, m - 1, d).getDay() : new Date().getDay();
 
     const sanitized: PlannedRoutineItem[] = [];
 
@@ -504,12 +528,26 @@ export const sanitizeAndValidateScheduleItems = (
         const category: PlannedRoutineItem['category'] = validCategories.includes(rawCat as any) ? rawCat as any : 'development';
         const priority: PlannedRoutineItem['priority'] = ['high', 'medium', 'low'].includes(item.priority) ? item.priority : 'high';
 
+        const hasExplicitDate = typeof item.dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.dateStr.trim());
+        let itemDateStr = hasExplicitDate ? item.dateStr.trim() : '';
+
+        if (request.targetDates && request.targetDates.length > 0) {
+            if (!hasExplicitDate || !request.targetDates.includes(itemDateStr)) {
+                itemDateStr = request.targetDates[i % request.targetDates.length];
+            }
+        } else if (!itemDateStr) {
+            itemDateStr = request.targetDateStr;
+        }
+
+        const isItemToday = itemDateStr === todayDateStr;
+        const [y, m, d] = itemDateStr.split('-').map(Number);
+        const dayIndex = !isNaN(y) && !isNaN(m) && !isNaN(d) ? new Date(y, m - 1, d).getDay() : new Date().getDay();
+
         let startHour = typeof item.startHour === 'number' && !isNaN(item.startHour) ? Math.max(0, Math.min(23, Math.floor(item.startHour))) : request.currentHour;
         let startMinute = typeof item.startMinute === 'number' && !isNaN(item.startMinute) ? Math.max(0, Math.min(59, Math.floor(item.startMinute))) : 0;
         let durationMinutes = typeof item.durationMinutes === 'number' && !isNaN(item.durationMinutes) ? Math.max(15, Math.min(180, Math.floor(item.durationMinutes))) : 45;
 
-        // If today, push forward any items scheduled before current time
-        if (isTargetToday) {
+        if (isItemToday) {
             const itemMins = startHour * 60 + startMinute;
             if (itemMins < currentTotalMins) {
                 startHour = request.currentHour;
@@ -523,7 +561,7 @@ export const sanitizeAndValidateScheduleItems = (
             category,
             priority,
             dayIndex,
-            dateStr: request.targetDateStr,
+            dateStr: itemDateStr,
             startHour,
             startMinute,
             durationMinutes,
@@ -532,7 +570,19 @@ export const sanitizeAndValidateScheduleItems = (
         });
     }
 
-    return resolveCollisionsSequentially(sanitized);
+    const grouped = new Map<string, PlannedRoutineItem[]>();
+    for (const item of sanitized) {
+        const list = grouped.get(item.dateStr) || [];
+        list.push(item);
+        grouped.set(item.dateStr, list);
+    }
+
+    const resolved: PlannedRoutineItem[] = [];
+    for (const [, itemsForDate] of grouped) {
+        resolved.push(...resolveCollisionsSequentially(itemsForDate));
+    }
+
+    return resolved;
 };
 
 export const generateAICalendarSchedule = async (
@@ -547,14 +597,37 @@ export const generateAICalendarSchedule = async (
         .map(t => `- ${t.title}${t.priority ? ` (${t.priority} priority)` : ''}`)
         .join('\n');
 
+    let dayContextPrompt = '';
+    if (request.planScope === 'week' && request.targetDates && request.targetDates.length > 0) {
+        const datesList = request.targetDates.join(', ');
+        dayContextPrompt = [
+            `Plan Scope: Multi-Day Week Schedule across target dates: [${datesList}].`,
+            `Total weekly target: ~${request.totalWeeklyHours || 20} hours.`,
+            `Distribute the user's tasks across these dates. Assign "dateStr" to each item matching one of these dates.`,
+            `For each date, schedule items sequentially starting around ${request.currentHour}:00 with meals and breaks.`
+        ].join(' ');
+    } else {
+        const dayName = request.dayOfWeekName || 'Day';
+        const weekendNote = request.isWeekend ? ' (Weekend - create a balanced, rejuvenating routine)' : ' (Weekday - focused, productive momentum)';
+        const todayNote = request.isToday
+            ? `TODAY (${dayName}, ${request.targetDateStr}). Current local time is ${timePrompt}. CRITICAL: All items MUST start at or after ${timePrompt}.`
+            : `Future date: ${dayName}, ${request.targetDateStr}. Start the day from ${request.currentHour}:00.`;
+
+        dayContextPrompt = [
+            `Target Day: ${dayName}${weekendNote}.`,
+            todayNote,
+            request.allottedHours ? `Target productive hours for this day: ${request.allottedHours} hours.` : null
+        ].filter(Boolean).join(' ');
+    }
+
     const promptBody = [
-        `Local Context: Current time is ${timePrompt} in timezone ${tz} on ${request.targetDateStr}.`,
-        request.userPrompt ? `User Desired Focus: "${request.userPrompt}"` : `User Goal: "I want a productive, structured day today."`,
+        `Local Context: Timezone ${tz}.`,
+        dayContextPrompt,
+        request.userPrompt ? `User Desired Focus: "${request.userPrompt}"` : null,
         request.role ? `User Role: ${request.role}` : null,
-        request.allottedHours ? `Target productive hours: ${request.allottedHours} hours.` : null,
-        request.tasks && request.tasks.length > 0 ? `Specific tasks to schedule:\n${taskLines}` : 'No specific task list provided. Craft an optimal productive day flow with deep focus, research, and breaks.',
-        `Include preferences: Lunch: ${request.includeLunch ?? true}, Dinner: ${request.includeDinner ?? true}, Breaks: ${request.includeRestBlocks ?? true}.`,
-        `CRITICAL: All generated events must start at or after ${timePrompt}. Output ONLY the JSON array.`
+        request.tasks && request.tasks.length > 0 ? `Tasks to schedule:\n${taskLines}` : 'No specific task list provided. Craft an optimal productive day flow with deep focus, research, and breaks.',
+        `Preferences: Breakfast: ${request.includeBreakfast ?? false}, Lunch: ${request.includeLunch ?? true}, Dinner: ${request.includeDinner ?? true}, Breaks: ${request.includeRestBlocks ?? true}.`,
+        `CRITICAL: Output ONLY the valid JSON array.`
     ].filter(Boolean).join('\n\n');
 
     const messages = [
@@ -563,7 +636,6 @@ export const generateAICalendarSchedule = async (
             content: CALENDAR_SCHEDULER_SYSTEM_PROMPT
                 .replace('{currentHour}', String(request.currentHour))
                 .replace('{currentMinuteFormatted}', currentMinStr)
-                .replace('{timezone}', tz)
         },
         {
             role: 'user',

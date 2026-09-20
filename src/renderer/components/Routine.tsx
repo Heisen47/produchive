@@ -44,6 +44,7 @@ import { TotoroBusStopBg } from './TotoroBusStopBg';
 import { getGoogleAuthToken, getGoogleCalendarConfig, performGoogleCalendarSync, isGoogleCalendarConnected, isCalendarSyncUpToDate } from '../lib/googleCalendar';
 import {
     hasAnyDownloadedModel,
+    getAnyPersistedDownloadedModelId,
     generateAICalendarSchedule,
     AVAILABLE_MODELS,
     parseAIErrorMessage
@@ -292,6 +293,8 @@ export interface RoutineProps {
     isEngineLoading?: boolean;
     engineProgress?: { text: string; progress?: number };
     downloadedModelName?: string;
+    downloadedModelId?: string;
+    downloadedModel?: any;
     onOpenModelSelector?: () => void;
 }
 
@@ -301,12 +304,24 @@ export const Routine = ({
     isEngineLoading,
     engineProgress,
     downloadedModelName,
+    downloadedModelId,
+    downloadedModel,
     onOpenModelSelector,
 }: RoutineProps = {}) => {
     const { activities, tasks, user, selectedRole } = useStore();
     const { isDark } = useTheme();
 
-    const [detectedModelId, setDetectedModelId] = useState<string | null>(null);
+    const [detectedModelId, setDetectedModelId] = useState<string | null>(() => {
+        if (downloadedModelId) return downloadedModelId;
+        if (downloadedModel?.id) return downloadedModel.id;
+        if (downloadedModelName) {
+            const match = AVAILABLE_MODELS.find(
+                (m) => m.name.toLowerCase() === downloadedModelName.toLowerCase()
+            );
+            if (match) return match.id;
+        }
+        return getAnyPersistedDownloadedModelId();
+    });
     const [showNoModelPrompt, setShowNoModelPrompt] = useState(false);
     const [aiVisionPrompt, setAiVisionPrompt] = useState('');
     const [isAIGenerating, setIsAIGenerating] = useState(false);
@@ -314,23 +329,62 @@ export const Routine = ({
 
     useEffect(() => {
         let mounted = true;
-        hasAnyDownloadedModel().then((id) => {
-            if (mounted) setDetectedModelId(id);
-        });
+        const check = async () => {
+            if (downloadedModelId && mounted) {
+                setDetectedModelId(downloadedModelId);
+                return;
+            }
+            if (downloadedModel?.id && mounted) {
+                setDetectedModelId(downloadedModel.id);
+                return;
+            }
+            const syncId = getAnyPersistedDownloadedModelId();
+            if (syncId && mounted) {
+                setDetectedModelId(syncId);
+                return;
+            }
+            const asyncId = await hasAnyDownloadedModel();
+            if (asyncId && mounted) {
+                setDetectedModelId(asyncId);
+            }
+        };
+        check();
         return () => {
             mounted = false;
         };
-    }, [engine, downloadedModelName]);
+    }, [engine, downloadedModelName, downloadedModelId, downloadedModel]);
 
     const currentActiveModel = useMemo(() => {
+        if (downloadedModel) return downloadedModel;
+        if (downloadedModelId) {
+            return AVAILABLE_MODELS.find((m) => m.id === downloadedModelId) || null;
+        }
         if (downloadedModelName) {
-            return AVAILABLE_MODELS.find((m) => m.name === downloadedModelName) || null;
+            return AVAILABLE_MODELS.find((m) => m.name.toLowerCase() === downloadedModelName.toLowerCase()) || null;
         }
         if (detectedModelId) {
             return AVAILABLE_MODELS.find((m) => m.id === detectedModelId) || null;
         }
         return null;
-    }, [downloadedModelName, detectedModelId]);
+    }, [downloadedModel, downloadedModelId, downloadedModelName, detectedModelId]);
+
+    const resolveDownloadedModelId = async (): Promise<string | null> => {
+        if (downloadedModelId) return downloadedModelId;
+        if (downloadedModel?.id) return downloadedModel.id;
+        if (downloadedModelName) {
+            const byName = AVAILABLE_MODELS.find(
+                (m) => m.name.toLowerCase() === downloadedModelName.toLowerCase()
+            );
+            if (byName) return byName.id;
+        }
+        if (currentActiveModel?.id) return currentActiveModel.id;
+        if (detectedModelId) return detectedModelId;
+        const syncId = getAnyPersistedDownloadedModelId();
+        if (syncId) return syncId;
+        const asyncId = await hasAnyDownloadedModel();
+        if (asyncId) return asyncId;
+        return null;
+    };
 
     // ─── View Modes: 'work_week' (5 days) | 'week' (7 days) | 'day' (1 day) ───
     const [viewMode, setViewMode] = useState<'work_week' | 'week' | 'day'>('work_week');
@@ -848,56 +902,129 @@ export const Routine = ({
         setMakerPhase('preview');
     };
 
-    // ─── Schedule Generator (AI powered in Day mode, Smart Algorithmic fallback & Week mode) ───
+    // ─── Schedule Generator (AI powered in Day & Week mode with day-contextual awareness) ───
     const handleGenerateSchedule = async () => {
         if (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast) return;
 
+        // Step 1: Check for model already downloaded by the user
+        const currentModelId = await resolveDownloadedModelId();
+        if (!currentModelId) {
+            setShowNoModelPrompt(true);
+            return;
+        }
+
+        if (detectedModelId !== currentModelId) {
+            setDetectedModelId(currentModelId);
+        }
+
+        const modelObj = AVAILABLE_MODELS.find((m) => m.id === currentModelId);
+        const modelDisplayName = modelObj?.name || downloadedModelName || currentModelId;
+
+        setIsAIGenerating(true);
+        setAiStatusMessage(`Connecting to on-device model (${modelDisplayName})...`);
+
         if (planScope === 'week') {
-            setIsGenerating(true);
-            setTimeout(() => {
+            try {
+                let activeEngine = engine;
+                if (!activeEngine && onStartEngine) {
+                    setAiStatusMessage(`Starting on-device model (${modelDisplayName})...`);
+                    activeEngine = await onStartEngine(currentModelId);
+                }
+
+                if (!activeEngine) {
+                    throw new Error('Local AI engine could not be initialized');
+                }
+
+                setAiStatusMessage(`AI distributing tasks across ${activeWeekDates.length} days with ${modelDisplayName}...`);
+
+                const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+                const targetDateStr = formatDateStr(selectedDate);
+
+                const aiItems = await generateAICalendarSchedule(activeEngine, {
+                    tasks: makerTasks,
+                    userPrompt: `Generate a balanced, productive multi-day weekly schedule distributing these priorities across the week.`,
+                    currentHour: weekStartHourInput,
+                    currentMinute: 0,
+                    targetDateStr,
+                    targetDates: activeWeekDates,
+                    planScope: 'week',
+                    totalWeeklyHours,
+                    timezone: userTimezone,
+                    includeBreakfast,
+                    includeLunch,
+                    includeDinner,
+                    includeRestBlocks,
+                    role: user?.role || selectedRole || 'Professional',
+                });
+
+                if (aiItems && aiItems.length > 0) {
+                    setPreviewSchedule(aiItems);
+                    setSelectedPreviewDay('all');
+                    setMakerPhase('preview');
+                    setSyncToast(`Generated ${activeWeekDates.length}-day schedule with ${modelDisplayName}! 🚀`);
+                    setTimeout(() => setSyncToast(null), 4000);
+                } else {
+                    const currentH = new Date().getHours();
+                    const fallbackItems = generateWeeklySmartSchedule({
+                        weekDates: activeWeekDates,
+                        tasks: makerTasks,
+                        totalWeeklyHours,
+                        defaultStartHour: weekStartHourInput,
+                        todayDateStr,
+                        todayCurrentHour: currentH,
+                        includeBreakfast,
+                        includeLunch,
+                        includeRestBlocks,
+                        includeDinner,
+                    });
+                    setPreviewSchedule(fallbackItems);
+                    setSelectedPreviewDay('all');
+                    setMakerPhase('preview');
+                    setSyncToast('Schedule planned using smart weekly scheduler.');
+                    setTimeout(() => setSyncToast(null), 4000);
+                }
+            } catch (err: any) {
+                console.warn('AI weekly schedule generation error, falling back to smart scheduler:', err);
+                useStore.getState().setError(null);
+                const friendly = parseAIErrorMessage(err);
+                const shortSummary = friendly.split(':')[0] || 'AI engine unavailable';
+                setSyncToast(`${shortSummary}. Scheduled via smart planner!`);
+                setTimeout(() => setSyncToast(null), 5000);
+
                 const currentH = new Date().getHours();
-                const newItems = generateWeeklySmartSchedule({
+                const fallbackItems = generateWeeklySmartSchedule({
                     weekDates: activeWeekDates,
                     tasks: makerTasks,
-                    totalWeeklyHours: weeklyTotalHours,
+                    totalWeeklyHours,
                     defaultStartHour: weekStartHourInput,
-                    todayDateStr: todayStr,
+                    todayDateStr,
                     todayCurrentHour: currentH,
                     includeBreakfast,
                     includeLunch,
                     includeRestBlocks,
                     includeDinner,
                 });
-                setPreviewSchedule(newItems);
+                setPreviewSchedule(fallbackItems);
                 setSelectedPreviewDay('all');
                 setMakerPhase('preview');
-                setIsGenerating(false);
-            }, 750);
+            } finally {
+                setIsAIGenerating(false);
+                setAiStatusMessage('');
+            }
             return;
         }
 
-        // Day Mode: Powered by on-device local AI with graceful fallback
-        const currentModelId = detectedModelId || (await hasAnyDownloadedModel());
-        if (!currentModelId) {
-            setShowNoModelPrompt(true);
-            return;
-        }
-
-        setIsAIGenerating(true);
-        setAiStatusMessage('Connecting to on-device AI model...');
-
+        // Day Mode: Powered by on-device local AI with day-of-week context
         try {
             let activeEngine = engine;
             if (!activeEngine && onStartEngine) {
-                setAiStatusMessage(`Starting on-device model (${currentActiveModel?.name || currentModelId})...`);
+                setAiStatusMessage(`Starting on-device model (${modelDisplayName})...`);
                 activeEngine = await onStartEngine(currentModelId);
             }
 
             if (!activeEngine) {
                 throw new Error('Local AI engine could not be initialized');
             }
-
-            setAiStatusMessage('AI analyzing schedule, local time & task priorities...');
 
             const now = new Date();
             const targetDateStr = formatDateStr(selectedDate);
@@ -906,12 +1033,30 @@ export const Routine = ({
             const currentMinute = isSelectedToday ? now.getMinutes() : 0;
             const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
 
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const [y, m, d] = targetDateStr.split('-').map(Number);
+            const dayDate = new Date(y, m - 1, d);
+            const dayOfWeekName = dayNames[dayDate.getDay()];
+            const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
+
+            setAiStatusMessage(`AI generating routine for ${dayOfWeekName} with ${modelDisplayName}...`);
+
+            const focusGoal = isWeekend
+                ? `I want a balanced, rejuvenating ${dayOfWeekName} combining focused learning with restorative breaks.`
+                : isSelectedToday
+                ? `I want a productive, focused day starting now for ${dayOfWeekName}.`
+                : `I want a structured, high-output plan for ${dayOfWeekName}.`;
+
             const aiItems = await generateAICalendarSchedule(activeEngine, {
                 tasks: makerTasks,
-                userPrompt: 'I want a productive, focused day today.',
+                userPrompt: focusGoal,
                 currentHour,
                 currentMinute,
                 targetDateStr,
+                dayOfWeekName,
+                isWeekend,
+                isToday: isSelectedToday,
+                planScope: 'day',
                 timezone: userTimezone,
                 allottedHours,
                 includeBreakfast,
@@ -924,16 +1069,15 @@ export const Routine = ({
             if (aiItems && aiItems.length > 0) {
                 setPreviewSchedule(aiItems);
                 setMakerPhase('preview');
-                setSyncToast(`Generated ${aiItems.length} schedule blocks for your day!`);
+                setSyncToast(`Generated ${dayOfWeekName} schedule with ${modelDisplayName}! 🎯`);
                 setTimeout(() => setSyncToast(null), 4000);
             } else {
-                setSyncToast('Schedule planned using smart algorithmic scheduler.');
+                setSyncToast('Schedule planned using smart day scheduler.');
                 setTimeout(() => setSyncToast(null), 4000);
                 runAlgorithmicDaySchedule();
             }
         } catch (err: any) {
             console.warn('AI schedule generation error, falling back to smart scheduler:', err);
-            // Dismiss global error modal if set during engine init error
             useStore.getState().setError(null);
             const friendly = parseAIErrorMessage(err);
             const shortSummary = friendly.split(':')[0] || 'AI engine unavailable';
@@ -3993,10 +4137,10 @@ export const Routine = ({
                                 </div>
                                 <div>
                                     <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-                                        Download Local AI for Scheduling
+                                        Download an On-Device AI Model
                                     </h3>
-                                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-                                        100% private, runs entirely on your device with WebGPU.
+                                    <p className="text-xs mt-0.5 text-slate-400">
+                                        100% offline & private. No data is sent to any external server.
                                     </p>
                                 </div>
                             </div>
@@ -4008,42 +4152,81 @@ export const Routine = ({
                             </button>
                         </div>
 
-                        <div className="p-3.5 rounded-2xl border bg-indigo-500/5 border-indigo-500/20 text-xs space-y-1.5">
+                        <div className="p-3.5 rounded-2xl border bg-indigo-500/10 border-indigo-500/25 text-xs space-y-1.5">
                             <p className="font-semibold text-indigo-300">
-                                Download Once, Use Forever Offline
+                                Completely Offline AI &bull; Total Privacy Guaranteed
                             </p>
                             <p className="text-slate-300 leading-relaxed text-[11px]">
-                                Produchive operates strictly on-device. When you download an AI model, it is cached permanently on your machine and never needs to be re-downloaded even if you exit and reopen the app.
+                                Produchive runs local WebLLM models directly on your graphics card via WebGPU. Your schedules, tasks, and daily routines never leave your computer. Download once, and it stays cached permanently for offline use.
                             </p>
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                                Recommended Fast Models
-                            </label>
+                            <div className="flex items-center justify-between">
+                                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                    Suggested Models
+                                </label>
+                                <span className="text-[11px] text-indigo-400 font-medium">
+                                    Recommended: Qwen 2.5 1.5B
+                                </span>
+                            </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                                 {[
-                                    AVAILABLE_MODELS.find(m => m.id === 'Llama-3.2-1B-Instruct-q4f32_1-MLC') || AVAILABLE_MODELS[7],
-                                    AVAILABLE_MODELS.find(m => m.id === 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC') || AVAILABLE_MODELS[3],
-                                    AVAILABLE_MODELS.find(m => m.id === 'SmolLM2-1.7B-Instruct-q4f16_1-MLC') || AVAILABLE_MODELS[5],
-                                    AVAILABLE_MODELS.find(m => m.id === 'gemma-2-2b-it-q4f32_1-MLC') || AVAILABLE_MODELS[1],
-                                ].filter(Boolean).map((model) => (
+                                    {
+                                        ...(AVAILABLE_MODELS.find(m => m.id === 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC') || AVAILABLE_MODELS[3]),
+                                        badge: 'Recommended',
+                                        highlight: true,
+                                        note: 'Best reasoning & speed for routine planning'
+                                    },
+                                    {
+                                        ...(AVAILABLE_MODELS.find(m => m.id === 'Llama-3.2-1B-Instruct-q4f32_1-MLC') || AVAILABLE_MODELS[7]),
+                                        badge: 'Lightest',
+                                        highlight: false,
+                                        note: 'Ultra fast, minimum disk & RAM usage'
+                                    },
+                                    {
+                                        ...(AVAILABLE_MODELS.find(m => m.id === 'SmolLM2-1.7B-Instruct-q4f16_1-MLC') || AVAILABLE_MODELS[5]),
+                                        badge: 'Compact',
+                                        highlight: false,
+                                        note: 'Fast 1.7B model tuned for instructions'
+                                    },
+                                    {
+                                        ...(AVAILABLE_MODELS.find(m => m.id === 'gemma-2-2b-it-q4f32_1-MLC') || AVAILABLE_MODELS[1]),
+                                        badge: 'Google Gemma',
+                                        highlight: false,
+                                        note: 'High accuracy for creative daily workflows'
+                                    },
+                                ].map((item) => (
                                     <div
-                                        key={model.id}
-                                        className="p-3 rounded-2xl border transition-all hover:border-indigo-500/60 bg-black/20 dark:bg-white/5 flex flex-col justify-between gap-2.5"
-                                        style={{ borderColor: 'var(--border-secondary)' }}
+                                        key={item.id}
+                                        className={`p-3 rounded-2xl border transition-all flex flex-col justify-between gap-2.5 ${
+                                            item.highlight
+                                                ? 'bg-indigo-500/10 border-indigo-500/50 shadow-sm shadow-indigo-500/10'
+                                                : 'bg-black/20 dark:bg-white/5 border-[var(--border-secondary)] hover:border-indigo-500/50'
+                                        }`}
                                     >
                                         <div>
-                                            <div className="flex items-center justify-between">
+                                            <div className="flex items-center justify-between gap-1">
                                                 <h4 className="text-xs font-bold truncate" style={{ color: 'var(--text-primary)' }}>
-                                                    {model.name}
+                                                    {item.name}
                                                 </h4>
-                                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-slate-300">
-                                                    {model.size}
-                                                </span>
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    {item.badge && (
+                                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                                            item.highlight
+                                                                ? 'bg-indigo-500 text-white'
+                                                                : 'bg-white/10 text-slate-300'
+                                                        }`}>
+                                                            {item.badge}
+                                                        </span>
+                                                    )}
+                                                    <span className="text-[10px] font-mono px-1 py-0.5 rounded bg-white/10 text-slate-300">
+                                                        {item.size}
+                                                    </span>
+                                                </div>
                                             </div>
                                             <p className="text-[11px] text-slate-400 line-clamp-2 mt-1">
-                                                {model.description}
+                                                {item.note || item.description}
                                             </p>
                                         </div>
                                         <button
@@ -4051,14 +4234,18 @@ export const Routine = ({
                                             onClick={async () => {
                                                 setShowNoModelPrompt(false);
                                                 if (onStartEngine) {
-                                                    setSyncToast(`Downloading & activating ${model.name}...`);
+                                                    setSyncToast(`Downloading & activating ${item.name}...`);
                                                     setTimeout(() => setSyncToast(null), 4000);
-                                                    await onStartEngine(model.id);
+                                                    await onStartEngine(item.id);
                                                 } else if (onOpenModelSelector) {
                                                     onOpenModelSelector();
                                                 }
                                             }}
-                                            className="w-full py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                                            className={`w-full py-1.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm cursor-pointer ${
+                                                item.highlight
+                                                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                                                    : 'bg-white/10 hover:bg-white/20 text-white'
+                                            }`}
                                         >
                                             <Download size={12} />
                                             <span>Download & Activate</span>

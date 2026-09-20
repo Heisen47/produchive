@@ -253,4 +253,114 @@ describe('AI Calendar Schedule Planner', () => {
             );
         });
     });
+
+    describe('Day and Multi-Day Contextual Scheduling', () => {
+        it('assigns dateStr correctly across multi-day targetDates in week mode', () => {
+            const request: CalendarScheduleRequest = {
+                currentHour: 9,
+                currentMinute: 0,
+                targetDateStr: '2026-09-21',
+                targetDates: ['2026-09-21', '2026-09-22', '2026-09-23'],
+                planScope: 'week',
+                totalWeeklyHours: 15,
+            };
+
+            const rawItems = [
+                { title: 'Monday Sprint Kickoff', dateStr: '2026-09-21', startHour: 9, startMinute: 0, durationMinutes: 60 },
+                { title: 'Tuesday Architecture Review', dateStr: '2026-09-22', startHour: 10, startMinute: 0, durationMinutes: 90 },
+                { title: 'Wednesday Deep Focus', dateStr: '2026-09-23', startHour: 14, startMinute: 0, durationMinutes: 60 },
+            ];
+
+            const sanitized = sanitizeAndValidateScheduleItems(rawItems, request);
+            expect(sanitized.length).toBe(3);
+            expect(sanitized[0].dateStr).toBe('2026-09-21');
+            expect(sanitized[1].dateStr).toBe('2026-09-22');
+            expect(sanitized[2].dateStr).toBe('2026-09-23');
+
+            // Day indices should match respective dates (2026-09-21 is Monday = 1)
+            expect(sanitized[0].dayIndex).toBe(1);
+            expect(sanitized[1].dayIndex).toBe(2);
+            expect(sanitized[2].dayIndex).toBe(3);
+        });
+
+        it('distributes items missing dateStr evenly across targetDates', () => {
+            const request: CalendarScheduleRequest = {
+                currentHour: 9,
+                currentMinute: 0,
+                targetDateStr: '2026-09-21',
+                targetDates: ['2026-09-21', '2026-09-22'],
+                planScope: 'week',
+            };
+
+            const rawItems = [
+                { title: 'Task 1', startHour: 9, startMinute: 0, durationMinutes: 60 },
+                { title: 'Task 2', startHour: 10, startMinute: 0, durationMinutes: 60 },
+            ];
+
+            const sanitized = sanitizeAndValidateScheduleItems(rawItems, request);
+            expect(sanitized.length).toBe(2);
+            expect(sanitized[0].dateStr).toBe('2026-09-21');
+            expect(sanitized[1].dateStr).toBe('2026-09-22');
+        });
+
+        it('resolves sequential collisions independently for each date without shifting other days', () => {
+            const request: CalendarScheduleRequest = {
+                currentHour: 9,
+                currentMinute: 0,
+                targetDateStr: '2026-09-21',
+                targetDates: ['2026-09-21', '2026-09-22'],
+                planScope: 'week',
+            };
+
+            const rawItems = [
+                // Day 1: two colliding items at 9:00 AM
+                { title: 'Mon Task A', dateStr: '2026-09-21', startHour: 9, startMinute: 0, durationMinutes: 60 },
+                { title: 'Mon Task B', dateStr: '2026-09-21', startHour: 9, startMinute: 15, durationMinutes: 45 },
+                // Day 2: one item at 9:00 AM
+                { title: 'Tue Task C', dateStr: '2026-09-22', startHour: 9, startMinute: 0, durationMinutes: 60 },
+            ];
+
+            const sanitized = sanitizeAndValidateScheduleItems(rawItems, request);
+            expect(sanitized.length).toBe(3);
+
+            const monItems = sanitized.filter(i => i.dateStr === '2026-09-21');
+            const tueItems = sanitized.filter(i => i.dateStr === '2026-09-22');
+
+            expect(monItems.length).toBe(2);
+            expect(monItems[0].startHour).toBe(9);
+            expect(monItems[0].startMinute).toBe(0);
+            // Collision on Monday: Mon Task B should be shifted after Mon Task A
+            expect(monItems[1].startHour * 60 + monItems[1].startMinute).toBeGreaterThanOrEqual(10 * 60);
+
+            // Tuesday item should NOT be affected by Monday collisions
+            expect(tueItems.length).toBe(1);
+            expect(tueItems[0].startHour).toBe(9);
+            expect(tueItems[0].startMinute).toBe(0);
+        });
+
+        it('supports single day weekend schedule with appropriate date and dayIndex', () => {
+            // 2026-09-20 is a Sunday (dayIndex = 0)
+            const request: CalendarScheduleRequest = {
+                currentHour: 9,
+                currentMinute: 0,
+                targetDateStr: '2026-09-20',
+                dayOfWeekName: 'Sunday',
+                isWeekend: true,
+                planScope: 'day',
+                allottedHours: 4,
+            };
+
+            const rawItems = [
+                { title: 'Creative Writing & Side Project', category: 'writing', startHour: 10, startMinute: 0, durationMinutes: 60 },
+                { title: 'Afternoon Nature Walk', category: 'break', startHour: 15, startMinute: 0, durationMinutes: 30 },
+            ];
+
+            const sanitized = sanitizeAndValidateScheduleItems(rawItems, request);
+            expect(sanitized.length).toBe(2);
+            expect(sanitized[0].dateStr).toBe('2026-09-20');
+            expect(sanitized[0].dayIndex).toBe(0); // Sunday
+            expect(sanitized[1].dateStr).toBe('2026-09-20');
+            expect(sanitized[1].dayIndex).toBe(0);
+        });
+    });
 });

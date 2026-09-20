@@ -14,7 +14,7 @@ import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { initEngine, parseAIErrorMessage, AVAILABLE_MODELS, hasModelInCache, getPersistedDownloadedModels, AIModel } from './lib/ai';
+import { initEngine, parseAIErrorMessage, AVAILABLE_MODELS, hasModelInCache, getPersistedDownloadedModels, markModelDownloaded, AIModel } from './lib/ai';
 import { useStore } from './lib/store';
 import { apiClient } from './lib/api';
 import { syncEngine } from './lib/services';
@@ -270,6 +270,7 @@ const AppContent = () => {
                 try {
                     const cached = await hasModelInCache(model.id);
                     if (cached && mounted) {
+                        markModelDownloaded(model.id);
                         setDownloadedModel(model);
                         break;
                     }
@@ -617,6 +618,8 @@ const AppContent = () => {
                                     isEngineLoading={loading}
                                     engineProgress={progress}
                                     downloadedModelName={downloadedModel?.name}
+                                    downloadedModelId={downloadedModel?.id}
+                                    downloadedModel={downloadedModel}
                                     onOpenModelSelector={() => setShowModelSelector(true)}
                                 />
                             )}

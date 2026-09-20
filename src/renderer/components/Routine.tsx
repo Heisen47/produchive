@@ -369,6 +369,10 @@ export const Routine = ({
         return null;
     }, [downloadedModel, downloadedModelId, downloadedModelName, detectedModelId]);
 
+    const activeModelDisplayName = useMemo(() => {
+        return currentActiveModel?.name || downloadedModelName || (detectedModelId ? (AVAILABLE_MODELS.find((m) => m.id === detectedModelId)?.name || detectedModelId) : 'On-Device AI');
+    }, [currentActiveModel, downloadedModelName, detectedModelId]);
+
     const resolveDownloadedModelId = async (): Promise<string | null> => {
         if (downloadedModelId) return downloadedModelId;
         if (downloadedModel?.id) return downloadedModel.id;
@@ -3803,7 +3807,7 @@ export const Routine = ({
                                                 AI Prompt & Pacing
                                             </label>
                                             <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
-                                                {modelDisplayName}
+                                                {activeModelDisplayName}
                                             </span>
                                         </div>
                                         <button
@@ -3845,7 +3849,7 @@ export const Routine = ({
                                     {isPromptExpanded && (
                                         <div className="space-y-2 pt-2 border-t border-white/5">
                                             <div className="flex items-center justify-between text-[11px]">
-                                                <span className="text-slate-400 font-medium">System Instructions sent to {modelDisplayName}:</span>
+                                                <span className="text-slate-400 font-medium">System Instructions sent to {activeModelDisplayName}:</span>
                                                 {customSystemPrompt && customSystemPrompt !== CALENDAR_SCHEDULER_SYSTEM_PROMPT && (
                                                     <button
                                                         type="button"

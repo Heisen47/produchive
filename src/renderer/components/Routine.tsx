@@ -824,13 +824,36 @@ export const Routine = ({
         setTimeout(() => setSyncToast(null), 4000);
     };
 
-    // ─── Smart Forward Schedule Generator (Day vs Week Mode) ───
-    const handleGenerateSchedule = () => {
-        if (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast) return;
-        setIsGenerating(true);
+    const runAlgorithmicDaySchedule = () => {
+        const targetDateStr = formatDateStr(selectedDate);
+        const isSelectedToday = targetDateStr === todayStr;
+        const currentH = new Date().getHours();
+        const actualStartHour = isSelectedToday ? Math.max(startHourInput, currentH) : startHourInput;
+        const allottedMinutes = Math.max(30, allottedHours * 60);
 
-        setTimeout(() => {
-            if (planScope === 'week') {
+        const newItems = generateForwardSmartSchedule({
+            tasks: makerTasks,
+            allottedMinutes,
+            startHour: actualStartHour,
+            startMinute: 0,
+            dateStr: targetDateStr,
+            includeBreakfast,
+            includeLunch,
+            includeRestBlocks,
+            includeDinner,
+        });
+
+        setPreviewSchedule(newItems);
+        setMakerPhase('preview');
+    };
+
+    // ─── Schedule Generator (AI powered in Day mode, Smart Algorithmic fallback & Week mode) ───
+    const handleGenerateSchedule = async () => {
+        if (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast) return;
+
+        if (planScope === 'week') {
+            setIsGenerating(true);
+            setTimeout(() => {
                 const currentH = new Date().getHours();
                 const newItems = generateWeeklySmartSchedule({
                     weekDates: activeWeekDates,
@@ -848,36 +871,12 @@ export const Routine = ({
                 setSelectedPreviewDay('all');
                 setMakerPhase('preview');
                 setIsGenerating(false);
-                return;
-            }
+            }, 750);
+            return;
+        }
 
-            const targetDateStr = formatDateStr(selectedDate);
-            const isSelectedToday = targetDateStr === todayStr;
-            const currentH = new Date().getHours();
-            const actualStartHour = isSelectedToday ? Math.max(startHourInput, currentH) : startHourInput;
-            const allottedMinutes = Math.max(30, allottedHours * 60);
-
-            const newItems = generateForwardSmartSchedule({
-                tasks: makerTasks,
-                allottedMinutes,
-                startHour: actualStartHour,
-                startMinute: 0,
-                dateStr: targetDateStr,
-                includeBreakfast,
-                includeLunch,
-                includeRestBlocks,
-                includeDinner,
-            });
-
-            setPreviewSchedule(newItems);
-            setMakerPhase('preview');
-            setIsGenerating(false);
-        }, 750);
-    };
-
-    // ─── On-Device AI Schedule Generator (Local LLM via WebGPU) ───
-    const handleGenerateAISchedule = async () => {
-        const currentModelId = detectedModelId || await hasAnyDownloadedModel();
+        // Day Mode: Powered by on-device local AI with graceful fallback
+        const currentModelId = detectedModelId || (await hasAnyDownloadedModel());
         if (!currentModelId) {
             setShowNoModelPrompt(true);
             return;
@@ -908,7 +907,7 @@ export const Routine = ({
 
             const aiItems = await generateAICalendarSchedule(activeEngine, {
                 tasks: makerTasks,
-                userPrompt: aiVisionPrompt.trim() || 'I want a productive, focused day today.',
+                userPrompt: 'I want a productive, focused day today.',
                 currentHour,
                 currentMinute,
                 targetDateStr,
@@ -924,16 +923,14 @@ export const Routine = ({
             if (aiItems && aiItems.length > 0) {
                 setPreviewSchedule(aiItems);
                 setMakerPhase('preview');
-                setSyncToast(`AI generated ${aiItems.length} schedule blocks for your day!`);
+                setSyncToast(`Generated ${aiItems.length} schedule blocks for your day!`);
                 setTimeout(() => setSyncToast(null), 4000);
             } else {
-                handleGenerateSchedule();
+                runAlgorithmicDaySchedule();
             }
         } catch (err: any) {
             console.warn('AI schedule generation error, falling back to smart scheduler:', err);
-            setSyncToast('AI generation fallback: using smart algorithmic planner.');
-            setTimeout(() => setSyncToast(null), 4000);
-            handleGenerateSchedule();
+            runAlgorithmicDaySchedule();
         } finally {
             setIsAIGenerating(false);
             setAiStatusMessage('');
@@ -1172,28 +1169,6 @@ export const Routine = ({
                         }}
                     >
                         <RefreshCw size={13} /> Today
-                    </button>
-
-                    {/* AI Day Plan Button */}
-                    <button
-                        onClick={() => {
-                            setPlanScope('day');
-                            setIsMakerOpen(true);
-                        }}
-                        className="px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 text-white shadow-lg transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
-                        style={{
-                            background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
-                            boxShadow: '0 4px 15px rgba(99, 102, 241, 0.35)',
-                        }}
-                        title={currentActiveModel ? `Local Model (${currentActiveModel.name}) Ready` : 'Plan schedule using On-Device AI'}
-                    >
-                        <Bot size={15} className="text-indigo-200" />
-                        <span>AI Plan</span>
-                        {currentActiveModel && (
-                            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-white/20 text-white font-mono">
-                                {currentActiveModel.name.split(' ')[0]}
-                            </span>
-                        )}
                     </button>
 
                     {/* Primary Button: + Your plans */}
@@ -3032,77 +3007,6 @@ export const Routine = ({
 
                         {makerPhase === 'input' ? (
                             <>
-                                {/* AI Day Vision & Prompt (Local LLM via WebGPU) */}
-                                {planScope === 'day' && (
-                                    <div
-                                        className="p-3.5 rounded-2xl border space-y-2.5 shadow-sm transition-all"
-                                        style={{
-                                            background: isDark ? 'rgba(99, 102, 241, 0.08)' : 'rgba(99, 102, 241, 0.04)',
-                                            borderColor: isDark ? 'rgba(99, 102, 241, 0.25)' : 'rgba(99, 102, 241, 0.2)',
-                                        }}
-                                    >
-                                        <div className="flex items-center justify-between flex-wrap gap-2">
-                                            <label className="text-[11px] font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
-                                                <Bot size={14} className="text-indigo-400" />
-                                                AI Day Vision & Scheduling
-                                            </label>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px] font-mono opacity-70" style={{ color: 'var(--text-secondary)' }}>
-                                                    {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {Intl.DateTimeFormat().resolvedOptions().timeZone}
-                                                </span>
-                                                {currentActiveModel ? (
-                                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-semibold flex items-center gap-1">
-                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                                                        {currentActiveModel.name}
-                                                    </span>
-                                                ) : (
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setShowNoModelPrompt(true)}
-                                                        className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-semibold hover:bg-amber-500/30 transition-all cursor-pointer"
-                                                    >
-                                                        Download Local LLM
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        <div className="flex items-center gap-2">
-                                            <input
-                                                type="text"
-                                                placeholder="What do you want to accomplish today? (e.g., I want a productive day with deep coding & breaks)"
-                                                value={aiVisionPrompt}
-                                                onChange={(e) => setAiVisionPrompt(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        e.preventDefault();
-                                                        handleGenerateAISchedule();
-                                                    }
-                                                }}
-                                                className="flex-1 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-indigo-500 transition-all bg-black/20 dark:bg-white/5"
-                                                style={{
-                                                    color: 'var(--text-primary)',
-                                                    borderColor: 'rgba(99, 102, 241, 0.25)',
-                                                }}
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={handleGenerateAISchedule}
-                                                disabled={isAIGenerating || isGenerating}
-                                                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-xs shadow-md shadow-indigo-500/20 transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shrink-0"
-                                                title="Generate schedule using on-device local AI"
-                                            >
-                                                {isAIGenerating ? (
-                                                    <Loader2 size={13} className="animate-spin text-white" />
-                                                ) : (
-                                                    <Bot size={13} className="text-white" />
-                                                )}
-                                                <span>AI Schedule</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-
                                 {/* Section 1: Available Time Selection */}
                                 <div
                                     className="p-3.5 rounded-2xl border space-y-2.5 shadow-sm transition-all"
@@ -3696,37 +3600,15 @@ export const Routine = ({
                                             disabled={isGenerating || isAIGenerating || (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast)}
                                             className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-[#5b5fc7] to-[#4f52b2] hover:opacity-95 text-white font-semibold text-xs shadow-md shadow-[#5b5fc7]/20 transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                                         >
-                                            {isGenerating ? (
+                                            {isGenerating || isAIGenerating ? (
                                                 <>
                                                     <Loader2 size={13} className="animate-spin text-white" />
                                                     <span>Generating...</span>
                                                 </>
                                             ) : (
-                                                <span>Algorithmic</span>
+                                                <span>Generate</span>
                                             )}
                                         </button>
-
-                                        {planScope === 'day' && (
-                                            <button
-                                                type="button"
-                                                onClick={handleGenerateAISchedule}
-                                                disabled={isAIGenerating || isGenerating}
-                                                className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-xs shadow-md shadow-indigo-500/25 transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
-                                                title="Generate with On-Device AI"
-                                            >
-                                                {isAIGenerating ? (
-                                                    <>
-                                                        <Loader2 size={13} className="animate-spin text-white" />
-                                                        <span>AI Scheduling...</span>
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <Bot size={13} className="text-white" />
-                                                        <span>AI Schedule</span>
-                                                    </>
-                                                )}
-                                            </button>
-                                        )}
                                     </div>
                                 </div>
                             </>
@@ -4177,7 +4059,7 @@ export const Routine = ({
                             </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-2 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
+                        <div className="flex items-center justify-between pt-2 border-t gap-2" style={{ borderColor: 'var(--border-secondary)' }}>
                             {onOpenModelSelector && (
                                 <button
                                     type="button"
@@ -4190,13 +4072,25 @@ export const Routine = ({
                                     View all models →
                                 </button>
                             )}
-                            <button
-                                type="button"
-                                onClick={() => setShowNoModelPrompt(false)}
-                                className="px-4 py-1.5 rounded-xl border border-slate-700/60 hover:bg-white/5 text-xs text-slate-300 font-semibold cursor-pointer ml-auto"
-                            >
-                                Cancel
-                            </button>
+                            <div className="flex items-center gap-2 ml-auto">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setShowNoModelPrompt(false);
+                                        runAlgorithmicDaySchedule();
+                                    }}
+                                    className="px-3 py-1.5 rounded-xl hover:bg-white/5 text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                                >
+                                    Continue without AI
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowNoModelPrompt(false)}
+                                    className="px-4 py-1.5 rounded-xl border border-slate-700/60 hover:bg-white/5 text-xs text-slate-300 font-semibold cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

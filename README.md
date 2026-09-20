@@ -22,7 +22,7 @@ Produchive is a self-hosted, offline-first productivity application that helps y
 
 ## Key Features
 
-*   **Interactive Routine & Calendar Scheduler (v3.0.31)**: 7-day visual calendar, double-click quick event creation, circadian rhythm balance (deep work, meetings, breaks, sleep), intelligent auto-balancing, and bidirectional task synchronization.
+*   **Interactive Routine & Calendar Scheduler (v3.0.32)**: 7-day visual calendar, double-click quick event creation, circadian rhythm balance (deep work, meetings, breaks, sleep), intelligent auto-balancing, and bidirectional task synchronization.
 *   **Automatic Screen Activity Detection (v3.0.31)**: Automatically detects active windows and logs focus sessions into the calendar with duration, handling multi-app overflow (`+N apps detected`) and 1-click user verification.
 *   **AI Insights & Productivity Telemetry (v3.0.31)**: Real-time focus scoring, context switch tracking, app distraction evaluation, and detailed visual timelines.
 *   **On-Device AI Distraction Judge & Native Nudges (v3.0.31)**: Local LLM monitors active windows against goals and delivers polite native desktop notifications when off-task.

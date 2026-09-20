@@ -2,6 +2,26 @@
 
 ---
 
+## Produchive v3.0.32
+
+Feature and refinement release introducing a redesigned 2-Step Routine Generator Wizard, real-time AI generation cancellation, and inline schedule tuning.
+
+### 2-Step Routine Generator Wizard
+- **Unified 2-Step Workflow**: Replaced nested popup modals with a clean 2-step wizard (`1. Setup` -> `2. Review & Apply`) styled with cohesive solid `#5b5fc7` colors.
+- **Structured Setup Controls**: Clear visual separation between nutritional/rest options (`Include:`) and occupation contexts (`Context:`), removing clutter and keeping focus on scheduling preferences.
+
+### Real-Time Generation Cancellation
+- **Abort & Interruption Controls**: Added an explicit "Cancel Generation" button, top-right close button, and `Esc` keyboard shortcut to the generation overlay.
+- **Engine Interruption**: Interrupted operations cleanly abort WebGPU execution via `AbortController` and `engine.interruptGenerate()`, preventing unwanted algorithmic fallback scheduling or state corruption.
+
+### Inline Prompt Inspection & Schedule Refinement
+- **Embedded Prompt Accordion**: Review and edit compiled user prompts and system guidelines directly in Step 2 without navigating away from the schedule preview.
+- **1-Click Regenerate**: Update customized instructions and instantly regenerate the routine with the on-device AI model.
+- **Inline Duration Pills**: Rapidly adjust block lengths directly in the preview timeline using quick duration pills (15m, 30m, 45m, 1h, 1.5h).
+- **Connected Timeline Aesthetic**: Dynamic timeline layout featuring solid category markers and vertical dotted continuity lines.
+
+---
+
 ## Produchive v3.0.31 (Hotfix)
 
 Hotfix release resolving an issue where the "Analyze with AI" button failed to trigger analysis from the dashboard.

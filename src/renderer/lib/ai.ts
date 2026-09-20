@@ -1,6 +1,37 @@
 /// <reference types="@webgpu/types" />
 import { CreateMLCEngine } from "@mlc-ai/web-llm";
+import { PlannedRoutineItem } from '../types/routine';
+import { resolveCollisionsSequentially } from './smartScheduler';
 
+export const CACHED_MODELS_STORAGE_KEY = 'produchive_downloaded_models';
+
+export const getPersistedDownloadedModels = (): string[] => {
+    try {
+        if (typeof localStorage === 'undefined') return [];
+        const raw = localStorage.getItem(CACHED_MODELS_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch {
+        return [];
+    }
+};
+
+export const markModelDownloaded = (modelId: string) => {
+    try {
+        if (typeof localStorage === 'undefined') return;
+        const current = new Set(getPersistedDownloadedModels());
+        current.add(modelId);
+        localStorage.setItem(CACHED_MODELS_STORAGE_KEY, JSON.stringify(Array.from(current)));
+    } catch {}
+};
+
+export const unmarkModelDownloaded = (modelId: string) => {
+    try {
+        if (typeof localStorage === 'undefined') return;
+        const current = new Set(getPersistedDownloadedModels());
+        current.delete(modelId);
+        localStorage.setItem(CACHED_MODELS_STORAGE_KEY, JSON.stringify(Array.from(current)));
+    } catch {}
+};
 
 export interface AIModel {
     id: string;
@@ -90,22 +121,36 @@ const log = (level: 'info' | 'warn' | 'error', ...args: any[]) => {
 // Cache Management Helper
 export const hasModelInCache = async (modelId: string): Promise<boolean> => {
     try {
-        const cache = await caches.open('webllm/model');
-        const keys = await cache.keys();
-        // Check if any key contains the modelId (basic check)
-        return keys.some(req => req.url.includes(modelId));
+        if (typeof caches !== 'undefined') {
+            const cache = await caches.open('webllm/model');
+            const keys = await cache.keys();
+            const exists = keys.some(req => req.url.includes(modelId));
+            if (exists) {
+                markModelDownloaded(modelId);
+                return true;
+            }
+        }
+        return getPersistedDownloadedModels().includes(modelId);
     } catch (e) {
-        return false;
+        return getPersistedDownloadedModels().includes(modelId);
     }
 };
 
 export const hasAnyDownloadedModel = async (): Promise<string | null> => {
     try {
-        if (typeof caches === 'undefined') return null;
+        const persisted = getPersistedDownloadedModels();
+        if (persisted.length > 0) {
+            const match = AVAILABLE_MODELS.find(m => persisted.includes(m.id));
+            if (match) return match.id;
+        }
+
         const selected = typeof localStorage !== 'undefined' ? localStorage.getItem('selectedModelId') : null;
         if (selected && (await hasModelInCache(selected))) return selected;
         for (const m of AVAILABLE_MODELS) {
-            if (await hasModelInCache(m.id)) return m.id;
+            if (await hasModelInCache(m.id)) {
+                markModelDownloaded(m.id);
+                return m.id;
+            }
         }
         return null;
     } catch {
@@ -116,15 +161,18 @@ export const hasAnyDownloadedModel = async (): Promise<string | null> => {
 export const deleteModelFromCache = async (modelId: string): Promise<void> => {
     try {
         log('info', `Attempting to delete model: ${modelId}`);
-        const cache = await caches.open('webllm/model');
-        const keys = await cache.keys();
-        
-        const deletions = keys
-            .filter(req => req.url.includes(modelId))
-            .map(req => cache.delete(req));
-        
-        await Promise.all(deletions);
-        log('info', `Deleted ${deletions.length} files for ${modelId}`);
+        unmarkModelDownloaded(modelId);
+        if (typeof caches !== 'undefined') {
+            const cache = await caches.open('webllm/model');
+            const keys = await cache.keys();
+            
+            const deletions = keys
+                .filter(req => req.url.includes(modelId))
+                .map(req => cache.delete(req));
+            
+            await Promise.all(deletions);
+            log('info', `Deleted ${deletions.length} files for ${modelId}`);
+        }
     } catch (e) {
         log('error', 'Failed to delete model from cache', e);
         throw e;
@@ -246,6 +294,7 @@ export const initEngine = async (
                 );
 
                 log('info', `✅ Model ${currentModel} loaded successfully!`);
+                markModelDownloaded(currentModel);
                 return { engine, modelName: currentModel };
 
             } catch (e: any) {
@@ -340,3 +389,158 @@ Output format:
     "distracting": ["<app name 1>", ...]
   }
 }`;
+
+export interface CalendarScheduleRequest {
+    tasks?: { title: string; category?: PlannedRoutineItem['category']; priority?: 'high' | 'medium' | 'low' }[];
+    userPrompt?: string;
+    currentHour: number;
+    currentMinute: number;
+    targetDateStr: string;
+    timezone?: string;
+    allottedHours?: number;
+    includeBreakfast?: boolean;
+    includeLunch?: boolean;
+    includeDinner?: boolean;
+    includeRestBlocks?: boolean;
+    role?: string;
+}
+
+export const CALENDAR_SCHEDULER_SYSTEM_PROMPT = `You are an expert productivity planner. Generate a realistic, focused calendar routine for today based on the user's tasks, goals, and local time.
+
+Rules:
+1. Output ONLY a valid JSON array of objects. No markdown formatting, no explanations, no text outside the JSON.
+2. Structure each item as:
+[
+  {
+    "title": "Specific task title",
+    "category": "development" | "research" | "meeting" | "design" | "writing" | "meal" | "break" | "other",
+    "startHour": <0-23>,
+    "startMinute": <0-59>,
+    "durationMinutes": <15-120>,
+    "priority": "high" | "medium" | "low",
+    "subtitle": "Short focus tip"
+  }
+]
+3. Current local time constraint: The current time is {currentHour}:{currentMinuteFormatted} ({timezone}).
+   All items MUST start at or after {currentHour}:{currentMinuteFormatted}. Do NOT schedule anything before this time.
+4. Schedule items sequentially without time collisions. Allocate 45-90 min for deep work, 10-15 min for breaks, and 30-45 min for meals.
+5. Emphasize the user's priority tasks and maintain momentum throughout the day.`;
+
+export const extractJSONFromAIResponse = <T = any>(rawText: string): T => {
+    let clean = (rawText || '').trim();
+    if (clean.includes('```')) {
+        const matches = clean.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if (matches && matches[1]) {
+            clean = matches[1].trim();
+        }
+    }
+    const firstBracket = clean.search(/[\[\{]/);
+    if (firstBracket !== -1) {
+        const isArray = clean[firstBracket] === '[';
+        const lastBracket = isArray ? clean.lastIndexOf(']') : clean.lastIndexOf('}');
+        if (lastBracket > firstBracket) {
+            clean = clean.substring(firstBracket, lastBracket + 1);
+        }
+    }
+    return JSON.parse(clean);
+};
+
+export const sanitizeAndValidateScheduleItems = (
+    rawItems: any[],
+    request: CalendarScheduleRequest
+): PlannedRoutineItem[] => {
+    if (!Array.isArray(rawItems) || rawItems.length === 0) {
+        return [];
+    }
+
+    const validCategories: PlannedRoutineItem['category'][] = [
+        'development', 'research', 'meeting', 'design', 'writing', 'break', 'meal', 'sleep', 'other'
+    ];
+
+    const currentTotalMins = request.currentHour * 60 + request.currentMinute;
+    const isTargetToday = request.targetDateStr === new Date().toISOString().split('T')[0];
+    const [y, m, d] = request.targetDateStr.split('-').map(Number);
+    const dayIndex = !isNaN(y) && !isNaN(m) && !isNaN(d) ? new Date(y, m - 1, d).getDay() : new Date().getDay();
+
+    const sanitized: PlannedRoutineItem[] = [];
+
+    for (let i = 0; i < rawItems.length; i++) {
+        const item = rawItems[i];
+        if (!item || typeof item !== 'object') continue;
+
+        const title = typeof item.title === 'string' && item.title.trim() ? item.title.trim() : `Focus Block ${i + 1}`;
+        const rawCat = (item.category || '').toLowerCase().trim();
+        const category: PlannedRoutineItem['category'] = validCategories.includes(rawCat as any) ? rawCat as any : 'development';
+        const priority: PlannedRoutineItem['priority'] = ['high', 'medium', 'low'].includes(item.priority) ? item.priority : 'high';
+
+        let startHour = typeof item.startHour === 'number' && !isNaN(item.startHour) ? Math.max(0, Math.min(23, Math.floor(item.startHour))) : request.currentHour;
+        let startMinute = typeof item.startMinute === 'number' && !isNaN(item.startMinute) ? Math.max(0, Math.min(59, Math.floor(item.startMinute))) : 0;
+        let durationMinutes = typeof item.durationMinutes === 'number' && !isNaN(item.durationMinutes) ? Math.max(15, Math.min(180, Math.floor(item.durationMinutes))) : 45;
+
+        // If today, push forward any items scheduled before current time
+        if (isTargetToday) {
+            const itemMins = startHour * 60 + startMinute;
+            if (itemMins < currentTotalMins) {
+                startHour = request.currentHour;
+                startMinute = request.currentMinute;
+            }
+        }
+
+        sanitized.push({
+            id: `routine-ai-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+            title,
+            category,
+            priority,
+            dayIndex,
+            dateStr: request.targetDateStr,
+            startHour,
+            startMinute,
+            durationMinutes,
+            completed: false,
+            subtitle: item.subtitle ? String(item.subtitle).trim() : undefined
+        });
+    }
+
+    return resolveCollisionsSequentially(sanitized);
+};
+
+export const generateAICalendarSchedule = async (
+    engine: any,
+    request: CalendarScheduleRequest
+): Promise<PlannedRoutineItem[]> => {
+    const tz = request.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local Time';
+    const currentMinStr = request.currentMinute < 10 ? `0${request.currentMinute}` : `${request.currentMinute}`;
+    const timePrompt = `${request.currentHour}:${currentMinStr}`;
+
+    const taskLines = (request.tasks || [])
+        .map(t => `- ${t.title}${t.priority ? ` (${t.priority} priority)` : ''}`)
+        .join('\n');
+
+    const promptBody = [
+        `Local Context: Current time is ${timePrompt} in timezone ${tz} on ${request.targetDateStr}.`,
+        request.userPrompt ? `User Desired Focus: "${request.userPrompt}"` : `User Goal: "I want a productive, structured day today."`,
+        request.role ? `User Role: ${request.role}` : null,
+        request.allottedHours ? `Target productive hours: ${request.allottedHours} hours.` : null,
+        request.tasks && request.tasks.length > 0 ? `Specific tasks to schedule:\n${taskLines}` : 'No specific task list provided. Craft an optimal productive day flow with deep focus, research, and breaks.',
+        `Include preferences: Lunch: ${request.includeLunch ?? true}, Dinner: ${request.includeDinner ?? true}, Breaks: ${request.includeRestBlocks ?? true}.`,
+        `CRITICAL: All generated events must start at or after ${timePrompt}. Output ONLY the JSON array.`
+    ].filter(Boolean).join('\n\n');
+
+    const messages = [
+        {
+            role: 'system',
+            content: CALENDAR_SCHEDULER_SYSTEM_PROMPT
+                .replace('{currentHour}', String(request.currentHour))
+                .replace('{currentMinuteFormatted}', currentMinStr)
+                .replace('{timezone}', tz)
+        },
+        {
+            role: 'user',
+            content: promptBody
+        }
+    ];
+
+    const rawResponse = await generateCompletion(engine, messages, 0.4);
+    const parsed = extractJSONFromAIResponse<any[]>(rawResponse);
+    return sanitizeAndValidateScheduleItems(parsed, request);
+};

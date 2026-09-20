@@ -14,7 +14,7 @@ import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { initEngine, parseAIErrorMessage, AVAILABLE_MODELS, hasModelInCache, AIModel } from './lib/ai';
+import { initEngine, parseAIErrorMessage, AVAILABLE_MODELS, hasModelInCache, getPersistedDownloadedModels, AIModel } from './lib/ai';
 import { useStore } from './lib/store';
 import { apiClient } from './lib/api';
 import { syncEngine } from './lib/services';
@@ -243,7 +243,15 @@ const AppContent = () => {
     
     const [engine, setEngine] = useState<any>(null);
     const [modelName, setModelName] = useState<string>('');
-    const [downloadedModel, setDownloadedModel] = useState<AIModel | null>(null);
+    const [downloadedModel, setDownloadedModel] = useState<AIModel | null>(() => {
+        try {
+            const persisted = getPersistedDownloadedModels();
+            if (persisted.length > 0) {
+                return AVAILABLE_MODELS.find((m) => persisted.includes(m.id)) || null;
+            }
+        } catch {}
+        return null;
+    });
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<{ text: string; progress?: number }>({ text: '' });
     const [showModelSelector, setShowModelSelector] = useState(false);
@@ -570,7 +578,14 @@ const AppContent = () => {
                             {currentView === 'analytics' && <UsageCharts />}
 
                             {(currentView === 'routine' || currentView === 'monitor') && (
-                                <Routine />
+                                <Routine
+                                    engine={engine}
+                                    onStartEngine={startEngine}
+                                    isEngineLoading={loading}
+                                    engineProgress={progress}
+                                    downloadedModelName={downloadedModel?.name}
+                                    onOpenModelSelector={() => setShowModelSelector(true)}
+                                />
                             )}
 
                             {currentView === 'ai' && (

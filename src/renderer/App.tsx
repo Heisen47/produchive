@@ -14,7 +14,7 @@ import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { initEngine, parseAIErrorMessage, AVAILABLE_MODELS, hasModelInCache, AIModel } from './lib/ai';
+import { initEngine, parseAIErrorMessage, AVAILABLE_MODELS, hasModelInCache, getPersistedDownloadedModels, markModelDownloaded, AIModel } from './lib/ai';
 import { useStore } from './lib/store';
 import { apiClient } from './lib/api';
 import { syncEngine } from './lib/services';
@@ -44,6 +44,9 @@ import { PeekabooCat } from './components/PeekabooCat';
 import { ModelManager } from './components/ModelManager';
 import { PromptEditorModal } from './components/PromptEditorModal';
 import { Routine } from './components/Routine';
+import { FeedbackModal } from './components/FeedbackModal';
+import { trackUsageSeconds, shouldShowFeedbackPrompt } from './lib/feedbackManager';
+import { version as appVersion } from '../../package.json';
 
 const viewIcons: Record<string, React.ComponentType<any>> = {
     dashboard: LayoutDashboard,
@@ -243,7 +246,15 @@ const AppContent = () => {
     
     const [engine, setEngine] = useState<any>(null);
     const [modelName, setModelName] = useState<string>('');
-    const [downloadedModel, setDownloadedModel] = useState<AIModel | null>(null);
+    const [downloadedModel, setDownloadedModel] = useState<AIModel | null>(() => {
+        try {
+            const persisted = getPersistedDownloadedModels();
+            if (persisted.length > 0) {
+                return AVAILABLE_MODELS.find((m) => persisted.includes(m.id)) || null;
+            }
+        } catch {}
+        return null;
+    });
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<{ text: string; progress?: number }>({ text: '' });
     const [showModelSelector, setShowModelSelector] = useState(false);
@@ -259,6 +270,7 @@ const AppContent = () => {
                 try {
                     const cached = await hasModelInCache(model.id);
                     if (cached && mounted) {
+                        markModelDownloaded(model.id);
                         setDownloadedModel(model);
                         break;
                     }
@@ -280,6 +292,28 @@ const AppContent = () => {
         };
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+
+    // Track active usage time & prompt for feedback after 1 hour threshold
+    useEffect(() => {
+        const checkPrompt = () => {
+            if (shouldShowFeedbackPrompt(appVersion)) {
+                setShowFeedbackModal(true);
+            }
+        };
+
+        // Initial check on app startup
+        checkPrompt();
+
+        // Increment active time every 10 seconds while app is open
+        const interval = setInterval(() => {
+            trackUsageSeconds(10);
+            checkPrompt();
+        }, 10000);
+
+        return () => clearInterval(interval);
     }, []);
 
     const startEngine = async (modelIdToUse?: string) => {
@@ -304,9 +338,12 @@ const AppContent = () => {
             }
         } catch (err: any) {
             if (loadingRef.current) {
-                setError(parseAIErrorMessage(err, modelIdToUse || selectedModelId || undefined));
+                setEngine(null);
+                aiNudgeService.setEngine(null);
+                const friendlyMessage = parseAIErrorMessage(err, modelIdToUse || selectedModelId || undefined);
+                setError(friendlyMessage);
                 setLoading(false);
-                throw err;
+                throw new Error(friendlyMessage);
             }
         }
     };
@@ -339,6 +376,11 @@ const AppContent = () => {
             <ErrorModal />
             <ActivityConfirmationPopup />
             <DebugPanel />
+            <FeedbackModal
+                isOpen={showFeedbackModal}
+                onClose={() => setShowFeedbackModal(false)}
+                currentVersion={appVersion}
+            />
             <Toaster
                 position="bottom-right"
                 theme={isDark ? 'dark' : 'light'}
@@ -570,7 +612,16 @@ const AppContent = () => {
                             {currentView === 'analytics' && <UsageCharts />}
 
                             {(currentView === 'routine' || currentView === 'monitor') && (
-                                <Routine />
+                                <Routine
+                                    engine={engine}
+                                    onStartEngine={startEngine}
+                                    isEngineLoading={loading}
+                                    engineProgress={progress}
+                                    downloadedModelName={downloadedModel?.name}
+                                    downloadedModelId={downloadedModel?.id}
+                                    downloadedModel={downloadedModel}
+                                    onOpenModelSelector={() => setShowModelSelector(true)}
+                                />
                             )}
 
                             {currentView === 'ai' && (

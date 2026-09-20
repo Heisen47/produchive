@@ -930,7 +930,8 @@ export const calculateDayEventCollisions = (
     // Filter valid items and calculate start/end minutes
     const itemsWithTimes = dayItems.map((item) => {
         const start = item.startHour * 60 + item.startMinute;
-        const end = start + Math.max(15, item.durationMinutes);
+        const duration = Math.max(5, item.durationMinutes || 15);
+        const end = start + duration;
         return { item, start, end };
     });
 

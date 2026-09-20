@@ -44,6 +44,9 @@ import { PeekabooCat } from './components/PeekabooCat';
 import { ModelManager } from './components/ModelManager';
 import { PromptEditorModal } from './components/PromptEditorModal';
 import { Routine } from './components/Routine';
+import { FeedbackModal } from './components/FeedbackModal';
+import { trackUsageSeconds, shouldShowFeedbackPrompt } from './lib/feedbackManager';
+import { version as appVersion } from '../../package.json';
 
 const viewIcons: Record<string, React.ComponentType<any>> = {
     dashboard: LayoutDashboard,
@@ -290,6 +293,28 @@ const AppContent = () => {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
+    const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+
+    // Track active usage time & prompt for feedback after 1 hour threshold
+    useEffect(() => {
+        const checkPrompt = () => {
+            if (shouldShowFeedbackPrompt(appVersion)) {
+                setShowFeedbackModal(true);
+            }
+        };
+
+        // Initial check on app startup
+        checkPrompt();
+
+        // Increment active time every 10 seconds while app is open
+        const interval = setInterval(() => {
+            trackUsageSeconds(10);
+            checkPrompt();
+        }, 10000);
+
+        return () => clearInterval(interval);
+    }, []);
+
     const startEngine = async (modelIdToUse?: string) => {
         loadingRef.current = true;
         setLoading(true);
@@ -347,6 +372,11 @@ const AppContent = () => {
             <ErrorModal />
             <ActivityConfirmationPopup />
             <DebugPanel />
+            <FeedbackModal
+                isOpen={showFeedbackModal}
+                onClose={() => setShowFeedbackModal(false)}
+                currentVersion={appVersion}
+            />
             <Toaster
                 position="bottom-right"
                 theme={isDark ? 'dark' : 'light'}

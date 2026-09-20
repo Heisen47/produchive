@@ -202,6 +202,21 @@ export const getAvailableStorageEstimate = async (): Promise<{ freeMB: number; t
     return null;
 };
 
+export const isEngineInstanceError = (error: any): boolean => {
+    const raw = error?.message || String(error || '');
+    const msg = raw.toLowerCase();
+    return (
+        msg.includes('instance reference') ||
+        msg.includes('external instance') ||
+        msg.includes('reference no longer exists') ||
+        msg.includes('instance dropped') ||
+        msg.includes('device lost') ||
+        msg.includes('context lost') ||
+        msg.includes('disposed') ||
+        msg.includes('unloaded')
+    );
+};
+
 export const parseAIErrorMessage = (error: any, modelName?: string): string => {
     const raw = error?.message || String(error || '');
     const msg = raw.toLowerCase();
@@ -218,8 +233,11 @@ export const parseAIErrorMessage = (error: any, modelName?: string): string => {
     if (msg.includes('webgpu is not supported') || msg.includes('navigator.gpu')) {
         return `WebGPU Not Supported: Your system or graphics card does not currently support WebGPU. Please ensure graphics drivers are up to date and hardware acceleration is enabled.`;
     }
-    if (msg.includes('instance dropped') || msg.includes('device lost')) {
-        return `GPU Context Reset: Your graphics card ran out of VRAM while initializing the model. Please select a smaller model with lower memory requirements.`;
+    if (isEngineInstanceError(error)) {
+        return `AI Engine Disconnected: The local AI model instance was lost or disconnected from WebGPU memory. The engine has been reset—please try again or choose a lighter model (such as Llama 3.2 1B or Qwen 2.5 1.5B).`;
+    }
+    if (msg.includes('out of memory') || msg.includes('oom') || msg.includes('vram')) {
+        return `GPU Memory Exhausted: Your graphics card ran out of VRAM while loading or running the AI model. Please close other heavy applications or choose a lighter model (such as Llama 3.2 1B).`;
     }
     return raw || 'Failed to initialize AI model. Please try again or select a smaller model.';
 };
@@ -301,11 +319,11 @@ export const initEngine = async (
                 const errorMsg = e.message || String(e);
                 log('warn', `Attempt ${attempt} failed for ${currentModel}:`, errorMsg);
 
-                // Check for recoverable WebGPU errors
-                if (errorMsg.includes('Instance dropped') || errorMsg.includes('device lost')) {
+                // Check for recoverable WebGPU / TVM instance errors
+                if (isEngineInstanceError(e)) {
                     if (attempt < MAX_RETRIES) {
-                        log('info', `GPU context lost. Retrying in ${RETRY_DELAY_MS / 1000}s...`);
-                        progressCallback({ text: `GPU context lost. Retrying...` });
+                        log('info', `GPU/TVM instance disconnected. Retrying in ${RETRY_DELAY_MS / 1000}s...`);
+                        progressCallback({ text: `Re-establishing AI engine connection...` });
                         await sleep(RETRY_DELAY_MS);
                         continue;
                     }
@@ -331,7 +349,7 @@ export const generateCompletion = async (
 ) => {
     if (!engine) {
         log('error', 'generateCompletion called with null engine');
-        throw new Error("Engine not initialized");
+        throw new Error("AI Engine not initialized: Please download and activate an on-device AI model.");
     }
 
     log('info', 'Generating completion...');
@@ -348,8 +366,12 @@ export const generateCompletion = async (
         log('info', `Completion generated in ${duration}ms`);
         return completion.choices[0]?.message?.content || "";
     } catch (e: any) {
-        log('error', 'Completion generation failed:', e.message);
-        throw e;
+        const friendlyMsg = parseAIErrorMessage(e);
+        log('error', 'Completion generation failed:', friendlyMsg);
+        const wrappedErr = new Error(friendlyMsg);
+        (wrappedErr as any).originalError = e;
+        (wrappedErr as any).isInstanceError = isEngineInstanceError(e);
+        throw wrappedErr;
     }
 };
 
@@ -442,7 +464,16 @@ export const extractJSONFromAIResponse = <T = any>(rawText: string): T => {
             clean = clean.substring(firstBracket, lastBracket + 1);
         }
     }
-    return JSON.parse(clean);
+
+    // Strip trailing commas before closing braces/brackets to prevent SyntaxErrors
+    clean = clean.replace(/,\s*([\]\}])/g, '$1');
+
+    try {
+        return JSON.parse(clean);
+    } catch {
+        log('warn', 'Failed to parse JSON from AI response, returning empty result');
+        return [] as unknown as T;
+    }
 };
 
 export const sanitizeAndValidateScheduleItems = (
@@ -540,7 +571,15 @@ export const generateAICalendarSchedule = async (
         }
     ];
 
-    const rawResponse = await generateCompletion(engine, messages, 0.4);
-    const parsed = extractJSONFromAIResponse<any[]>(rawResponse);
-    return sanitizeAndValidateScheduleItems(parsed, request);
+    try {
+        const rawResponse = await generateCompletion(engine, messages, 0.4);
+        const parsed = extractJSONFromAIResponse<any[]>(rawResponse);
+        return sanitizeAndValidateScheduleItems(parsed, request);
+    } catch (e: any) {
+        const friendly = parseAIErrorMessage(e);
+        log('warn', 'generateAICalendarSchedule failed:', friendly);
+        const wrapped = new Error(friendly);
+        (wrapped as any).originalError = e;
+        throw wrapped;
+    }
 };

@@ -8,7 +8,10 @@ import {
     hasAnyDownloadedModel,
     hasModelInCache,
     CACHED_MODELS_STORAGE_KEY,
-    CalendarScheduleRequest
+    CalendarScheduleRequest,
+    parseAIErrorMessage,
+    isEngineInstanceError,
+    generateAICalendarSchedule,
 } from '../renderer/lib/ai';
 
 describe('AI Calendar Schedule Planner', () => {
@@ -132,6 +135,122 @@ describe('AI Calendar Schedule Planner', () => {
             expect(sanitized[0].category).toBe('development'); // default fallback
             expect(sanitized[0].id).toMatch(/^routine-ai-/);
             expect(sanitized[0].completed).toBe(false);
+        });
+    });
+
+    describe('Error Parsing & Instance Reference Diagnostics', () => {
+        it('translates "A valid external Instance reference no longer exists." into actionable user guidance', () => {
+            const rawErr = new Error('A valid external Instance reference no longer exists.');
+            expect(isEngineInstanceError(rawErr)).toBe(true);
+
+            const parsed = parseAIErrorMessage(rawErr);
+            expect(parsed).toContain('AI Engine Disconnected');
+            expect(parsed).toContain('The local AI model instance was lost or disconnected from WebGPU memory');
+            expect(parsed).not.toContain('external Instance reference');
+        });
+
+        it('translates RuntimeError TVM prefix without exposing raw internal Wasm errors', () => {
+            const tvmErr = new Error('RuntimeError: A valid external Instance reference no longer exists at tvmjs.wasm');
+            expect(isEngineInstanceError(tvmErr)).toBe(true);
+
+            const parsed = parseAIErrorMessage(tvmErr);
+            expect(parsed).toContain('AI Engine Disconnected');
+            expect(parsed).toContain('Llama 3.2 1B');
+        });
+
+        it('recognizes GPU context drop and device lost errors', () => {
+            const dropErr = new Error('WebGPU device lost: instance dropped due to system sleep');
+            expect(isEngineInstanceError(dropErr)).toBe(true);
+
+            const parsed = parseAIErrorMessage(dropErr);
+            expect(parsed).toContain('AI Engine Disconnected');
+        });
+
+        it('recognizes VRAM exhaustion and provides clear GPU memory message', () => {
+            const oomErr = new Error('WebGPU out of memory: unable to allocate buffer');
+            const parsed = parseAIErrorMessage(oomErr);
+            expect(parsed).toContain('GPU Memory Exhausted');
+            expect(parsed).toContain('VRAM');
+        });
+
+        it('recognizes network errors during model fetching', () => {
+            const netErr = new Error('Failed to fetch model weights: ERR_CONNECTION_TIMED_OUT');
+            const parsed = parseAIErrorMessage(netErr);
+            expect(parsed).toContain('Network Connection Error');
+        });
+
+        it('recognizes lack of WebGPU support', () => {
+            const gpuErr = new Error('WebGPU is not supported on this platform');
+            const parsed = parseAIErrorMessage(gpuErr);
+            expect(parsed).toContain('WebGPU Not Supported');
+        });
+
+        it('recognizes insufficient disk space', () => {
+            const diskErr = new Error('QuotaExceededError: storage limit reached');
+            const parsed = parseAIErrorMessage(diskErr, 'Qwen 2.5 1.5B');
+            expect(parsed).toContain('Insufficient Disk Space');
+            expect(parsed).toContain('Qwen 2.5 1.5B');
+        });
+
+        it('returns false in isEngineInstanceError for non-instance errors', () => {
+            expect(isEngineInstanceError(new Error('Network timeout'))).toBe(false);
+            expect(isEngineInstanceError(new Error('Invalid task title'))).toBe(false);
+            expect(isEngineInstanceError(null)).toBe(false);
+        });
+    });
+
+    describe('Resilient JSON Extraction', () => {
+        it('tolerates trailing commas in generated JSON arrays', () => {
+            const withTrailingComma = `[
+                {"title": "Task A", "category": "development", "startHour": 10, "startMinute": 0, "durationMinutes": 60,},
+            ]`;
+            const parsed = extractJSONFromAIResponse<any[]>(withTrailingComma);
+            expect(Array.isArray(parsed)).toBe(true);
+            expect(parsed.length).toBe(1);
+            expect(parsed[0].title).toBe('Task A');
+        });
+
+        it('tolerates trailing commas in objects', () => {
+            const withTrailingInObject = `[
+                {"title": "Deep Work", "category": "development", "durationMinutes": 45, "priority": "high",}
+            ]`;
+            const parsed = extractJSONFromAIResponse<any[]>(withTrailingInObject);
+            expect(Array.isArray(parsed)).toBe(true);
+            expect(parsed[0].title).toBe('Deep Work');
+        });
+
+        it('recovers gracefully from completely unparseable input by returning empty array', () => {
+            const garbage = 'Sorry, I cannot help you with that as an AI language model.';
+            const parsed = extractJSONFromAIResponse<any[]>(garbage);
+            expect(parsed).toEqual([]);
+        });
+    });
+
+    describe('generateAICalendarSchedule Error Wrapping', () => {
+        const testReq: CalendarScheduleRequest = {
+            currentHour: 10,
+            currentMinute: 0,
+            targetDateStr: '2026-09-20',
+        };
+
+        it('wraps "A valid external Instance reference no longer exists" into a friendly Error', async () => {
+            const deadEngine = {
+                chat: {
+                    completions: {
+                        create: vi.fn().mockRejectedValue(new Error('A valid external Instance reference no longer exists.')),
+                    },
+                },
+            };
+
+            await expect(generateAICalendarSchedule(deadEngine, testReq)).rejects.toThrow(
+                /AI Engine Disconnected/
+            );
+        });
+
+        it('fails with clear error if engine is null', async () => {
+            await expect(generateAICalendarSchedule(null, testReq)).rejects.toThrow(
+                /AI Engine not initialized/
+            );
         });
     });
 });

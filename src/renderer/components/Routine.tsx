@@ -45,7 +45,8 @@ import { getGoogleAuthToken, getGoogleCalendarConfig, performGoogleCalendarSync,
 import {
     hasAnyDownloadedModel,
     generateAICalendarSchedule,
-    AVAILABLE_MODELS
+    AVAILABLE_MODELS,
+    parseAIErrorMessage
 } from '../lib/ai';
 import {
     distributeSmartSchedule,
@@ -926,10 +927,18 @@ export const Routine = ({
                 setSyncToast(`Generated ${aiItems.length} schedule blocks for your day!`);
                 setTimeout(() => setSyncToast(null), 4000);
             } else {
+                setSyncToast('Schedule planned using smart algorithmic scheduler.');
+                setTimeout(() => setSyncToast(null), 4000);
                 runAlgorithmicDaySchedule();
             }
         } catch (err: any) {
             console.warn('AI schedule generation error, falling back to smart scheduler:', err);
+            // Dismiss global error modal if set during engine init error
+            useStore.getState().setError(null);
+            const friendly = parseAIErrorMessage(err);
+            const shortSummary = friendly.split(':')[0] || 'AI engine unavailable';
+            setSyncToast(`${shortSummary}. Scheduled via smart planner!`);
+            setTimeout(() => setSyncToast(null), 5000);
             runAlgorithmicDaySchedule();
         } finally {
             setIsAIGenerating(false);

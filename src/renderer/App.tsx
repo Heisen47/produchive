@@ -337,9 +337,12 @@ const AppContent = () => {
             }
         } catch (err: any) {
             if (loadingRef.current) {
-                setError(parseAIErrorMessage(err, modelIdToUse || selectedModelId || undefined));
+                setEngine(null);
+                aiNudgeService.setEngine(null);
+                const friendlyMessage = parseAIErrorMessage(err, modelIdToUse || selectedModelId || undefined);
+                setError(friendlyMessage);
                 setLoading(false);
-                throw err;
+                throw new Error(friendlyMessage);
             }
         }
     };

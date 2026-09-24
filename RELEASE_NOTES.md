@@ -2,6 +2,23 @@
 
 ---
 
+## Produchive v3.0.33
+
+Feature and bugfix release adding full 24-hour calendar window support including post-midnight scheduling, along with native Windows taskbar icon fixes.
+
+### 24-Hour Calendar Window & Post-Midnight Scheduling
+- **24-Hour Window Mode**: Toggle between standard daytime (`Day (6AM-12AM)`) and full 24-hour (`24 Hours`) views via the calendar toolbar.
+- **Post-Midnight Coverage**: Hours 12 AM through 5 AM are now fully accessible for task scheduling, drag-and-drop, and auto-detected activity telemetry.
+- **Post-Midnight Notification Banner**: Added an indicator badge and alert banner when in daytime mode if any events are scheduled post-midnight, with 1-click switching to 24h view.
+- **Smooth Auto-Scroll & Preference Persistence**: Calendar automatically restores your window preference across sessions and smoothly scrolls to the current hour on initial load.
+
+### Windows Taskbar App Icon Fix
+- **Multi-Resolution Icon Asset**: Rebuilt `resources/icon.ico` with all 7 standard Windows resolutions (16x16 up to 256x256) so high-DPI Windows taskbars and Alt+Tab render the true Produchive brand icon.
+- **AppUserModelID Cache Isolation**: Fixed `app.setAppUserModelId` to use `process.execPath` in development and `com.produchive.app` in production, preventing development runs from polluting the Windows taskbar icon cache with the default Electron logo.
+- **Installer App ID Alignment**: Synchronized `appId` in the NSIS installer configuration with the runtime AppUserModelID.
+
+---
+
 ## Produchive v3.0.32
 
 Feature and refinement release introducing a redesigned 2-Step Routine Generator Wizard, real-time AI generation cancellation, and inline schedule tuning.

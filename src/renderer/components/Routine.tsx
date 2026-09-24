@@ -394,6 +394,33 @@ export const Routine = ({
 
     // ─── View Modes: 'work_week' (5 days) | 'week' (7 days) | 'day' (1 day) ───
     const [viewMode, setViewMode] = useState<'work_week' | 'week' | 'day'>('work_week');
+    const [is24HourWindow, setIs24HourWindow] = useState<boolean>(() => {
+        try {
+            const saved = localStorage.getItem('produchive_calendar_24h_window');
+            if (saved !== null) return saved === 'true';
+        } catch {}
+        return true;
+    });
+
+    const handleToggle24HourWindow = (enabled: boolean) => {
+        setIs24HourWindow(enabled);
+        try {
+            localStorage.setItem('produchive_calendar_24h_window', String(enabled));
+        } catch {}
+    };
+
+    const timelineRef = useRef<HTMLDivElement>(null);
+    const hasAutoScrolledRef = useRef(false);
+
+    useEffect(() => {
+        if (!hasAutoScrolledRef.current && timelineRef.current) {
+            const currentH = new Date().getHours();
+            const targetHour = is24HourWindow ? Math.max(0, currentH - 1) : Math.max(0, currentH - 7);
+            timelineRef.current.scrollTop = targetHour * 90;
+            hasAutoScrolledRef.current = true;
+        }
+    }, [is24HourWindow]);
+
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
     const [pickerMonth, setPickerMonth] = useState<Date>(new Date());
@@ -1412,7 +1439,16 @@ export const Routine = ({
         setTimeout(() => setSyncToast(null), 3500);
     };
 
-    const hours = Array.from({ length: 18 }).map((_, i) => i + 6); // 6 AM to 11 PM
+    const postMidnightEventsCount = useMemo(() => {
+        return allRoutines.filter((r) => displayRangeDateStrs.has(r.dateStr) && r.startHour < 6).length;
+    }, [allRoutines, displayRangeDateStrs]);
+
+    const hours = useMemo(() => {
+        if (is24HourWindow) {
+            return Array.from({ length: 24 }).map((_, i) => i);
+        }
+        return Array.from({ length: 18 }).map((_, i) => i + 6);
+    }, [is24HourWindow]);
 
     return (
         <div className="space-y-4 animate-fade-in-up pb-10 select-none">
@@ -1740,6 +1776,49 @@ export const Routine = ({
                             Week
                         </button>
                     </div>
+
+                    {/* Window Range: Day (6AM-12AM) vs 24 Hours */}
+                    <div
+                        className="flex items-center rounded-xl p-1 border select-none"
+                        style={{
+                            background: 'var(--bg-elevated)',
+                            borderColor: 'var(--border-card)',
+                        }}
+                    >
+                        <button
+                            type="button"
+                            onClick={() => handleToggle24HourWindow(false)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                                !is24HourWindow ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
+                            }`}
+                            style={{
+                                color: !is24HourWindow ? '#ffffff' : 'var(--text-secondary)',
+                            }}
+                            title="Daytime window (6 AM – 12 AM)"
+                        >
+                            Day (6AM-12AM)
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleToggle24HourWindow(true)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                                is24HourWindow ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
+                            }`}
+                            style={{
+                                color: is24HourWindow ? '#ffffff' : 'var(--text-secondary)',
+                            }}
+                            title="Full 24-hour window (includes post-midnight 12 AM – 6 AM)"
+                        >
+                            <Moon size={11} className={is24HourWindow ? 'text-indigo-200' : 'text-slate-400'} />
+                            <span>24 Hours</span>
+                            {!is24HourWindow && postMidnightEventsCount > 0 && (
+                                <span
+                                    className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"
+                                    title={`${postMidnightEventsCount} post-midnight event(s)`}
+                                />
+                            )}
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -1817,8 +1896,34 @@ export const Routine = ({
                     })}
                 </div>
 
+                {/* Post-midnight hint banner when in Day window */}
+                {!is24HourWindow && postMidnightEventsCount > 0 && (
+                    <div
+                        className="px-4 py-2 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 border transition-all animate-fade-in"
+                        style={{
+                            background: 'rgba(99, 102, 241, 0.1)',
+                            borderColor: 'rgba(99, 102, 241, 0.3)',
+                            color: '#a5b4fc',
+                        }}
+                    >
+                        <div className="flex items-center gap-2">
+                            <Moon size={14} className="text-[#818cf8]" />
+                            <span>
+                                {postMidnightEventsCount} {postMidnightEventsCount === 1 ? 'event is' : 'events are'} scheduled post-midnight (12 AM – 6 AM).
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => handleToggle24HourWindow(true)}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[#5b5fc7] text-white hover:bg-[#4f52b2] transition-colors"
+                        >
+                            Switch to 24h Window
+                        </button>
+                    </div>
+                )}
+
                 {/* Hours Timeline */}
-                <div className="overflow-y-auto custom-scrollbar max-h-[680px] relative z-10">
+                <div ref={timelineRef} className="overflow-y-auto custom-scrollbar max-h-[680px] relative z-10">
                     {hours.map((hour) => {
                         const isCurrentHourRow = now.getHours() === hour;
 
@@ -3573,7 +3678,7 @@ export const Routine = ({
                                                 style={{ color: 'var(--text-primary)', borderColor: 'rgba(255, 255, 255, 0.12)' }}
                                             >
                                                 {hours
-                                                    .filter((h) => (formatDateStr(selectedDate) === todayStr && planScope === 'day' ? h >= new Date().getHours() : h >= 6 && h <= 23))
+                                                    .filter((h) => (formatDateStr(selectedDate) === todayStr && planScope === 'day' ? h >= new Date().getHours() : h >= (is24HourWindow ? 0 : 6) && h <= 23))
                                                     .map((h) => (
                                                         <option key={h} value={h} className="bg-slate-900 text-white">
                                                             {formatHourLabel(h)}

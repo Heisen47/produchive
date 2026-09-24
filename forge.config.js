@@ -14,6 +14,7 @@ class MakerNsis extends MakerBase {
             win: [`nsis:${options.targetArch}`],
             config: {
                 publish: null,
+                appId: 'com.produchive.app',
                 nsis: {
                     oneClick: false,
                     allowToChangeInstallationDirectory: true,

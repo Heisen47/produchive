@@ -2,6 +2,33 @@
 
 ---
 
+## Produchive v3.0.34
+
+Performance and optimization release resolving laptop battery drainage by eliminating unthrottled background rendering, continuous child process spawning, and unoptimized polling loops.
+
+### Laptop Battery Drainage Optimization
+
+#### Root Causes Identified
+- **Unthrottled Background Chromium Rendering**: `BrowserWindow` was configured with `backgroundThrottling: false`, which forced Chromium to run JS timers, animations, and GPU compositing at full frame rates even when the application was minimized or covered by other windows.
+- **Aggressive 200ms Subprocess Loop for App Blocking**: Block mode enforcement used a 200ms interval that blindly invoked child shell processes (`osascript` on macOS, PowerShell on Windows) for every blocked application, spawning 5–15 processes per second and preventing CPU cores from entering low-power sleep states (C-states).
+- **Fixed 1-Second Native Window Polling**: Active window detection queried native APIs/binaries every 1000ms regardless of whether the laptop was connected to AC or running on battery, continuing queries even when the user was idle or away from the computer.
+- **Missing System Sleep & Lock Lifecycle Integration**: The application lacked Electron `powerMonitor` event hooks, causing background window polling and block enforcement routines to continue running when the laptop lid was closed, system suspended, or screen locked.
+- **Repetitive DOM & Storage Polling in Renderer**: A 2000ms `setInterval` in the renderer continuously parsed `localStorage` and traversed the DOM to clean up legacy notification artifacts.
+
+#### How It Was Fixed
+- **Enabled Chromium Background Throttling**: Configured `backgroundThrottling: true` in `webPreferences`, allowing Chromium to throttle background execution, timers, and compositor work when the app is hidden or minimized.
+- **Power-Aware Adaptive Window Polling**: Replaced fixed 1-second polling with dynamic intervals based on system power and idle states:
+  - **AC Power**: 1000ms (fluid, real-time window tracking).
+  - **Battery Power**: 2000ms (50% reduction in CPU wakeups with imperceptible impact on usage stats).
+  - **User Idle (> 1 min)**: 5000ms.
+  - **Deep Idle (> 5 mins)**: 10000ms.
+  - Dynamically calculates activity duration via real timestamp deltas (`now - lastPollTimestamp`), preserving 100% statistical accuracy regardless of poll interval.
+- **Electron `powerMonitor` Lifecycle Hooks**: Added listeners for `suspend`, `resume`, `lock-screen`, and `unlock-screen` to immediately pause native queries when the laptop lid closes or screen locks, and cleanly resume upon wake.
+- **Single-Query Frontmost Block Enforcement**: Replaced the 200ms multi-process loop with a lightweight frontmost check that only suppresses applications if a blocked app actually becomes frontmost. Relaxed interval to 600ms on AC and 1200ms on battery with concurrency mutex guards.
+- **Event-Driven Renderer Cleanup**: Converted the 2-second legacy cleanup loop into an event listener (`produchive_routine_updated`) paired with a relaxed 60-second fallback timer.
+
+---
+
 ## Produchive v3.0.33
 
 Feature and bugfix release adding full 24-hour calendar window support including post-midnight scheduling, along with native Windows taskbar icon fixes.

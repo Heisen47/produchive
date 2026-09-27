@@ -127,8 +127,12 @@ const AppContent = () => {
         };
 
         cleanupLegacy();
-        const interval = setInterval(cleanupLegacy, 2000);
-        return () => clearInterval(interval);
+        window.addEventListener('produchive_routine_updated', cleanupLegacy);
+        const interval = setInterval(cleanupLegacy, 60000);
+        return () => {
+            window.removeEventListener('produchive_routine_updated', cleanupLegacy);
+            clearInterval(interval);
+        };
     }, []);
 
     // Listen for activity updates and deep link auth tokens

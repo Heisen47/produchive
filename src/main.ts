@@ -10,6 +10,7 @@ import {
   nativeImage,
   net,
   Notification,
+  powerMonitor,
 } from "electron";
 import path from "node:path";
 import started from "electron-squirrel-startup";
@@ -318,7 +319,7 @@ const createWindow = () => {
       nodeIntegration: false,
       webSecurity: true,
       partition: "persist:main",
-      backgroundThrottling: false, // Prevent renderer suspension when hidden
+      backgroundThrottling: true, // Allow Chromium sleep & throttle when hidden/minimized to save battery
     },
     icon: (() => {
       if (process.platform === "darwin") {
@@ -401,6 +402,11 @@ const createWindow = () => {
 
 let monitoringInterval: NodeJS.Timeout | null = null;
 let lastActivity: any = null;
+let isMonitoring = false;
+let lastPollTimestamp = Date.now();
+let activeWinFn: (() => Promise<any>) | null = null;
+let wasMonitoringBeforeSleep = false;
+let isSuspended = false;
 
 const blockedActivities = new Map<string, any>();
 let blockEnforcementInterval: NodeJS.Timeout | null = null;
@@ -508,27 +514,91 @@ if ($procs) {
   }
 }
 
-// Fast enforcement loop — re-hides blocked apps every 200ms so they can't briefly appear
-function startBlockEnforcement() {
-  if (blockEnforcementInterval) return; // already running
-  logger.info("[BlockMode] Starting fast enforcement loop (200ms)");
-  blockEnforcementInterval = setInterval(() => {
-    for (const activity of blockedActivities.values()) {
-      applyBlockMode(activity, true);
+let isBlockEnforcementRunning = false;
+
+function getBlockEnforcementDelay(): number {
+  try {
+    if (powerMonitor.isOnBatteryPower()) {
+      return 1200;
     }
-  }, 200);
+    return 600;
+  } catch {
+    return 800;
+  }
+}
+
+async function runBlockEnforcementTick() {
+  if (blockedActivities.size === 0 || isSuspended) {
+    stopBlockEnforcement();
+    return;
+  }
+
+  if (isBlockEnforcementRunning) {
+    blockEnforcementInterval = setTimeout(runBlockEnforcementTick, getBlockEnforcementDelay());
+    return;
+  }
+
+  isBlockEnforcementRunning = true;
+  try {
+    const isMac = process.platform === "darwin";
+    const isWin = process.platform === "win32";
+
+    if (isMac) {
+      // Query frontmost app in one fast call instead of spawning separate child processes for every app
+      const frontAppName = (
+        await execAsync(
+          `osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true'`
+        ).catch(() => "")
+      ).trim();
+
+      if (frontAppName) {
+        for (const [key, activity] of blockedActivities.entries()) {
+          let appName = activity.owner.name;
+          if (appName === "Chrome") appName = "Google Chrome";
+          if (appName === "Brave") appName = "Brave Browser";
+          if (appName === "Edge") appName = "Microsoft Edge";
+
+          if (
+            frontAppName.toLowerCase() === appName.toLowerCase() ||
+            frontAppName.toLowerCase() === key.toLowerCase()
+          ) {
+            await applyBlockMode(activity, true);
+            break;
+          }
+        }
+      }
+    } else if (isWin) {
+      for (const activity of blockedActivities.values()) {
+        applyBlockMode(activity, true);
+      }
+    }
+  } catch (e: any) {
+    logger.error("[BlockMode] Enforcement tick error:", e?.message);
+  } finally {
+    isBlockEnforcementRunning = false;
+    if (blockedActivities.size > 0 && !isSuspended) {
+      blockEnforcementInterval = setTimeout(runBlockEnforcementTick, getBlockEnforcementDelay());
+    }
+  }
+}
+
+// Energy-aware enforcement loop — suppresses blocked apps efficiently without battery drain
+function startBlockEnforcement() {
+  if (blockEnforcementInterval || blockedActivities.size === 0) return;
+  logger.info("[BlockMode] Starting energy-aware enforcement loop");
+  blockEnforcementInterval = setTimeout(runBlockEnforcementTick, getBlockEnforcementDelay());
 }
 
 function stopBlockEnforcement() {
   if (blockEnforcementInterval) {
-    clearInterval(blockEnforcementInterval);
+    clearTimeout(blockEnforcementInterval);
     blockEnforcementInterval = null;
-    logger.info("[BlockMode] Stopped fast enforcement loop");
+    logger.info("[BlockMode] Stopped enforcement loop");
   }
 }
 
 function updateBlockEnforcement() {
-  if (blockedActivities.size > 0) {
+  if (blockedActivities.size > 0 && !isSuspended) {
     startBlockEnforcement();
   } else {
     stopBlockEnforcement();
@@ -712,8 +782,9 @@ const stopPowershellMonitor = () => {
 };
 
 const stopMonitoring = () => {
+  isMonitoring = false;
   if (monitoringInterval) {
-    clearInterval(monitoringInterval);
+    clearTimeout(monitoringInterval);
     monitoringInterval = null;
     logger.info("Monitoring stopped");
   }
@@ -747,8 +818,168 @@ const checkMacPermissions = () => {
   return true;
 };
 
+function getDynamicPollDelay(): number {
+  try {
+    const idleSeconds = powerMonitor.getSystemIdleTime();
+    const onBattery = powerMonitor.isOnBatteryPower();
+
+    // Deep idle (> 5 mins away from computer): slow down poll significantly
+    if (idleSeconds > 300) {
+      return 10000;
+    }
+    // Idle (> 1 min away from computer)
+    if (idleSeconds > 60) {
+      return 5000;
+    }
+    // Active user on battery: 2000ms (cuts wakeups by 50% without degrading UX)
+    if (onBattery) {
+      return 2000;
+    }
+    // Active user on AC power: 1000ms
+    return 1000;
+  } catch {
+    return 1000;
+  }
+}
+
+async function pollTick() {
+  if (!isMonitoring || isSuspended) return;
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    logger.warn("Main window destroyed, stopping monitoring");
+    stopMonitoring();
+    return;
+  }
+
+  try {
+    if (!activeWinFn) return;
+    const result = await activeWinFn();
+    if (result) {
+      const appName = result.owner?.name ? result.owner.name.toLowerCase() : "";
+      if (!appName.includes("produchive") && !appName.includes("electron")) {
+        const browsers = [
+          "Google Chrome",
+          "Chrome",
+          "Brave",
+          "Safari",
+          "Firefox",
+          "Microsoft Edge",
+        ];
+        if (
+          browsers.some((b) => result.owner.name.includes(b)) &&
+          result.title.toLowerCase().includes("leetcode")
+        ) {
+          result.title = "LeetCode";
+        }
+
+        // Enforce blocking if this app is blocked
+        if (blockedActivities.has(result.owner.name)) {
+          applyBlockMode(result, true);
+        }
+
+        const timestamp = Date.now();
+        const elapsed = lastPollTimestamp
+          ? Math.min(Math.max(timestamp - lastPollTimestamp, 500), 15000)
+          : 1000;
+        lastPollTimestamp = timestamp;
+
+        const activity = {
+          title: result.title,
+          owner: {
+            name: result.owner.name,
+            path: result.owner.path,
+          },
+          timestamp,
+          timestampReadable: new Date(timestamp).toLocaleString(),
+          duration: 0,
+        };
+
+        if (
+          !lastActivity ||
+          lastActivity.owner.name !== activity.owner.name
+        ) {
+          mainWindow.webContents.send("system-event", {
+            type: "SYS_PROCESS_SWITCH",
+            content: `Process Context Switch: ${lastActivity?.owner?.name || "init"} -> ${activity.owner.name}`,
+            timestamp,
+            details: { pid: result.owner.processId, path: result.owner.path },
+          });
+        }
+
+        if (!lastActivity || lastActivity.title !== activity.title) {
+          mainWindow.webContents.send("system-event", {
+            type: "SYS_WINDOW_FOCUS",
+            content: `Window Focus Change: "${activity.title}"`,
+            timestamp,
+          });
+        }
+
+        const currentDb = await getActivityDb();
+        const existingActivity = currentDb.data.activities.find(
+          (a: any) =>
+            a.title === activity.title &&
+            a.owner.name === activity.owner.name,
+        );
+
+        if (existingActivity) {
+          if (typeof existingActivity.duration !== "number")
+            existingActivity.duration = 0;
+          existingActivity.duration += elapsed;
+
+          activity.duration = existingActivity.duration;
+          activity.timestamp = existingActivity.timestamp;
+
+          // Backfill readable timestamp if missing
+          if (!existingActivity.timestampReadable) {
+            existingActivity.timestampReadable = new Date(
+              existingActivity.timestamp,
+            ).toLocaleString();
+          }
+          activity.timestampReadable = existingActivity.timestampReadable;
+
+          if (timestamp % 10000 < 2500) {
+            currentDb.write().catch((e: any) => {});
+          }
+        } else {
+          activity.duration = elapsed;
+          currentDb.data.activities.push(activity);
+          currentDb
+            .write()
+            .catch((e: any) =>
+              logger.error("Failed to write activity to DB:", e),
+            );
+        }
+
+        lastActivity = activity;
+        mainWindow.webContents.send("activity-update", activity);
+      }
+    } else {
+      lastPollTimestamp = Date.now();
+    }
+  } catch (error) {
+    logger.error("Error getting active window:", error);
+    stopMonitoring();
+
+    let errorMessage = "Failed to access active window.";
+    if (process.platform === "linux") {
+      errorMessage +=
+        "\n\nLinux Note: Ensure you have 'xprop' installed. If you are on Wayland, switch to X11/Xorg as Wayland blocks activity monitoring by design.";
+    }
+    dialog.showErrorBox(
+      "Activity Monitoring Failed",
+      errorMessage + "\n\nDetails: " + String(error),
+    );
+    return;
+  }
+
+  if (isMonitoring && !isSuspended) {
+    const nextDelay = getDynamicPollDelay();
+    monitoringInterval = setTimeout(pollTick, nextDelay);
+  }
+}
+
 const startMonitoring = async (): Promise<boolean> => {
-  if (monitoringInterval) {
+  if (isMonitoring) {
     logger.info("Monitoring already running");
     return true;
   }
@@ -764,10 +995,9 @@ const startMonitoring = async (): Promise<boolean> => {
 
   logger.info("Starting activity monitoring...");
   try {
-    let activeWin: () => Promise<any>;
     if (process.platform === "win32") {
       await startPowershellMonitor();
-      activeWin = async () => lastWinResult;
+      activeWinFn = async () => lastWinResult;
     } else {
       let activeWinModule: any;
       if (app.isPackaged) {
@@ -776,11 +1006,11 @@ const startMonitoring = async (): Promise<boolean> => {
       } else {
         activeWinModule = require("active-win");
       }
-      activeWin = activeWinModule;
+      activeWinFn = activeWinModule;
 
       // Test run to ensure it works immediately
       try {
-        const testResult = await activeWin();
+        const testResult = await activeWinFn();
         logger.info(
           "Active-win test successful:",
           testResult ? "got window data" : "null result",
@@ -796,128 +1026,12 @@ const startMonitoring = async (): Promise<boolean> => {
       }
     }
 
-    monitoringInterval = setInterval(async () => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        logger.warn("Main window destroyed, stopping monitoring");
-        stopMonitoring();
-        return;
-      }
-
-      try {
-        const result = await activeWin();
-        if (result) {
-          // ... (same logic as before)
-          const appName = result.owner.name.toLowerCase();
-          if (appName.includes("produchive") || appName.includes("electron")) {
-            return;
-          }
-
-          const browsers = [
-            "Google Chrome",
-            "Chrome",
-            "Brave",
-            "Safari",
-            "Firefox",
-            "Microsoft Edge",
-          ];
-          if (
-            browsers.some((b) => result.owner.name.includes(b)) &&
-            result.title.toLowerCase().includes("leetcode")
-          ) {
-            result.title = "LeetCode";
-          }
-
-          // Enforce blocking if this app is blocked
-          if (blockedActivities.has(result.owner.name)) {
-            applyBlockMode(result, true);
-          }
-
-          const timestamp = Date.now();
-          const activity = {
-            title: result.title,
-            owner: {
-              name: result.owner.name,
-              path: result.owner.path,
-            },
-            timestamp,
-            timestampReadable: new Date(timestamp).toLocaleString(),
-            duration: 0,
-          };
-
-          if (
-            !lastActivity ||
-            lastActivity.owner.name !== activity.owner.name
-          ) {
-            mainWindow.webContents.send("system-event", {
-              type: "SYS_PROCESS_SWITCH",
-              content: `Process Context Switch: ${lastActivity?.owner?.name || "init"} -> ${activity.owner.name}`,
-              timestamp,
-              details: { pid: result.owner.processId, path: result.owner.path },
-            });
-          }
-
-          if (!lastActivity || lastActivity.title !== activity.title) {
-            mainWindow.webContents.send("system-event", {
-              type: "SYS_WINDOW_FOCUS",
-              content: `Window Focus Change: "${activity.title}"`,
-              timestamp,
-            });
-          }
-
-          const currentDb = await getActivityDb();
-          const existingActivity = currentDb.data.activities.find(
-            (a: any) =>
-              a.title === activity.title &&
-              a.owner.name === activity.owner.name,
-          );
-
-          if (existingActivity) {
-            if (typeof existingActivity.duration !== "number")
-              existingActivity.duration = 0;
-            existingActivity.duration += 1000;
-
-            activity.duration = existingActivity.duration;
-            activity.timestamp = existingActivity.timestamp;
-
-            // Backfill readable timestamp if missing
-            if (!existingActivity.timestampReadable) {
-              existingActivity.timestampReadable = new Date(
-                existingActivity.timestamp,
-              ).toLocaleString();
-            }
-            activity.timestampReadable = existingActivity.timestampReadable;
-
-            if (timestamp % 10000 < 1500) {
-              currentDb.write().catch((e: any) => {});
-            }
-          } else {
-            activity.duration = 1000;
-            currentDb.data.activities.push(activity);
-            currentDb
-              .write()
-              .catch((e: any) =>
-                logger.error("Failed to write activity to DB:", e),
-              );
-          }
-
-          lastActivity = activity;
-          mainWindow.webContents.send("activity-update", activity);
-        }
-      } catch (error) {
-        logger.error("Error getting active window:", error);
-        stopMonitoring();
-
-        let errorMessage = "Failed to access active window.";
-        if (process.platform === "linux") {
-          errorMessage +=
-            "\n\nLinux Note: Ensure you have 'xprop' installed. If you are on Wayland, switch to X11/Xorg as Wayland blocks activity monitoring by design.";
-        }
-        dialog.showErrorBox(
-          "Activity Monitoring Failed",
-          errorMessage + "\n\nDetails: " + String(error),
-        );
-      }
-    }, 1000);
+    isMonitoring = true;
+    lastPollTimestamp = Date.now();
+    if (monitoringInterval) {
+      clearTimeout(monitoringInterval);
+    }
+    monitoringInterval = setTimeout(pollTick, 1000);
 
     logger.info("Activity monitoring started");
     return true;
@@ -1426,9 +1540,62 @@ function registerIpcHandlers() {
   logger.info("All IPC handlers registered successfully");
 }
 
+function setupPowerMonitor() {
+  powerMonitor.on("suspend", () => {
+    logger.info("[PowerMonitor] System sleep detected. Pausing background monitoring.");
+    isSuspended = true;
+    if (isMonitoring) {
+      wasMonitoringBeforeSleep = true;
+      if (monitoringInterval) {
+        clearTimeout(monitoringInterval);
+        monitoringInterval = null;
+      }
+    }
+    stopBlockEnforcement();
+  });
+
+  powerMonitor.on("resume", () => {
+    logger.info("[PowerMonitor] System wake detected.");
+    isSuspended = false;
+    lastPollTimestamp = Date.now();
+    if (wasMonitoringBeforeSleep) {
+      wasMonitoringBeforeSleep = false;
+      if (isMonitoring && !monitoringInterval) {
+        monitoringInterval = setTimeout(pollTick, 1000);
+      }
+    }
+    updateBlockEnforcement();
+  });
+
+  powerMonitor.on("lock-screen", () => {
+    logger.info("[PowerMonitor] Screen locked. Suspending window polling.");
+    if (isMonitoring && monitoringInterval) {
+      clearTimeout(monitoringInterval);
+      monitoringInterval = null;
+    }
+  });
+
+  powerMonitor.on("unlock-screen", () => {
+    logger.info("[PowerMonitor] Screen unlocked.");
+    lastPollTimestamp = Date.now();
+    if (isMonitoring && !monitoringInterval && !isSuspended) {
+      monitoringInterval = setTimeout(pollTick, 1000);
+    }
+  });
+
+  powerMonitor.on("on-battery", () => {
+    logger.info("[PowerMonitor] Device running on battery power. Polling adapted for energy efficiency.");
+  });
+
+  powerMonitor.on("on-ac", () => {
+    logger.info("[PowerMonitor] Device connected to AC power.");
+  });
+}
+
 app.on("ready", async () => {
   logger.info("=== Produchive Starting ===");
   try {
+    setupPowerMonitor();
     registerIpcHandlers();
     startLocalAuthServer();
 

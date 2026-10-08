@@ -32,7 +32,8 @@ import {
     Target,
     Quote,
     Bot,
-    HardDrive
+    HardDrive,
+    Cloud
 } from 'lucide-react';
 import { submitActivityFeedback, consolidateDuplicateAutoEvents } from '../lib/activityAutoTracker';
 import { useStore } from '../lib/store';
@@ -1481,18 +1482,18 @@ export const Routine = ({
 
                 {/* Right: Actions (Google Sync + Today + Your Plans) */}
                 <div className="flex items-center gap-2.5">
-                    {/* Google Calendar Sync Button (Disabled - Under Google Review) */}
+                    {/* Device & Google Drive Sync Button */}
                     <button
-                        disabled
-                        className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border opacity-60 cursor-not-allowed select-none"
+                        onClick={() => window.dispatchEvent(new CustomEvent('produchive_open_sync_modal'))}
+                        className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border hover:scale-105 active:scale-95 cursor-pointer shadow-sm select-none"
                         style={{
-                            background: isDark ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.05)',
+                            background: isDark ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.1)',
                             color: isDark ? '#93c5fd' : '#2563eb',
-                            borderColor: isDark ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.15)',
+                            borderColor: isDark ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.25)',
                         }}
-                        title="Coming soon — Syncs this routine with your Google Calendar"
+                        title="Sync between devices via Google Drive with end-to-end encryption"
                     >
-                        <RefreshCw size={13} /> Sync
+                        <Cloud size={13} /> Sync Devices
                     </button>
 
                     <button

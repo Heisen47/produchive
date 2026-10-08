@@ -10,6 +10,7 @@ import {
     BarChart3,
     Pin,
     PinOff,
+    Cloud,
     LucideIcon
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
@@ -279,7 +280,39 @@ export const Navbar = ({
                 </nav>
 
                 {/* Bottom Section */}
-                <div className="p-0.5 space-y-3" style={{ borderTop: '1px solid var(--border-secondary)', overflow: 'visible' }}>
+                <div className="p-0.5 space-y-2" style={{ borderTop: '1px solid var(--border-secondary)', overflow: 'visible' }}>
+                    {/* Cloud & Device Sync */}
+                    <button
+                        onClick={() => window.dispatchEvent(new CustomEvent('produchive_open_sync_modal'))}
+                        className="w-full flex items-center px-3 py-2.5 rounded-xl transition-all duration-300 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-500/10 group relative overflow-visible cursor-pointer"
+                        style={{
+                            color: 'var(--text-secondary)',
+                            background: 'transparent',
+                        }}
+                    >
+                        <div className={`flex items-center justify-center shrink-0 ${!isPinned ? 'w-full' : ''}`}>
+                            <Cloud size={18} className="text-blue-400" />
+                        </div>
+                        <span className={`tracking-wide whitespace-nowrap transition-all duration-300 origin-left ${!isPinned ? 'opacity-0 w-0 scale-90 pointer-events-none' : 'opacity-100 w-auto scale-100 ml-3'}`}>
+                            Cloud Sync
+                        </span>
+
+                        {!isPinned && (
+                            <div 
+                                className="absolute left-[64px] top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap opacity-0 group-hover:opacity-100 scale-90 group-hover:scale-100 pointer-events-none transition-all duration-200 z-[100]"
+                                style={{
+                                    background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                                    border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.1)',
+                                    boxShadow: '0 4px 15px rgba(0, 0, 0, 0.25), 0 0 10px var(--accent-glow)',
+                                    color: 'var(--text-primary)',
+                                    backdropFilter: 'blur(10px)',
+                                }}
+                            >
+                                Cloud & Device Sync
+                            </div>
+                        )}
+                    </button>
+
                     {/* Theme Toggle */}
                     <button
                         onClick={toggleTheme}

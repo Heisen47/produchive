@@ -133,6 +133,21 @@ declare global {
       onAuthToken: (callback: (token: string) => void) => void;
       onGcalToken: (callback: (data: { gcalToken: string; gcalEmail: string }) => void) => void;
       showNotification: (options: { title: string; body: string }) => Promise<void>;
+      exportSyncData: () => Promise<{
+        tasks: Task[];
+        goals: string[];
+        ratings: any[];
+        focusSessions: FocusSession[];
+        settings: Record<string, any>;
+      }>;
+      importSyncData: (payload: {
+        tasks?: Task[];
+        goals?: string[];
+        ratings?: any[];
+        focusSessions?: any[];
+        settings?: Record<string, any>;
+        mode?: 'merge' | 'overwrite';
+      }) => Promise<{ success: boolean; tasksCount?: number; ratingsCount?: number; focusSessionsCount?: number; error?: string }>;
     };
   }
 }

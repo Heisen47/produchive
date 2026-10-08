@@ -1518,6 +1518,90 @@ function registerIpcHandlers() {
     return userDataPath;
   });
 
+  // Local Sync Folder management for manual Drive / offline sync
+  ipcMain.handle("get-sync-folder-info", async () => {
+    try {
+      const fs = await import("node:fs/promises");
+      const syncDir = path.join(app.getPath("userData"), "sync");
+      try {
+        await fs.access(syncDir);
+      } catch {
+        await fs.mkdir(syncDir, { recursive: true });
+      }
+
+      const defaultFileName = "produchive-sync.enc";
+      const targetFilePath = path.join(syncDir, defaultFileName);
+      let fileExists = false;
+      let fileSize: number | undefined;
+      let modifiedTime: string | undefined;
+
+      try {
+        const stat = await fs.stat(targetFilePath);
+        fileExists = true;
+        fileSize = stat.size;
+        modifiedTime = stat.mtime.toISOString();
+      } catch {}
+
+      return {
+        folderPath: syncDir,
+        fileName: defaultFileName,
+        fullPath: targetFilePath,
+        fileExists,
+        fileSize,
+        modifiedTime,
+        platform: process.platform,
+      };
+    } catch (err: any) {
+      logger.error("Failed to get sync folder info:", err);
+      const fallbackPath = path.join(app.getPath("userData"), "sync");
+      return {
+        folderPath: fallbackPath,
+        fileName: "produchive-sync.enc",
+        fullPath: path.join(fallbackPath, "produchive-sync.enc"),
+        fileExists: false,
+        platform: process.platform,
+      };
+    }
+  });
+
+  ipcMain.handle("open-sync-folder", async () => {
+    const fs = await import("node:fs/promises");
+    const syncDir = path.join(app.getPath("userData"), "sync");
+    try {
+      await fs.access(syncDir);
+    } catch {
+      await fs.mkdir(syncDir, { recursive: true });
+    }
+    await shell.openPath(syncDir);
+    return syncDir;
+  });
+
+  ipcMain.handle("write-local-sync-file", async (_event, content: string, fileName?: string) => {
+    try {
+      const fs = await import("node:fs/promises");
+      const syncDir = path.join(app.getPath("userData"), "sync");
+      await fs.mkdir(syncDir, { recursive: true });
+      const targetFile = path.join(syncDir, fileName || "produchive-sync.enc");
+      await fs.writeFile(targetFile, content, "utf-8");
+      return { success: true, fullPath: targetFile };
+    } catch (err: any) {
+      logger.error("Failed to write local sync file:", err);
+      return { success: false, error: err?.message || 'Write failed' };
+    }
+  });
+
+  ipcMain.handle("read-local-sync-file", async (_event, fileName?: string) => {
+    try {
+      const fs = await import("node:fs/promises");
+      const syncDir = path.join(app.getPath("userData"), "sync");
+      const targetFile = path.join(syncDir, fileName || "produchive-sync.enc");
+      const content = await fs.readFile(targetFile, "utf-8");
+      return { success: true, content, fullPath: targetFile };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Read failed' };
+    }
+  });
+
   ipcMain.handle("open-log-file", () => {
     const logPath = getLogPath();
     shell.openPath(path.dirname(logPath));

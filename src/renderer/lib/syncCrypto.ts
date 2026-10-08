@@ -215,3 +215,15 @@ export async function decryptSyncPackage(
 
   return JSON.parse(plainText) as SyncDataPayload;
 }
+
+/**
+ * Generates a cryptographically secure random encryption key formatted for readability.
+ * Example: a4f2-9c1e-7b3d-8e5a-2f4c-1d0b-6e9a-3c5f
+ */
+export function generateEncryptionKey(): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  const hex = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+  return hex.match(/.{1,4}/g)?.join('-') || hex;
+}

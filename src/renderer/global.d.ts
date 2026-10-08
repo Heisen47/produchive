@@ -148,6 +148,18 @@ declare global {
         settings?: Record<string, any>;
         mode?: 'merge' | 'overwrite';
       }) => Promise<{ success: boolean; tasksCount?: number; ratingsCount?: number; focusSessionsCount?: number; error?: string }>;
+      getSyncFolderInfo: () => Promise<{
+        folderPath: string;
+        fileName: string;
+        fullPath: string;
+        fileExists: boolean;
+        fileSize?: number;
+        modifiedTime?: string;
+        platform: string;
+      }>;
+      openSyncFolder: () => Promise<string>;
+      writeLocalSyncFile: (content: string, fileName?: string) => Promise<{ success: boolean; fullPath?: string; error?: string }>;
+      readLocalSyncFile: (fileName?: string) => Promise<{ success: boolean; content?: string; fullPath?: string; error?: string }>;
     };
   }
 }

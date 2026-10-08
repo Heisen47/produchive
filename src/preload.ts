@@ -86,5 +86,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   showNotification: (options: { title: string; body: string }) => ipcRenderer.invoke("show-notification", options),
   exportSyncData: () => ipcRenderer.invoke("export-sync-data"),
   importSyncData: (payload: any) => ipcRenderer.invoke("import-sync-data", payload),
+  getSyncFolderInfo: () => ipcRenderer.invoke("get-sync-folder-info"),
+  openSyncFolder: () => ipcRenderer.invoke("open-sync-folder"),
+  writeLocalSyncFile: (content: string, fileName?: string) => ipcRenderer.invoke("write-local-sync-file", content, fileName),
+  readLocalSyncFile: (fileName?: string) => ipcRenderer.invoke("read-local-sync-file", fileName),
 });
 

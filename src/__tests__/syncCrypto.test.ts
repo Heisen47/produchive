@@ -5,6 +5,7 @@ import {
   SyncDataPayload,
   bufferToBase64,
   base64ToBuffer,
+  generateEncryptionKey,
 } from '../renderer/lib/syncCrypto';
 
 describe('Sync Cryptography (AES-256-GCM + PBKDF2)', () => {
@@ -95,5 +96,17 @@ describe('Sync Cryptography (AES-256-GCM + PBKDF2)', () => {
     await expect(decryptSyncPackage(encryptedPkg, '   ')).rejects.toThrow(
       'Decryption passphrase cannot be empty.'
     );
+  });
+
+  it('generates high-entropy formatted encryption keys and encrypts/decrypts successfully with them', async () => {
+    const key1 = generateEncryptionKey();
+    const key2 = generateEncryptionKey();
+
+    expect(key1).not.toBe(key2);
+    expect(key1).toMatch(/^[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}$/);
+
+    const encrypted = await encryptSyncPayload(samplePayload, key1);
+    const decrypted = await decryptSyncPackage(encrypted, key1);
+    expect(decrypted.data.tasks).toHaveLength(2);
   });
 });

@@ -1244,6 +1244,126 @@ function registerIpcHandlers() {
     return dayRatings;
   });
 
+  // Cross-device sync batch export
+  ipcMain.handle("export-sync-data", async () => {
+    try {
+      const currentActivityDb = await getActivityDb();
+      return {
+        tasks: db.data.tasks || [],
+        goals: currentActivityDb?.data?.goals || db.data.goals || [],
+        ratings: db.data.ratings || [],
+        focusSessions: db.data.focusSessions || [],
+        settings: db.data.settings || {},
+      };
+    } catch (err: any) {
+      logger.error("Failed to export sync data:", err);
+      return { tasks: [], goals: [], ratings: [], focusSessions: [], settings: {} };
+    }
+  });
+
+  // Cross-device sync batch import
+  ipcMain.handle("import-sync-data", async (_event, payload: {
+    tasks?: any[];
+    goals?: string[];
+    ratings?: any[];
+    focusSessions?: any[];
+    settings?: Record<string, any>;
+    mode?: 'merge' | 'overwrite';
+  }) => {
+    try {
+      const mode = payload.mode || 'merge';
+      const currentActivityDb = await getActivityDb();
+
+      if (mode === 'overwrite') {
+        if (Array.isArray(payload.tasks)) db.data.tasks = payload.tasks;
+        if (Array.isArray(payload.ratings)) db.data.ratings = payload.ratings;
+        if (Array.isArray(payload.focusSessions)) db.data.focusSessions = payload.focusSessions;
+        if (payload.settings) db.data.settings = { ...db.data.settings, ...payload.settings };
+        if (Array.isArray(payload.goals)) {
+          db.data.goals = payload.goals;
+          if (currentActivityDb?.data) currentActivityDb.data.goals = payload.goals;
+        }
+      } else {
+        // Merge mode
+        // 1. Tasks: deduplicate by id
+        if (Array.isArray(payload.tasks)) {
+          const existingMap = new Map((db.data.tasks || []).map((t: any) => [t.id, t]));
+          for (const incoming of payload.tasks) {
+            if (!incoming.id) continue;
+            const existing = existingMap.get(incoming.id);
+            if (!existing) {
+              db.data.tasks.push(incoming);
+              existingMap.set(incoming.id, incoming);
+            } else {
+              const prev = existing as any;
+              if (
+                (incoming.created && incoming.created > (prev.created || 0)) ||
+                incoming.completed !== prev.completed
+              ) {
+                Object.assign(existing, incoming);
+              }
+            }
+          }
+        }
+
+        // 2. Goals: union
+        if (Array.isArray(payload.goals) && payload.goals.length > 0) {
+          const currentGoals = currentActivityDb?.data?.goals || db.data.goals || [];
+          const goalSet = new Set(currentGoals.map((g: string) => (g || '').trim().toLowerCase()));
+          for (const g of payload.goals) {
+            if (g && !goalSet.has(g.trim().toLowerCase())) {
+              currentGoals.push(g);
+              goalSet.add(g.trim().toLowerCase());
+            }
+          }
+          if (currentActivityDb?.data) currentActivityDb.data.goals = currentGoals;
+          db.data.goals = currentGoals;
+        }
+
+        // 3. Ratings: deduplicate by id
+        if (Array.isArray(payload.ratings)) {
+          const existingIds = new Set((db.data.ratings || []).map((r: any) => r.id));
+          for (const r of payload.ratings) {
+            if (r.id && !existingIds.has(r.id)) {
+              db.data.ratings.push(r);
+              existingIds.add(r.id);
+            }
+          }
+        }
+
+        // 4. Focus Sessions: deduplicate by id
+        if (Array.isArray(payload.focusSessions)) {
+          db.data.focusSessions ||= [];
+          const existingIds = new Set(db.data.focusSessions.map((s: any) => s.id));
+          for (const s of payload.focusSessions) {
+            if (s.id && !existingIds.has(s.id)) {
+              db.data.focusSessions.push(s);
+              existingIds.add(s.id);
+            }
+          }
+        }
+
+        // 5. Settings: shallow merge
+        if (payload.settings) {
+          db.data.settings = { ...db.data.settings, ...payload.settings };
+        }
+      }
+
+      await db.write();
+      if (currentActivityDb) await currentActivityDb.write();
+
+      return {
+        success: true,
+        tasksCount: (db.data.tasks || []).length,
+        ratingsCount: (db.data.ratings || []).length,
+        focusSessionsCount: (db.data.focusSessions || []).length,
+      };
+    } catch (err: any) {
+      logger.error("Failed to import sync data:", err);
+      return { success: false, error: err?.message || 'Import failed' };
+    }
+  });
+
   // Get activity data for a specific date (includes goals and activities from that day)
   ipcMain.handle(
     "get-activity-data-by-date",
@@ -1396,6 +1516,105 @@ function registerIpcHandlers() {
     const userDataPath = app.getPath("userData");
     shell.openPath(userDataPath);
     return userDataPath;
+  });
+
+  // Local Sync Folder management for manual Drive / offline sync
+  ipcMain.handle("get-sync-folder-info", async () => {
+    try {
+      const fs = await import("node:fs/promises");
+      const syncDir = path.join(app.getPath("userData"), "sync");
+      try {
+        await fs.access(syncDir);
+      } catch {
+        await fs.mkdir(syncDir, { recursive: true });
+      }
+
+      const defaultFileName = "produchive-sync.enc";
+      const targetFilePath = path.join(syncDir, defaultFileName);
+      let fileExists = false;
+      let fileSize: number | undefined;
+      let modifiedTime: string | undefined;
+
+      try {
+        const stat = await fs.stat(targetFilePath);
+        fileExists = true;
+        fileSize = stat.size;
+        modifiedTime = stat.mtime.toISOString();
+      } catch {}
+
+      return {
+        folderPath: syncDir,
+        fileName: defaultFileName,
+        fullPath: targetFilePath,
+        fileExists,
+        fileSize,
+        modifiedTime,
+        platform: process.platform,
+      };
+    } catch (err: any) {
+      logger.error("Failed to get sync folder info:", err);
+      const fallbackPath = path.join(app.getPath("userData"), "sync");
+      return {
+        folderPath: fallbackPath,
+        fileName: "produchive-sync.enc",
+        fullPath: path.join(fallbackPath, "produchive-sync.enc"),
+        fileExists: false,
+        platform: process.platform,
+      };
+    }
+  });
+
+  ipcMain.handle("open-sync-folder", async () => {
+    const fs = await import("node:fs/promises");
+    const syncDir = path.join(app.getPath("userData"), "sync");
+    try {
+      await fs.access(syncDir);
+    } catch {
+      await fs.mkdir(syncDir, { recursive: true });
+    }
+    await shell.openPath(syncDir);
+    return syncDir;
+  });
+
+  ipcMain.handle("show-item-in-folder", async (_event, targetPath?: string) => {
+    try {
+      const syncDir = path.join(app.getPath("userData"), "sync");
+      let target = targetPath || path.join(syncDir, "produchive-sync.enc");
+      if (!path.isAbsolute(target)) {
+        target = path.join(syncDir, target);
+      }
+      shell.showItemInFolder(target);
+      return { success: true };
+    } catch (err: any) {
+      logger.error("Failed to show item in folder:", err);
+      return { success: false, error: err?.message };
+    }
+  });
+
+  ipcMain.handle("write-local-sync-file", async (_event, content: string, fileName?: string) => {
+    try {
+      const fs = await import("node:fs/promises");
+      const syncDir = path.join(app.getPath("userData"), "sync");
+      await fs.mkdir(syncDir, { recursive: true });
+      const targetFile = path.join(syncDir, fileName || "produchive-sync.enc");
+      await fs.writeFile(targetFile, content, "utf-8");
+      return { success: true, fullPath: targetFile };
+    } catch (err: any) {
+      logger.error("Failed to write local sync file:", err);
+      return { success: false, error: err?.message || 'Write failed' };
+    }
+  });
+
+  ipcMain.handle("read-local-sync-file", async (_event, fileName?: string) => {
+    try {
+      const fs = await import("node:fs/promises");
+      const syncDir = path.join(app.getPath("userData"), "sync");
+      const targetFile = path.join(syncDir, fileName || "produchive-sync.enc");
+      const content = await fs.readFile(targetFile, "utf-8");
+      return { success: true, content, fullPath: targetFile };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Read failed' };
+    }
   });
 
   ipcMain.handle("open-log-file", () => {

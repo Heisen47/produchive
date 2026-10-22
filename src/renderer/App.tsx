@@ -35,8 +35,10 @@ import {
     Coffee,
     UserCircle,
     Crown,
-    Settings
+    Settings,
+    FolderSync
 } from 'lucide-react';
+import { GoogleDriveSyncModal } from './components/GoogleDriveSyncModal';
 import { Footer } from './components/Footer';
 import { DownloadProgress } from './components/DownloadProgress';
 import { UpdateBanner } from './components/UpdateBanner';
@@ -74,6 +76,7 @@ const AppContent = () => {
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     const [showWelcome, setShowWelcome] = useState(false); // Loaded from DB
     const [showLoginModal, setShowLoginModal] = useState(false);
+    const [showDriveSyncModal, setShowDriveSyncModal] = useState(false);
     const [isDataLoaded, setDataLoaded] = useState(false);
     const [viewKey, setViewKey] = useState(0);
     const [isCatEnabled, setCatEnabled] = useState(true);
@@ -196,6 +199,9 @@ const AppContent = () => {
             window.dispatchEvent(new CustomEvent('produchive_gcal_authenticated'));
             window.dispatchEvent(new CustomEvent('produchive_routine_updated'));
         });
+
+        const handleOpenSyncModal = () => setShowDriveSyncModal(true);
+        window.addEventListener('produchive_open_sync_modal', handleOpenSyncModal);
 
         const init = async () => {
             try {
@@ -404,6 +410,7 @@ const AppContent = () => {
                 }}
             />
             {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
+            {showDriveSyncModal && <GoogleDriveSyncModal isOpen={showDriveSyncModal} onClose={() => setShowDriveSyncModal(false)} />}
             {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
             {showPromptEditor && <PromptEditorModal onClose={() => setShowPromptEditor(false)} />}
             
@@ -551,6 +558,19 @@ const AppContent = () => {
                                 Activate AI
                             </button>
                         )}
+
+                        <button
+                            onClick={() => setShowDriveSyncModal(true)}
+                            className="p-2 rounded-xl transition-all flex items-center justify-center relative group hover:scale-105 cursor-pointer"
+                            style={{
+                                background: 'var(--bg-elevated)',
+                                border: '1px solid var(--border-primary)',
+                                color: 'var(--text-primary)',
+                            }}
+                            title="Encrypted Device Sync & Backup"
+                        >
+                            <FolderSync size={18} style={{ color: 'var(--accent)' }} />
+                        </button>
 
                         <button
                             onClick={() => setShowLoginModal(true)}

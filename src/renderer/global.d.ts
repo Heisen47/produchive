@@ -133,6 +133,34 @@ declare global {
       onAuthToken: (callback: (token: string) => void) => void;
       onGcalToken: (callback: (data: { gcalToken: string; gcalEmail: string }) => void) => void;
       showNotification: (options: { title: string; body: string }) => Promise<void>;
+      exportSyncData: () => Promise<{
+        tasks: Task[];
+        goals: string[];
+        ratings: any[];
+        focusSessions: FocusSession[];
+        settings: Record<string, any>;
+      }>;
+      importSyncData: (payload: {
+        tasks?: Task[];
+        goals?: string[];
+        ratings?: any[];
+        focusSessions?: any[];
+        settings?: Record<string, any>;
+        mode?: 'merge' | 'overwrite';
+      }) => Promise<{ success: boolean; tasksCount?: number; ratingsCount?: number; focusSessionsCount?: number; error?: string }>;
+      getSyncFolderInfo: () => Promise<{
+        folderPath: string;
+        fileName: string;
+        fullPath: string;
+        fileExists: boolean;
+        fileSize?: number;
+        modifiedTime?: string;
+        platform: string;
+      }>;
+      openSyncFolder: () => Promise<string>;
+      showItemInFolder: (filePath?: string) => Promise<{ success: boolean; error?: string }>;
+      writeLocalSyncFile: (content: string, fileName?: string) => Promise<{ success: boolean; fullPath?: string; error?: string }>;
+      readLocalSyncFile: (fileName?: string) => Promise<{ success: boolean; content?: string; fullPath?: string; error?: string }>;
     };
   }
 }

@@ -2,7 +2,7 @@
 
 ---
 
-## Produchive v3.0.35
+## Produchive v3.1.0
 
 Feature release introducing encrypted multi-device sync, zero-knowledge local & cloud-folder backup (AES-256-GCM), native Finder and File Explorer reveal integration, and a streamlined modal UI.
 

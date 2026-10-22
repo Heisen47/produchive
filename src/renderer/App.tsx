@@ -36,7 +36,7 @@ import {
     UserCircle,
     Crown,
     Settings,
-    Cloud
+    FolderSync
 } from 'lucide-react';
 import { GoogleDriveSyncModal } from './components/GoogleDriveSyncModal';
 import { Footer } from './components/Footer';
@@ -567,9 +567,9 @@ const AppContent = () => {
                                 border: '1px solid var(--border-primary)',
                                 color: 'var(--text-primary)',
                             }}
-                            title="Cross-Device & Google Drive Sync"
+                            title="Encrypted Device Sync & Backup"
                         >
-                            <Cloud size={18} style={{ color: 'var(--accent)' }} />
+                            <FolderSync size={18} style={{ color: 'var(--accent)' }} />
                         </button>
 
                         <button

@@ -98,6 +98,10 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
   const [statusMessage, setStatusMessage] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
+    action?: {
+      label: string;
+      onClick: () => void;
+    };
     summary?: MergeSummary;
   } | null>(null);
 
@@ -379,10 +383,25 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
   };
 
   // 3. Manual Folder Sync (Device Agnostic)
+  const getFileManagerLabel = () => {
+    const p = localFolderInfo?.platform;
+    if (p === 'darwin' || (!p && navigator.userAgent.includes('Mac'))) return 'Show in Finder';
+    if (p === 'win32' || (!p && navigator.userAgent.includes('Win'))) return 'Show in Explorer';
+    return 'Show in File Manager';
+  };
+
   const handleOpenLocalFolder = async () => {
     if (window.electronAPI?.openSyncFolder) {
       await window.electronAPI.openSyncFolder();
       await refreshLocalFolderInfo();
+    }
+  };
+
+  const handleShowFileInFolder = async (targetPath?: string) => {
+    if (window.electronAPI?.showItemInFolder) {
+      await window.electronAPI.showItemInFolder(targetPath || fileName);
+    } else if (window.electronAPI?.openSyncFolder) {
+      await window.electronAPI.openSyncFolder();
     }
   };
 
@@ -410,9 +429,14 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
         const res = await window.electronAPI.writeLocalSyncFile(encryptedJson, fileName);
         if (res.success) {
           await refreshLocalFolderInfo();
+          const targetPath = res.fullPath || fileName;
           setStatusMessage({
             type: 'success',
             text: `Encrypted file "${fileName}" saved to local sync folder! You can now upload it to Drive or copy it to another device.`,
+            action: {
+              label: getFileManagerLabel(),
+              onClick: () => handleShowFileInFolder(targetPath),
+            },
           });
           return;
         }
@@ -868,17 +892,25 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {localFolderInfo?.fileExists ? (
                       <>
-                        <FileCheck2 size={11} className="text-emerald-400" />
+                        <FileCheck2 size={11} className="text-emerald-400 shrink-0" />
                         <span className="text-emerald-400 font-medium">
                           <code>{fileName}</code> ready ({localFolderInfo.fileSize || 0} bytes)
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => handleShowFileInFolder(localFolderInfo.fullPath || fileName)}
+                          className="text-blue-400 hover:text-blue-300 font-semibold underline underline-offset-2 flex items-center gap-0.5 cursor-pointer ml-0.5"
+                          title="Reveal file in Finder/Explorer"
+                        >
+                          ({getFileManagerLabel()})
+                        </button>
                       </>
                     ) : (
                       <>
-                        <AlertCircle size={11} className="text-amber-400" />
+                        <AlertCircle size={11} className="text-amber-400 shrink-0" />
                         <span className="text-amber-400">File not in folder yet</span>
                       </>
                     )}
@@ -887,7 +919,7 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
                   <button
                     type="button"
                     onClick={refreshLocalFolderInfo}
-                    className="text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                    className="text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1 cursor-pointer shrink-0 ml-2"
                   >
                     <RefreshCw size={9} /> Refresh
                   </button>
@@ -961,6 +993,16 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
               )}
               <div className="flex-1 min-w-0">
                 <p className="leading-snug text-[11px]">{statusMessage.text}</p>
+                {statusMessage.action && (
+                  <button
+                    type="button"
+                    onClick={statusMessage.action.onClick}
+                    className="mt-1.5 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 active:scale-95 transition-all cursor-pointer shadow-sm"
+                  >
+                    <FolderOpen size={11} />
+                    <span>{statusMessage.action.label}</span>
+                  </button>
+                )}
                 {statusMessage.summary && (
                   <div className="text-[10px] opacity-80 font-mono pt-0.5">
                     Merged: {statusMessage.summary.tasksAdded} tasks, {statusMessage.summary.routinesAdded} routines

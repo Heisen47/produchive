@@ -1576,6 +1576,21 @@ function registerIpcHandlers() {
     return syncDir;
   });
 
+  ipcMain.handle("show-item-in-folder", async (_event, targetPath?: string) => {
+    try {
+      const syncDir = path.join(app.getPath("userData"), "sync");
+      let target = targetPath || path.join(syncDir, "produchive-sync.enc");
+      if (!path.isAbsolute(target)) {
+        target = path.join(syncDir, target);
+      }
+      shell.showItemInFolder(target);
+      return { success: true };
+    } catch (err: any) {
+      logger.error("Failed to show item in folder:", err);
+      return { success: false, error: err?.message };
+    }
+  });
+
   ipcMain.handle("write-local-sync-file", async (_event, content: string, fileName?: string) => {
     try {
       const fs = await import("node:fs/promises");

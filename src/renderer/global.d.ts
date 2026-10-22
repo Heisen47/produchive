@@ -158,6 +158,7 @@ declare global {
         platform: string;
       }>;
       openSyncFolder: () => Promise<string>;
+      showItemInFolder: (filePath?: string) => Promise<{ success: boolean; error?: string }>;
       writeLocalSyncFile: (content: string, fileName?: string) => Promise<{ success: boolean; fullPath?: string; error?: string }>;
       readLocalSyncFile: (fileName?: string) => Promise<{ success: boolean; content?: string; fullPath?: string; error?: string }>;
     };

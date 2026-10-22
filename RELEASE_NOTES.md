@@ -2,6 +2,26 @@
 
 ---
 
+## Produchive v3.0.35
+
+Feature release introducing encrypted multi-device sync, zero-knowledge local & cloud-folder backup (AES-256-GCM), native Finder and File Explorer reveal integration, and a streamlined modal UI.
+
+### Encrypted Multi-Device Sync & Local Backup
+- **Zero-Knowledge AES-256-GCM Encryption**: Client-side encryption derived via PBKDF2 (SHA-256, 100,000 iterations). Raw task, routine, and goal data never leaves the device unencrypted.
+- **Privacy-First Local Sync Architecture**: Replaced direct Google Drive OAuth API dependency with local folder sync, eliminating third-party API scope requirements, sensitive data permissions, and cloud provider verification bottlenecks.
+- **Universal Cloud Folder Compatibility**: Directly save and read `.enc` backup files via local Google Drive, Dropbox, iCloud Drive, or USB flash drives for automatic, secure cross-device synchronization.
+
+### Native File Manager Integration
+- **Direct File Reveal**: Added `showItemInFolder` IPC handler via Electron shell to open Finder (macOS) or File Explorer (Windows) with the generated `.enc` backup file immediately selected.
+- **Live Sync Directory Telemetry**: Real-time status indicator showing file readiness, human-readable file size (e.g. `20.3 KB`), and 1-click folder opening.
+
+### Streamlined UI & Text Decluttering
+- **21st-Century Minimalist Design**: Eliminated dense explanatory paragraphs and raw filesystem path dumps in favor of clean status chips and subtle badge rows.
+- **Refined Key Management**: Monospace key input with 1-click secure generation, copy feedback, reveal toggle, and device name tagging.
+- **Conflict Strategy Controls**: Safe merge and overwrite options under collapsible advanced settings.
+
+---
+
 ## Produchive v3.0.34
 
 Performance and optimization release resolving laptop battery drainage by eliminating unthrottled background rendering, continuous child process spawning, and unoptimized polling loops.

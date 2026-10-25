@@ -103,3 +103,5 @@ dev-cert.pfx
 
 # Firebase Data Connect
 .dataconnect/
+
+.claude

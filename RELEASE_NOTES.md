@@ -2,6 +2,37 @@
 
 ---
 
+## Produchive v3.2.0
+
+Feature and intelligence release introducing custom external AI model integration, intelligent human-day routine scheduling (`layoutHumanDay`), a gamified virtual companion with Catfood rewards, an animated Sakura blossom environment, and redesigned productivity insights.
+
+### External AI Model Integration & Flexible LLM Providers
+- **Custom Model Provider Support**: Connect external LLM providers (OpenAI-compatible endpoints, local Ollama instances, custom API gateways) alongside on-device WebGPU models.
+- **Dedicated External Model Panel**: Configure API keys, base URLs, model identifiers, temperature, and token parameters with in-app connectivity testing and latency checks.
+- **Secure Main Process Proxying**: IPC pipeline proxies external AI requests through the Electron main process, eliminating browser CORS limitations and protecting API secrets.
+
+### Smart Scheduling & Human Day Layout Engine
+- **Circadian-Aware `layoutHumanDay` Algorithm**: Intelligently schedules tasks, routines, and habits based on human energy curves, deep-work focus windows, and natural rest buffers.
+- **Anti-Stacking & Conflict Prevention**: Prevents unfeasible task compression and overlapping schedules, adapting dynamic durations based on priority and routine cadence.
+- **Bidirectional Calendar & Routine Sync**: Seamlessly organizes day planner views with instant schedule realignment.
+
+### Gamified Virtual Companion & Catfood Currency
+- **Virtual Companion Mechanics**: Earn virtual "Catfood" currency by completing scheduled routines, maintaining deep-work sessions, and hitting daily focus milestones.
+- **Interactive Peekaboo Cat**: Feed your desktop companion, level up your pet, track feeding history, and receive celebratory reactions for productivity streaks.
+- **Cross-Device Ledger Synchronization**: Catfood transactions and balances merge seamlessly across devices via AES-256-GCM encrypted backup sync without double-spend or ledger conflicts.
+- **Sakura Blossom Environment**: Added animated cherry blossom background (`SakuraTree`) for a calming, focused workspace atmosphere.
+
+### Redesigned Productivity Insights & Telemetry
+- **Modular Insights Timeline**: Replaced monolithic historical reports with interactive `InsightsDayPicker` and `InsightsTimeBreakdown` visualizers.
+- **Direct-Address Productivity Judge**: Rewrote AI judge prompts and feedback to address the user directly ("you") with clear, actionable coaching tips and domain-only web formatting.
+- **Robust Offline Heuristics**: Automatic fallback to rule-based productivity scoring and tips when offline or under constrained WebGPU/GPU memory.
+
+### Developer Experience & Performance Diagnostics
+- **Runtime Performance Stats**: Added `perfStats` telemetry instrumentation for IPC, window queries, and renderer responsiveness.
+- **Bundle Analyzer Script**: Added `scripts/bundle-report.mjs` to track and prevent bundle bloat across releases.
+
+---
+
 ## Produchive v3.1.0
 
 Feature release introducing encrypted multi-device sync, zero-knowledge local & cloud-folder backup (AES-256-GCM), native Finder and File Explorer reveal integration, and a streamlined modal UI.

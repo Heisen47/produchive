@@ -22,6 +22,7 @@ Produchive is a self-hosted, offline-first productivity application that helps y
 
 ## Key Features
 
+*   **External AI Models & Smart Day Layout (v3.2.0)**: Connect custom OpenAI/Ollama endpoints, auto-schedule routines with circadian `layoutHumanDay` algorithms, and earn virtual companion catfood rewards.
 *   **Encrypted Multi-Device Sync & Backup (v3.1.0)**: Zero-knowledge client-side AES-256-GCM encryption for cross-device synchronization via local Google Drive, Dropbox, iCloud, or USB flash drives with native file manager reveal.
 *   **Interactive Routine & Calendar Scheduler (v3.0.33)**: 7-day visual calendar with 24-hour window mode, post-midnight planning (12 AM – 6 AM), double-click quick event creation, circadian rhythm balance, and bidirectional task synchronization.
 *   **Automatic Screen Activity Detection (v3.0.31)**: Automatically detects active windows and logs focus sessions into the calendar with duration, handling multi-app overflow (`+N apps detected`) and 1-click user verification.

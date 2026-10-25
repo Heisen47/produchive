@@ -9,6 +9,7 @@ import {
     resolveModelDisplayName,
     judgeActivityProductivityWithLLM,
 } from '../renderer/lib/productivityAnalysisService';
+import { DEFAULT_PROMPT, buildSystemPrompt } from '../renderer/lib/ai';
 
 describe('productivityAnalysisService', () => {
     it('throws error if activities list is empty', async () => {
@@ -75,7 +76,7 @@ describe('productivityAnalysisService', () => {
         expect(report).toBeDefined();
         expect(report.rating).toBeLessThanOrEqual(4);
         expect(report.verdict).toBe('unproductive');
-        expect(report.explanation).toContain('Heavy distraction');
+        expect(report.explanation).toContain('Most of your time went to');
         expect(report.categorization.distracting.some((d) => d.includes('YouTube'))).toBe(true);
         expect(report.categorization.productive.some((p) => p.includes('Antigravity IDE'))).toBe(true);
     });
@@ -375,5 +376,48 @@ describe('productivityAnalysisService', () => {
         expect(judgment.category).toBe('development');
         expect(judgment.evaluatedBy).toBe('Produchive On-Device Engine');
     });
-});
 
+    describe('coach system prompt', () => {
+        const activities = [
+            { owner: { name: 'Code' }, title: 'App.tsx - produchive', duration: 45 * 60 * 1000 },
+            { owner: { name: 'Google Chrome' }, title: 'Funny cats - YouTube', duration: 15 * 60 * 1000 },
+        ] as any[];
+        const makeEngine = () => ({
+            chat: {
+                completions: {
+                    create: vi.fn().mockResolvedValue({
+                        choices: [{ message: { content: '{"rating":7,"verdict":"productive","explanation":"ok","tips":["t"],"categorization":{"productive":[],"neutral":[],"distracting":[]}}' } }],
+                    }),
+                },
+            },
+        });
+
+        it('sends the user\'s edited prompt as the system message with {role} filled in', async () => {
+            const engine = makeEngine();
+            await generateProductivityAnalysis({
+                activities,
+                goals: ['Ship the dashboard'],
+                selectedRole: 'Medical Student',
+                customPrompt: 'Coach a {role}. Be blunt.',
+                engine,
+            });
+
+            const [{ messages }] = engine.chat.completions.create.mock.calls[0];
+            expect(messages[0]).toEqual({ role: 'system', content: 'Coach a Medical Student. Be blunt.' });
+            // Data and the JSON contract stay in the user message so custom prompts still parse
+            expect(messages[1].content).toContain('Ship the dashboard');
+            expect(messages[1].content).toContain('75% of tracked time');
+            expect(messages[1].content).toContain('"categorization"');
+        });
+
+        it('falls back to the default coach prompt when none is set', () => {
+            expect(buildSystemPrompt('', 'Designer')).toBe(DEFAULT_PROMPT.replace('{role}', 'Designer'));
+            expect(buildSystemPrompt('   ', 'Designer')).toContain('coach for a Designer');
+        });
+
+        it('upgrades the old built-in prompt to the new default', () => {
+            const legacy = 'You are a kind, encouraging, and supportive tutor and guide. ... DISTINCTION GUIDANCE: ...';
+            expect(buildSystemPrompt(legacy, 'Software Engineer')).toContain('coach for a Software Engineer');
+        });
+    });
+});

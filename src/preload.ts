@@ -63,6 +63,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveFocusSession: (session: any) => ipcRenderer.invoke("save-focus-session", session),
   getFocusSessions: () => ipcRenderer.invoke("get-focus-sessions"),
 
+  // External AI models (requests and API key stay in the main process)
+  externalAIGetConfig: () => ipcRenderer.invoke("external-ai:get-config"),
+  externalAISaveConfig: (config: { provider: string; model: string; baseUrl?: string; apiKey?: string | null }) =>
+    ipcRenderer.invoke("external-ai:save-config", config),
+  externalAIClearConfig: () => ipcRenderer.invoke("external-ai:clear-config"),
+  externalAIListModels: (input: { provider: string; baseUrl?: string; apiKey?: string }) =>
+    ipcRenderer.invoke("external-ai:list-models", input),
+  externalAIChat: (request: { requestId: string; messages: { role: string; content: string }[]; temperature?: number }) =>
+    ipcRenderer.invoke("external-ai:chat", request),
+  externalAIAbort: (requestId?: string) => ipcRenderer.invoke("external-ai:abort", requestId),
+
   // App settings
   getSettings: () => ipcRenderer.invoke("get-settings"),
   setSetting: (key: string, value: any) =>

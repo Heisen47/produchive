@@ -3,6 +3,8 @@ import { useTheme } from './ThemeProvider';
 import { Loader2, Calendar } from 'lucide-react';
 import { Activity } from '../global';
 import { useStore } from '../lib/store';
+import { useCatfoodStore } from '../lib/catfoodStore';
+import { localDateStr, petsByDate } from '../lib/catfood';
 
 interface ActivityHeatmapProps {
     engine?: any;
@@ -11,6 +13,8 @@ interface ActivityHeatmapProps {
 export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = () => {
     const { isDark } = useTheme();
     const { ratings } = useStore();
+    const catfoodLedger = useCatfoodStore((s) => s.ledger);
+    const petsPerDay = useMemo(() => petsByDate(catfoodLedger), [catfoodLedger]);
     const [loading, setLoading] = useState(true);
     const [rangeData, setRangeData] = useState<Record<string, { activities: Activity[] }>>({});
     
@@ -246,6 +250,12 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = () => {
                                     }
 
                                     const level = getLevel(cell.duration);
+                                    // The scroll container clips overflow, so open tooltips toward the inside of the grid.
+                                    const row = idx % 7;
+                                    const col = Math.floor(idx / 7);
+                                    const lastCol = Math.floor((gridCells.length - 1) / 7);
+                                    const vertical = row < 4 ? 'top-full mt-2' : 'bottom-full mb-2';
+                                    const horizontal = col < 6 ? 'left-0' : lastCol - col < 6 ? 'right-0' : 'left-1/2 -translate-x-1/2';
                                     
                                     return (
                                         <div 
@@ -257,7 +267,7 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = () => {
                                             }}
                                         >
                                             <div 
-                                                className="opacity-0 group-hover:opacity-100 absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-lg text-xs whitespace-nowrap z-50 pointer-events-none transition-opacity duration-200 flex flex-col items-center gap-1"
+                                                className={`opacity-0 group-hover:opacity-100 absolute ${vertical} ${horizontal} px-3 py-2 rounded-lg text-xs whitespace-nowrap z-50 pointer-events-none transition-opacity duration-200 flex flex-col items-center gap-1`}
                                                 style={{ 
                                                     background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
                                                     color: 'var(--text-primary)',
@@ -276,6 +286,14 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = () => {
                                                     ) : (
                                                         <span>Rating: NA</span>
                                                     )}
+                                                </div>
+                                                <div style={{ color: 'var(--text-muted)' }}>
+                                                    {(() => {
+                                                        const pets = petsPerDay[localDateStr(cell.date)] ?? 0;
+                                                        return pets > 0
+                                                            ? <>🐾 Cat petted <span style={{ color: '#f472b6' }}>{pets} {pets === 1 ? 'time' : 'times'}</span></>
+                                                            : '🐾 Cat not petted';
+                                                    })()}
                                                 </div>
                                             </div>
                                         </div>

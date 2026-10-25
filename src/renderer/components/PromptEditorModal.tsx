@@ -74,7 +74,7 @@ export const PromptEditorModal: React.FC<PromptEditorModalProps> = ({ onClose })
                     <div className="p-3 rounded-lg text-xs flex gap-2" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-secondary)' }}>
                         <AlertCircle size={14} className="text-sky-500 shrink-0 mt-0.5" />
                         <p style={{ color: 'var(--text-secondary)', lineHeight: '1.4' }}>
-                            <strong>Tip:</strong> Use the placeholder <code>{'{role}'}</code> to dynamically insert your current selected role (e.g. Software Engineer). The AI output <strong>must</strong> be in valid JSON conforming to the output schema.
+                            <strong>Tip:</strong> This prompt sets how the AI judges your day and coaches you. Write <code>{'{role}'}</code> where your role (e.g. Software Engineer) should go. Your goals, tracked activities and the required JSON format are added automatically.
                         </p>
                     </div>
 

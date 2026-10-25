@@ -33,7 +33,8 @@ import {
     Quote,
     Bot,
     HardDrive,
-    Cloud
+    Cloud,
+    Sparkles
 } from 'lucide-react';
 import { submitActivityFeedback, consolidateDuplicateAutoEvents } from '../lib/activityAutoTracker';
 import { useStore } from '../lib/store';
@@ -52,10 +53,11 @@ import {
     parseAIErrorMessage,
     compileCalendarSchedulePrompts
 } from '../lib/ai';
+import { isExternalEngine } from '../lib/externalEngine';
 import {
     distributeSmartSchedule,
     allocateProductiveTaskDurations,
-    recalculateSequentialSchedule,
+    layoutHumanDay,
     generateForwardSmartSchedule,
     generateWeeklySmartSchedule,
     isOccupationBlock,
@@ -103,6 +105,16 @@ const getEventColors = (category: string, isDark: boolean) => {
 };
 
 // ─── Date Helpers ───
+// Toggle chips in the planner modal: solid fill + check when on, outline when off
+const plannerChipClass = (selected: boolean, disabled = false) =>
+    `inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-xs font-medium border transition-colors select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7b83eb] ${
+        selected
+            ? 'bg-[#5b5fc7] border-[#5b5fc7] text-white cursor-pointer'
+            : disabled
+            ? 'border-slate-400/20 dark:border-white/5 text-slate-400 dark:text-slate-600 cursor-not-allowed'
+            : 'border-slate-400/40 dark:border-white/15 text-slate-600 dark:text-slate-300 hover:border-[#5b5fc7]/60 hover:text-slate-900 dark:hover:text-white cursor-pointer'
+    }`;
+
 const formatDateStr = (date: Date): string => {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -376,6 +388,8 @@ export const Routine = ({
     }, [currentActiveModel, downloadedModelName, detectedModelId]);
 
     const resolveDownloadedModelId = async (): Promise<string | null> => {
+        // An API model needs no download
+        if (isExternalEngine(engine)) return engine.config.model;
         if (downloadedModelId) return downloadedModelId;
         if (downloadedModel?.id) return downloadedModel.id;
         if (downloadedModelName) {
@@ -394,7 +408,15 @@ export const Routine = ({
     };
 
     // ─── View Modes: 'work_week' (5 days) | 'week' (7 days) | 'day' (1 day) ───
-    const [viewMode, setViewMode] = useState<'work_week' | 'week' | 'day'>('work_week');
+    // Weekdays open on the work week; weekends open on the full week so Sat/Sun are visible
+    const isWeekendDate = (date: Date) => date.getDay() === 0 || date.getDay() === 6;
+    const [viewMode, setViewMode] = useState<'work_week' | 'week' | 'day'>(() => (isWeekendDate(new Date()) ? 'week' : 'work_week'));
+    // Follow the selected day until the user picks Work week or Week themselves
+    const viewModeChosenRef = useRef(false);
+    const chooseViewMode = (mode: 'work_week' | 'week' | 'day') => {
+        if (mode !== 'day') viewModeChosenRef.current = true;
+        setViewMode(mode);
+    };
     const [is24HourWindow, setIs24HourWindow] = useState<boolean>(() => {
         try {
             const saved = localStorage.getItem('produchive_calendar_24h_window');
@@ -423,6 +445,11 @@ export const Routine = ({
     }, [is24HourWindow]);
 
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+
+    useEffect(() => {
+        if (viewModeChosenRef.current) return;
+        setViewMode((mode) => (mode === 'day' ? mode : isWeekendDate(selectedDate) ? 'week' : 'work_week'));
+    }, [selectedDate]);
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
     const [pickerMonth, setPickerMonth] = useState<Date>(new Date());
     const [isMakerOpen, setIsMakerOpen] = useState(false);
@@ -768,6 +795,18 @@ export const Routine = ({
     } | null>(null);
     const [showPromptAccordion, setShowPromptAccordion] = useState<boolean>(false);
     const generationCancelledRef = useRef<boolean>(false);
+    // Live loader feedback: blocks the model has written so far and seconds since generation began
+    const [aiItemsDrafted, setAiItemsDrafted] = useState(0);
+    const [aiElapsedSec, setAiElapsedSec] = useState(0);
+
+    useEffect(() => {
+        if (!isAIGenerating) return;
+        setAiItemsDrafted(0);
+        setAiElapsedSec(0);
+        const startedAt = Date.now();
+        const timer = setInterval(() => setAiElapsedSec(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+        return () => clearInterval(timer);
+    }, [isAIGenerating]);
     const generationAbortControllerRef = useRef<AbortController | null>(null);
 
     const handleCancelGeneration = () => {
@@ -1075,7 +1114,7 @@ export const Routine = ({
         const modelDisplayName = modelObj?.name || downloadedModelName || currentModelId;
 
         setIsAIGenerating(true);
-        setAiStatusMessage(`Connecting to on-device model (${modelDisplayName})...`);
+        setAiStatusMessage(isExternalEngine(engine) ? `Asking ${modelDisplayName}...` : `Connecting to on-device model (${modelDisplayName})...`);
 
         const now = new Date();
         const targetDateStr = formatDateStr(selectedDate);
@@ -1126,6 +1165,7 @@ export const Routine = ({
                     includeRestBlocks,
                     role: user?.role || selectedRole || 'Professional',
                     signal: controller.signal,
+                    onProgress: setAiItemsDrafted,
                 });
 
                 if (generationCancelledRef.current || controller.signal.aborted) return;
@@ -1230,6 +1270,7 @@ export const Routine = ({
                 includeRestBlocks,
                 role: user?.role || selectedRole || 'Professional',
                 signal: controller.signal,
+                onProgress: setAiItemsDrafted,
             });
 
             if (generationCancelledRef.current || controller.signal.aborted) return;
@@ -1320,18 +1361,20 @@ export const Routine = ({
         const currentH = new Date().getHours();
         const actualStartHour = isSelectedToday ? Math.max(startHourInput, currentH) : startHourInput;
 
-        if (planScope === 'week') {
-            const dayItems = previewSchedule.filter((i) => i.dateStr === targetDateStr && i.id !== itemId);
-            const otherDaysItems = previewSchedule.filter((i) => i.dateStr !== targetDateStr);
-            const recalculatedDay = recalculateSequentialSchedule(dayItems, actualStartHour, 0);
-            setPreviewSchedule([...otherDaysItems, ...recalculatedDay]);
-            return;
-        }
+        // Close the gap by pulling later blocks up, keeping meals where they are and buffers between blocks
+        const relayDay = (dayItems: PlannedRoutineItem[]) => {
+            const remaining = dayItems.filter((i) => i.id !== itemId);
+            const dayStart = Math.min(
+                ...dayItems.map((i) => i.startHour * 60 + i.startMinute),
+                Math.max(actualStartHour * 60, isSelectedToday ? new Date().getHours() * 60 + new Date().getMinutes() : 0)
+            );
+            return layoutHumanDay(remaining, { dateStr: targetDateStr, dayStartMins: dayStart, compact: true });
+        };
 
-        setPreviewSchedule((prev) => {
-            const filtered = prev.filter((item) => item.id !== itemId);
-            return recalculateSequentialSchedule(filtered, actualStartHour, 0);
-        });
+        setPreviewSchedule((prev) => [
+            ...prev.filter((i) => i.dateStr !== targetDateStr),
+            ...relayDay(prev.filter((i) => i.dateStr === targetDateStr)),
+        ]);
     };
 
     // ─── Drag and Drop Handlers with Past Task & Past Timeslot Blocking ───
@@ -1744,7 +1787,7 @@ export const Routine = ({
                         }}
                     >
                         <button
-                            onClick={() => setViewMode('day')}
+                            onClick={() => chooseViewMode('day')}
                             className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
                                 viewMode === 'day' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
                             }`}
@@ -1755,7 +1798,7 @@ export const Routine = ({
                             Day
                         </button>
                         <button
-                            onClick={() => setViewMode('work_week')}
+                            onClick={() => chooseViewMode('work_week')}
                             className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
                                 viewMode === 'work_week' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
                             }`}
@@ -1766,7 +1809,7 @@ export const Routine = ({
                             Work week
                         </button>
                         <button
-                            onClick={() => setViewMode('week')}
+                            onClick={() => chooseViewMode('week')}
                             className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
                                 viewMode === 'week' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
                             }`}
@@ -3395,432 +3438,124 @@ export const Routine = ({
             {isMakerOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in">
                     <div
-                        className="w-full max-w-xl rounded-3xl p-5 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar border space-y-3.5"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="planner-title"
+                        className="w-full max-w-xl rounded-3xl p-5 shadow-2xl relative max-h-[90vh] overflow-y-auto custom-scrollbar border space-y-4"
                         style={{
                             background: 'var(--bg-card-solid)',
                             borderColor: 'var(--border-card)',
                             boxShadow: 'var(--shadow-card)',
                         }}
                     >
-                        {/* Header */}
-                        <div className="flex items-center justify-between pb-3 border-b" style={{ borderColor: 'var(--border-secondary)' }}>
-                            <div className="flex items-center gap-2.5 min-w-0">
-                                <div className="p-2 rounded-xl bg-[#5b5fc7]/15 text-[#5b5fc7] dark:text-[#7b83eb] shrink-0">
-                                    <CalendarIcon size={18} />
-                                </div>
-                                <div className="min-w-0">
-                                    <h3 className="text-base font-bold truncate" style={{ color: 'var(--text-primary)' }}>
-                                        {makerPhase === 'input'
-                                            ? planScope === 'day'
-                                                ? 'Plan Your Day'
-                                                : 'Plan Your Week'
-                                            : planScope === 'day'
-                                            ? 'Review & Fine-Tune Day Schedule'
-                                            : 'Review & Fine-Tune Weekly Schedule'}
-                                    </h3>
-                                    <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
-                                        {makerPhase === 'input'
-                                            ? planScope === 'day'
-                                                ? 'Set available hours and tasks to intelligently generate your day.'
-                                                : 'Set daily work hours and tasks to distribute across all 7 days.'
-                                            : 'Fine-tune task durations before applying to your routine.'}
-                                    </p>
-                                </div>
+                        {/* Header: title, date context, Day/Week scope and close */}
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <h3 id="planner-title" className="text-lg font-semibold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                                    {makerPhase === 'input'
+                                        ? planScope === 'day'
+                                            ? 'Plan your day'
+                                            : 'Plan your week'
+                                        : planScope === 'day'
+                                        ? 'Review your day'
+                                        : 'Review your week'}
+                                </h3>
+                                <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                                    {makerPhase === 'input'
+                                        ? planScope === 'day'
+                                            ? `${formatDateStr(selectedDate) === todayStr ? 'Today' : selectedDate.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}. Add tasks and they're fitted around meals and breaks.`
+                                            : 'Add tasks and they\'re spread across the days you pick.'
+                                        : 'Adjust durations, then apply to your routine.'}
+                                </p>
                             </div>
 
-                            <button
-                                onClick={() => {
-                                    setIsMakerOpen(false);
-                                    setMakerPhase('input');
-                                }}
-                                className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-all cursor-pointer shrink-0"
-                            >
-                                <X size={18} />
-                            </button>
+                            <div className="flex items-center gap-2 shrink-0">
+                                {makerPhase === 'input' && (
+                                    <div
+                                        role="group"
+                                        aria-label="Plan length"
+                                        className="inline-flex p-0.5 rounded-xl border"
+                                        style={{ background: 'var(--bg-input)', borderColor: 'var(--border-secondary)' }}
+                                    >
+                                        {(['day', 'week'] as const).map((scope) => (
+                                            <button
+                                                key={scope}
+                                                type="button"
+                                                aria-pressed={planScope === scope}
+                                                onClick={() => setPlanScope(scope)}
+                                                className={`px-3 py-1 text-xs font-semibold rounded-[10px] transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7b83eb] ${
+                                                    planScope === scope
+                                                        ? 'bg-[#5b5fc7] text-white'
+                                                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+                                                }`}
+                                            >
+                                                {scope === 'day' ? 'Day' : 'Week'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                <button
+                                    type="button"
+                                    aria-label="Close planner"
+                                    onClick={() => {
+                                        setIsMakerOpen(false);
+                                        setMakerPhase('input');
+                                    }}
+                                    className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7b83eb]"
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
                         </div>
 
                         {/* Wizard Stepper: 1. Setup -> 2. Review & Apply */}
-                        <div className="flex items-center justify-center py-1 border-b border-white/5">
-                            <div className="flex items-center gap-3">
+                        <ol className="flex items-center gap-2 text-xs" aria-label="Planner steps">
+                            <li>
                                 <button
                                     type="button"
                                     onClick={() => setMakerPhase('input')}
-                                    className="flex items-center gap-2 group cursor-pointer"
+                                    aria-current={makerPhase === 'input' ? 'step' : undefined}
+                                    className="flex items-center gap-1.5 group cursor-pointer rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7b83eb]"
                                 >
-                                    <div
-                                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
-                                            makerPhase === 'preview'
-                                                ? 'bg-[#5b5fc7] text-white'
-                                                : 'bg-[#5b5fc7] text-white ring-2 ring-[#5b5fc7]/30'
-                                        }`}
-                                    >
+                                    <span className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold bg-[#5b5fc7] text-white">
                                         {makerPhase === 'preview' ? <Check size={11} /> : '1'}
-                                    </div>
+                                    </span>
                                     <span
-                                        className={`text-xs font-semibold transition-all ${
-                                            makerPhase === 'input'
-                                                ? 'text-white font-bold'
-                                                : 'text-slate-400 group-hover:text-slate-200'
+                                        className={`font-semibold ${
+                                            makerPhase === 'input' ? 'text-slate-900 dark:text-white' : 'text-slate-400 group-hover:text-slate-200'
                                         }`}
                                     >
-                                        Setup
+                                        Set up
                                     </span>
                                 </button>
-
-                                <div
-                                    className={`w-10 h-0.5 rounded-full transition-all ${
-                                        makerPhase === 'preview' ? 'bg-[#5b5fc7]' : 'bg-white/10'
+                            </li>
+                            <li aria-hidden="true" className={`w-8 h-px ${makerPhase === 'preview' ? 'bg-[#5b5fc7]' : 'bg-slate-400/30 dark:bg-white/15'}`} />
+                            <li className="flex items-center gap-1.5" aria-current={makerPhase === 'preview' ? 'step' : undefined}>
+                                <span
+                                    className={`w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold ${
+                                        makerPhase === 'preview' ? 'bg-[#5b5fc7] text-white' : 'border border-slate-500 text-slate-400'
                                     }`}
-                                />
-
-                                <div className="flex items-center gap-2">
-                                    <div
-                                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
-                                            makerPhase === 'preview'
-                                                ? 'bg-[#5b5fc7] text-white ring-2 ring-[#5b5fc7]/30'
-                                                : 'border border-slate-600 text-slate-400'
-                                        }`}
-                                    >
-                                        2
-                                    </div>
-                                    <span
-                                        className={`text-xs font-semibold transition-all ${
-                                            makerPhase === 'preview' ? 'text-white font-bold' : 'text-slate-500'
-                                        }`}
-                                    >
-                                        Review & Apply
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Centered Scope Selector: Day Plan vs Week Plan */}
-                        {makerPhase === 'input' && (
-                            <div className="flex justify-center w-full py-0.5">
-                                <div
-                                    className="inline-flex p-1 rounded-2xl border transition-all"
-                                    style={{
-                                        background: 'var(--bg-input)',
-                                        borderColor: 'var(--border-secondary)',
-                                    }}
                                 >
-                                    <button
-                                        type="button"
-                                        onClick={() => setPlanScope('day')}
-                                        className={`px-6 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-                                            planScope === 'day'
-                                                ? 'bg-[#5b5fc7] text-white shadow-md'
-                                                : 'text-slate-400 hover:text-slate-200'
-                                        }`}
-                                    >
-                                        Day Plan
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setPlanScope('week')}
-                                        className={`px-6 py-1.5 text-xs font-bold rounded-xl transition-all cursor-pointer ${
-                                            planScope === 'week'
-                                                ? 'bg-[#5b5fc7] text-white shadow-md'
-                                                : 'text-slate-400 hover:text-slate-200'
-                                        }`}
-                                    >
-                                        Week Plan
-                                    </button>
-                                </div>
-                            </div>
-                        )}
+                                    2
+                                </span>
+                                <span className={`font-semibold ${makerPhase === 'preview' ? 'text-slate-900 dark:text-white' : 'text-slate-400'}`}>
+                                    Review & apply
+                                </span>
+                            </li>
+                        </ol>
 
                         {makerPhase === 'input' ? (
                             <>
-                                {/* Section 1: Available Time Selection */}
-                                <div
-                                    className="p-3.5 rounded-2xl border space-y-2.5 shadow-sm transition-all"
-                                    style={{
-                                        background: 'rgba(255, 255, 255, 0.03)',
-                                        borderColor: 'rgba(255, 255, 255, 0.08)',
-                                        borderLeft: '3px solid #5b5fc7',
-                                    }}
-                                >
-                                    <div className="flex items-center justify-between">
-                                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                                            <Clock size={13} className="text-[#5b5fc7]" />
-                                            {planScope === 'day' ? 'Available Time Today' : 'Total Weekly Work Hours'}
-                                        </label>
-                                        <span className="text-xs font-bold text-[#5b5fc7] dark:text-[#7b83eb]">
-                                            {planScope === 'day'
-                                                ? `${allottedHours} ${allottedHours === 1 ? 'hour' : 'hours'} (${allottedHours * 60}m)`
-                                                : `${weeklyTotalHours} hours weekly (~${(weeklyTotalHours / Math.max(1, activeWeekDates.length)).toFixed(1)}h/day across ${activeWeekDates.length} days)`}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                        {(() => {
-                                            const activeDaysCount = Math.max(1, activeWeekDates.length);
-                                            const maxWeeklyHours = Math.max(40, activeDaysCount * 16);
-                                            const maxCustomHours = planScope === 'day' ? 16 : maxWeeklyHours;
-                                            const presets = planScope === 'day'
-                                                ? [2, 4, 6, 8, 10]
-                                                : activeDaysCount >= 6
-                                                ? [20, 40, 60, 80, 100]
-                                                : [15, 25, 40, 60, 80];
-
-                                            return (
-                                                <>
-                                                    {presets.map((h) => {
-                                                        const isSelected = planScope === 'day' ? allottedHours === h : weeklyTotalHours === h;
-                                                        return (
-                                                            <button
-                                                                key={h}
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    if (planScope === 'day') setAllottedHours(h);
-                                                                    else setWeeklyTotalHours(h);
-                                                                }}
-                                                                className={`px-3 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                                                                    isSelected
-                                                                        ? 'bg-[#5b5fc7] text-white border-[#5b5fc7] shadow-sm shadow-[#5b5fc7]/30'
-                                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white hover:border-slate-500'
-                                                                }`}
-                                                            >
-                                                                {h} hrs
-                                                            </button>
-                                                        );
-                                                    })}
-                                                    <div className="flex items-center gap-1.5 ml-auto text-xs text-slate-400">
-                                                        <span>Custom:</span>
-                                                        <input
-                                                            type="number"
-                                                            min={1}
-                                                            max={maxCustomHours}
-                                                            value={planScope === 'day' ? allottedHours : weeklyTotalHours}
-                                                            onChange={(e) => {
-                                                                const val = Math.max(1, Math.min(maxCustomHours, Number(e.target.value) || 1));
-                                                                if (planScope === 'day') setAllottedHours(val);
-                                                                else setWeeklyTotalHours(val);
-                                                            }}
-                                                            className="w-14 px-1.5 py-0.5 rounded-lg text-xs font-semibold border bg-black/20 dark:bg-white/5 text-center focus:outline-none focus:border-[#5b5fc7]"
-                                                            style={{ color: 'var(--text-primary)', borderColor: 'rgba(255, 255, 255, 0.12)' }}
-                                                        />
-                                                        <span>h</span>
-                                                    </div>
-                                                </>
-                                            );
-                                        })()}
-                                    </div>
-                                </div>
-
-                                {/* Section 2: Routine Blocks & Scope Card (Zero Height Shift) */}
-                                <div
-                                    className="p-3.5 rounded-2xl border space-y-2.5 shadow-sm transition-all"
-                                    style={{
-                                        background: 'rgba(255, 255, 255, 0.03)',
-                                        borderColor: 'rgba(255, 255, 255, 0.08)',
-                                    }}
-                                >
-                                    {/* Row 1: Meals / Break Toggles + Start selector */}
-                                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mr-0.5">Include:</span>
-                                            <button
-                                                type="button"
-                                                onClick={() => setIncludeBreakfast(!includeBreakfast)}
-                                                className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all cursor-pointer ${
-                                                    includeBreakfast
-                                                        ? 'bg-[#5b5fc7]/20 border-[#5b5fc7]/60 text-[#7b83eb]'
-                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white'
-                                                }`}
-                                            >
-                                                Breakfast
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setIncludeLunch(!includeLunch)}
-                                                className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all cursor-pointer ${
-                                                    includeLunch
-                                                        ? 'bg-[#5b5fc7]/20 border-[#5b5fc7]/60 text-[#7b83eb]'
-                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white'
-                                                }`}
-                                            >
-                                                Lunch
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setIncludeRestBlocks(!includeRestBlocks)}
-                                                className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all cursor-pointer ${
-                                                    includeRestBlocks
-                                                        ? 'bg-[#5b5fc7]/20 border-[#5b5fc7]/60 text-[#7b83eb]'
-                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white'
-                                                }`}
-                                            >
-                                                Rest Breaks
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setIncludeDinner(!includeDinner)}
-                                                className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all cursor-pointer ${
-                                                    includeDinner
-                                                        ? 'bg-[#5b5fc7]/20 border-[#5b5fc7]/60 text-[#7b83eb]'
-                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white'
-                                                }`}
-                                            >
-                                                Dinner
-                                            </button>
-                                        </div>
-
-                                        <div className="flex items-center gap-1.5 shrink-0 text-xs text-slate-300">
-                                            <span className="font-medium text-slate-400">Start:</span>
-                                            <select
-                                                value={planScope === 'day' ? startHourInput : weekStartHourInput}
-                                                onChange={(e) => {
-                                                    const val = Number(e.target.value);
-                                                    if (planScope === 'day') setStartHourInput(val);
-                                                    else setWeekStartHourInput(val);
-                                                }}
-                                                className="px-2 py-1 rounded-xl text-xs font-semibold border bg-black/20 dark:bg-white/5 focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
-                                                style={{ color: 'var(--text-primary)', borderColor: 'rgba(255, 255, 255, 0.12)' }}
-                                            >
-                                                {hours
-                                                    .filter((h) => (formatDateStr(selectedDate) === todayStr && planScope === 'day' ? h >= new Date().getHours() : h >= (is24HourWindow ? 0 : 6) && h <= 23))
-                                                    .map((h) => (
-                                                        <option key={h} value={h} className="bg-slate-900 text-white">
-                                                            {formatHourLabel(h)}
-                                                        </option>
-                                                    ))}
-                                            </select>
-                                        </div>
-                                    </div>
-
-                                    {/* Row 2: Occupation Context (Mutually Exclusive) */}
-                                    <div className="flex items-center gap-1.5 flex-wrap pt-1.5 border-t border-white/5">
-                                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 mr-0.5">Context:</span>
-                                        {(() => {
-                                            const OCCUPATION_OPTIONS = [
-                                                { label: 'School', title: 'School' },
-                                                { label: 'College', title: 'College' },
-                                                { label: 'Office', title: 'Office' },
-                                                { label: 'Uni', title: 'Uni' },
-                                            ];
-
-                                            const selectedOccupation = OCCUPATION_OPTIONS.find((occ) =>
-                                                makerTasks.some((t) => {
-                                                    const low = t.title.toLowerCase().trim();
-                                                    if (occ.label === 'Uni') {
-                                                        return low === 'uni' || low.startsWith('uni ') || low.endsWith(' uni') || low.includes(' uni ') || low.includes('university');
-                                                    }
-                                                    return low.includes(occ.label.toLowerCase());
-                                                })
-                                            );
-                                            const hasOccupationSelected = Boolean(selectedOccupation);
-
-                                            return OCCUPATION_OPTIONS.map((occ) => {
-                                                const isSelected = selectedOccupation?.label === occ.label;
-                                                const isDisabled = hasOccupationSelected && !isSelected;
-
-                                                return (
-                                                    <button
-                                                        key={occ.label}
-                                                        type="button"
-                                                        disabled={isDisabled}
-                                                        title={isDisabled ? 'Only one occupation can be chosen at a time' : undefined}
-                                                        onClick={() => {
-                                                            if (isSelected) {
-                                                                setMakerTasks((prev) => prev.filter((t) => !isOccupationBlock(t.title)));
-                                                            } else if (!isDisabled) {
-                                                                setMakerTasks((prev) => [
-                                                                    ...prev.filter((t) => !isOccupationBlock(t.title)),
-                                                                    { title: occ.title, category: 'development', priority: 'high' },
-                                                                ]);
-                                                                if (startHourInput > 9) {
-                                                                    setStartHourInput(9);
-                                                                }
-                                                            }
-                                                        }}
-                                                        className={`text-xs px-2.5 py-1 rounded-xl border font-semibold transition-all select-none ${
-                                                            isSelected
-                                                                ? 'bg-[#5b5fc7]/25 border-[#5b5fc7]/80 text-[#8b92f8] shadow-sm font-bold cursor-pointer'
-                                                                : isDisabled
-                                                                ? 'bg-black/10 dark:bg-white/5 border-slate-800/40 text-slate-500 opacity-40 cursor-not-allowed'
-                                                                : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-300 hover:text-white hover:border-slate-500 cursor-pointer'
-                                                        }`}
-                                                    >
-                                                        {occ.label}
-                                                    </button>
-                                                );
-                                            });
-                                        })()}
-                                    </div>
-
-                                    {/* Row 2: Fixed height & aligned sub-row for both Day and Week */}
-                                    <div className="flex items-center justify-between pt-2 border-t text-xs text-slate-400" style={{ borderColor: 'rgba(255, 255, 255, 0.08)' }}>
-                                        {planScope === 'day' ? (
-                                            <>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-[11px] font-medium text-slate-400">Target Schedule:</span>
-                                                    <span className="text-[11px] text-slate-300 font-semibold px-2 py-0.5 rounded-md bg-white/5 border border-white/10">
-                                                        {formatDateStr(selectedDate) === todayStr ? 'Today (24h Routine Cycle)' : formatDateStr(selectedDate)}
-                                                    </span>
-                                                </div>
-                                                <span className="text-[11px] text-slate-400 font-medium">Single Day Focus</span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-[11px] font-medium text-slate-400">Included Days:</span>
-                                                    <span className="text-[11px] text-slate-300 font-semibold px-2 py-0.5 rounded-md bg-white/5 border border-white/10">
-                                                        Mon – Fri (Work Week)
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                    <label className="flex items-center gap-1.5 text-xs text-slate-300 font-medium cursor-pointer select-none">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={includeSaturday}
-                                                            onChange={(e) => setIncludeSaturday(e.target.checked)}
-                                                            className="rounded accent-[#5b5fc7] cursor-pointer"
-                                                        />
-                                                        Include Saturday
-                                                    </label>
-                                                    <label className="flex items-center gap-1.5 text-xs text-slate-300 font-medium cursor-pointer select-none">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={includeSunday}
-                                                            onChange={(e) => setIncludeSunday(e.target.checked)}
-                                                            className="rounded accent-[#5b5fc7] cursor-pointer"
-                                                        />
-                                                        Include Sunday
-                                                    </label>
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Section 3: Tasks Section Card */}
-                                <div
-                                    className="p-3.5 rounded-2xl border space-y-2.5 shadow-sm transition-all"
-                                    style={{
-                                        background: 'rgba(255, 255, 255, 0.03)',
-                                        borderColor: 'rgba(255, 255, 255, 0.08)',
-                                    }}
-                                >
-                                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
-                                            {planScope === 'day' ? `Today's Tasks (${makerTasks.length})` : `Weekly Tasks (${makerTasks.length})`}
-                                        </label>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => setMakerTasks([])}
-                                                disabled={makerTasks.length === 0}
-                                                className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
-                                                    makerTasks.length === 0
-                                                        ? 'bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed opacity-50'
-                                                        : 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 cursor-pointer shadow-sm'
-                                                }`}
-                                                title="Remove all tasks from list"
-                                            >
-                                                <Trash2 size={11} /> Remove All
-                                            </button>
-
+                                {/* Primary: tasks */}
+                                <section aria-labelledby="planner-tasks-heading" className="space-y-2.5">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <h4 id="planner-tasks-heading" className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                            {planScope === 'day' ? 'What do you want to get done?' : 'What needs doing this week?'}
+                                            {makerTasks.length > 0 && (
+                                                <span className="ml-1.5 text-xs font-medium text-slate-400">{makerTasks.length}</span>
+                                            )}
+                                        </h4>
+                                        <div className="flex items-center gap-1">
                                             {(() => {
                                                 const uncompleted = (tasks || []).filter((t) => !t.completed);
                                                 if (uncompleted.length === 0) return null;
@@ -3833,16 +3568,26 @@ export const Routine = ({
                                                         type="button"
                                                         onClick={handleImportTasks}
                                                         disabled={allImported}
-                                                        className={`text-xs px-2.5 py-1 rounded-lg font-semibold transition-all flex items-center gap-1.5 ${
+                                                        className={`text-xs px-2 py-1 rounded-lg font-medium transition-colors flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7b83eb] ${
                                                             allImported
-                                                                ? 'bg-white/5 text-slate-500 border border-white/5 cursor-default'
-                                                                : 'bg-[#5b5fc7]/15 hover:bg-[#5b5fc7]/25 text-[#7b83eb] cursor-pointer'
+                                                                ? 'text-slate-500 cursor-default'
+                                                                : 'text-[#5b5fc7] dark:text-[#8b92f8] hover:bg-[#5b5fc7]/10 cursor-pointer'
                                                         }`}
                                                     >
-                                                        <Download size={11} /> {allImported ? 'All Tasks Imported' : `Import from Tasks (${unimported.length})`}
+                                                        <Download size={12} /> {allImported ? 'All tasks imported' : `Import from Tasks (${unimported.length})`}
                                                     </button>
                                                 );
                                             })()}
+                                            {makerTasks.length > 0 && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setMakerTasks([])}
+                                                    className="text-xs px-2 py-1 rounded-lg font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors flex items-center gap-1.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                                                    title="Remove all tasks from list"
+                                                >
+                                                    <Trash2 size={12} /> Clear all
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
 
@@ -3865,119 +3610,130 @@ export const Routine = ({
                                         }}
                                         className="space-y-2"
                                     >
-                                        <div className="flex items-center gap-2">
+                                        <div
+                                            className="flex items-center gap-1.5 p-1.5 rounded-2xl border transition-colors focus-within:border-[#5b5fc7] focus-within:ring-2 focus-within:ring-[#5b5fc7]/25"
+                                            style={{ background: 'var(--bg-input)', borderColor: 'var(--border-secondary)' }}
+                                        >
                                             <input
                                                 type="text"
-                                                placeholder={planScope === 'day' ? "Add task (e.g. Video editing, Leetcode, Build feature)..." : "Add weekly task (e.g. Build auth, Write docs, Deploy staging)..."}
+                                                aria-label={planScope === 'day' ? 'New task' : 'New weekly task'}
+                                                placeholder={planScope === 'day' ? 'e.g. Video editing, LeetCode, build a feature' : 'e.g. Build auth, write docs, deploy staging'}
                                                 value={newTaskTitle}
                                                 onChange={(e) => setNewTaskTitle(e.target.value)}
-                                                className="flex-1 px-3 py-2 rounded-xl text-xs border focus:outline-none focus:border-[#5b5fc7] transition-all bg-black/20 dark:bg-white/5"
-                                                style={{
-                                                    color: 'var(--text-primary)',
-                                                    borderColor: 'rgba(255, 255, 255, 0.12)',
-                                                }}
+                                                className="flex-1 min-w-0 bg-transparent px-2.5 py-1.5 text-sm placeholder:text-slate-500 focus:outline-none"
+                                                style={{ color: 'var(--text-primary)' }}
                                             />
 
                                             <button
                                                 type="button"
+                                                aria-pressed={enableDirectTime}
                                                 onClick={() => setEnableDirectTime(!enableDirectTime)}
-                                                className={`px-2.5 py-2 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                                                className={`h-8 px-2.5 rounded-xl text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7b83eb] ${
                                                     enableDirectTime
-                                                        ? 'bg-[#5b5fc7]/25 text-[#8b92f8] border-[#5b5fc7]/70 shadow-sm'
-                                                        : 'bg-black/20 dark:bg-white/5 border-slate-700/40 text-slate-400 hover:text-white hover:border-slate-500'
+                                                        ? 'bg-[#5b5fc7]/15 text-[#5b5fc7] dark:text-[#a5abff]'
+                                                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5'
                                                 }`}
-                                                title="Toggle direct time entry for this task"
+                                                title="Pick an exact time for this task instead of letting the AI place it"
                                             >
-                                                <Clock size={13} />
-                                                <span className="hidden sm:inline">{enableDirectTime ? 'Direct Time On' : 'Set Time'}</span>
+                                                <Clock size={14} />
+                                                <span className="hidden sm:inline">{enableDirectTime ? 'Exact time on' : 'Set time'}</span>
                                             </button>
 
                                             <button
                                                 type="submit"
                                                 disabled={!newTaskTitle.trim()}
-                                                className="py-2 px-3.5 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm shrink-0 cursor-pointer"
+                                                className={`h-8 px-3.5 rounded-xl font-semibold text-xs flex items-center gap-1.5 transition-colors shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7b83eb] ${
+                                                    newTaskTitle.trim()
+                                                        ? 'bg-[#5b5fc7] hover:bg-[#4f52b2] text-white cursor-pointer'
+                                                        : 'bg-black/5 dark:bg-white/[0.06] text-slate-500 dark:text-slate-400 cursor-not-allowed'
+                                                }`}
                                             >
-                                                <Plus size={14} /> {enableDirectTime ? 'Plan at Time' : 'Add'}
+                                                <Plus size={14} /> {enableDirectTime ? 'Plan at time' : 'Add'}
                                             </button>
                                         </div>
 
                                         {/* Direct Time Planning Controls */}
                                         {enableDirectTime && (
                                             <div
-                                                className="p-2.5 rounded-xl border flex items-center justify-between gap-2 flex-wrap text-xs animate-fade-in"
+                                                className="px-3 py-2.5 rounded-xl border flex items-center justify-between gap-2 flex-wrap text-xs animate-fade-in"
                                                 style={{
                                                     background: 'rgba(91, 95, 199, 0.08)',
                                                     borderColor: 'rgba(91, 95, 199, 0.3)',
                                                 }}
                                             >
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <span className="text-[11px] font-bold text-[#8b92f8] flex items-center gap-1">
-                                                        <Clock size={12} /> Time:
-                                                    </span>
-                                                    <select
-                                                        value={directStartHour}
-                                                        onChange={(e) => setDirectStartHour(Number(e.target.value))}
-                                                        className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
-                                                        style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
-                                                    >
-                                                        {Array.from({ length: 24 }).map((_, h) => (
-                                                            <option key={h} value={h}>
-                                                                {formatHourLabel(h)}
-                                                            </option>
-                                                        ))}
-                                                    </select>
-                                                    <select
-                                                        value={directStartMinute}
-                                                        onChange={(e) => setDirectStartMinute(Number(e.target.value))}
-                                                        className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
-                                                        style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
-                                                    >
-                                                        <option value={0}>:00</option>
-                                                        <option value={15}>:15</option>
-                                                        <option value={30}>:30</option>
-                                                        <option value={45}>:45</option>
-                                                    </select>
+                                                <div className="flex items-center gap-x-3 gap-y-2 flex-wrap">
+                                                    <label className="flex items-center gap-1.5 font-medium text-slate-500 dark:text-slate-300">
+                                                        At
+                                                        <select
+                                                            value={directStartHour}
+                                                            onChange={(e) => setDirectStartHour(Number(e.target.value))}
+                                                            className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                            style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
+                                                        >
+                                                            {Array.from({ length: 24 }).map((_, h) => (
+                                                                <option key={h} value={h}>
+                                                                    {formatHourLabel(h)}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                        <select
+                                                            aria-label="Minute"
+                                                            value={directStartMinute}
+                                                            onChange={(e) => setDirectStartMinute(Number(e.target.value))}
+                                                            className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                            style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
+                                                        >
+                                                            <option value={0}>:00</option>
+                                                            <option value={15}>:15</option>
+                                                            <option value={30}>:30</option>
+                                                            <option value={45}>:45</option>
+                                                        </select>
+                                                    </label>
 
-                                                    <span className="text-[11px] font-bold text-[#8b92f8] ml-1">Duration:</span>
-                                                    <select
-                                                        value={directDuration}
-                                                        onChange={(e) => setDirectDuration(Number(e.target.value))}
-                                                        className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
-                                                        style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
-                                                    >
-                                                        <option value={15}>15m</option>
-                                                        <option value={30}>30m</option>
-                                                        <option value={45}>45m</option>
-                                                        <option value={60}>1 hour</option>
-                                                        <option value={90}>1.5 hours</option>
-                                                        <option value={120}>2 hours</option>
-                                                    </select>
+                                                    <label className="flex items-center gap-1.5 font-medium text-slate-500 dark:text-slate-300">
+                                                        For
+                                                        <select
+                                                            value={directDuration}
+                                                            onChange={(e) => setDirectDuration(Number(e.target.value))}
+                                                            className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                            style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
+                                                        >
+                                                            <option value={15}>15m</option>
+                                                            <option value={30}>30m</option>
+                                                            <option value={45}>45m</option>
+                                                            <option value={60}>1 hour</option>
+                                                            <option value={90}>1.5 hours</option>
+                                                            <option value={120}>2 hours</option>
+                                                        </select>
+                                                    </label>
 
-                                                    <span className="text-[11px] font-bold text-[#8b92f8] ml-1">Category:</span>
-                                                    <select
-                                                        value={directCategory}
-                                                        onChange={(e) => setDirectCategory(e.target.value as any)}
-                                                        className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
-                                                        style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
-                                                    >
-                                                        <option value="development">💻 Dev</option>
-                                                        <option value="research">📚 Research</option>
-                                                        <option value="meeting">👥 Meeting</option>
-                                                        <option value="design">🎨 Design</option>
-                                                        <option value="writing">✍️ Writing</option>
-                                                        <option value="break">☕ Break</option>
-                                                        <option value="meal">🥗 Meal</option>
-                                                        <option value="other">📦 Other</option>
-                                                    </select>
+                                                    <label className="flex items-center gap-1.5 font-medium text-slate-500 dark:text-slate-300">
+                                                        Category
+                                                        <select
+                                                            value={directCategory}
+                                                            onChange={(e) => setDirectCategory(e.target.value as any)}
+                                                            className="px-2 py-1 rounded-lg text-xs font-semibold border bg-slate-900 text-white focus:outline-none focus:border-[#5b5fc7] cursor-pointer"
+                                                            style={{ borderColor: 'rgba(255, 255, 255, 0.15)' }}
+                                                        >
+                                                            <option value="development">💻 Dev</option>
+                                                            <option value="research">📚 Research</option>
+                                                            <option value="meeting">👥 Meeting</option>
+                                                            <option value="design">🎨 Design</option>
+                                                            <option value="writing">✍️ Writing</option>
+                                                            <option value="break">☕ Break</option>
+                                                            <option value="meal">🥗 Meal</option>
+                                                            <option value="other">📦 Other</option>
+                                                        </select>
+                                                    </label>
                                                 </div>
 
                                                 <button
                                                     type="button"
                                                     disabled={!newTaskTitle.trim()}
                                                     onClick={() => handleDirectPlanTask()}
-                                                    className="px-3 py-1 rounded-lg bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer ml-auto"
+                                                    className="px-3 py-1 rounded-lg bg-[#5b5fc7] hover:bg-[#4f52b2] disabled:opacity-40 disabled:cursor-not-allowed text-white font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer ml-auto focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7b83eb]"
                                                 >
-                                                    <Check size={12} /> Plan at this Time
+                                                    <Check size={12} /> Plan at this time
                                                 </button>
                                             </div>
                                         )}
@@ -3985,15 +3741,16 @@ export const Routine = ({
 
                                     {/* Personalized Quick Suggestions (Capped to 4) */}
                                     {personalizedTaskSuggestions.length > 0 && (
-                                        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-                                            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center gap-1 shrink-0">
-                                                <Lightbulb size={13} className="text-[#5b5fc7]" /> 
-                                                Suggested:
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 shrink-0 mr-0.5">
+                                                <Lightbulb size={13} aria-hidden="true" />
+                                                Suggestions
                                             </span>
                                             {personalizedTaskSuggestions.slice(0, 4).map((sug, idx) => (
                                                 <button
                                                     key={idx}
                                                     type="button"
+                                                    aria-label={`Add ${sug.title}`}
                                                     onClick={() => {
                                                         setMakerTasks((prev) => [
                                                             ...prev,
@@ -4004,42 +3761,37 @@ export const Routine = ({
                                                             },
                                                         ]);
                                                     }}
-                                                    className="text-[11px] px-2 py-0.5 rounded-lg border bg-black/20 dark:bg-white/5 border-slate-700/40 hover:border-[#5b5fc7]/60 hover:bg-[#5b5fc7]/15 text-slate-300 hover:text-white transition-all flex items-center gap-1 cursor-pointer group"
+                                                    className="text-xs h-7 px-2.5 rounded-lg border border-dashed border-slate-400/40 dark:border-white/15 hover:border-solid hover:border-[#5b5fc7]/60 hover:bg-[#5b5fc7]/10 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition-colors flex items-center gap-1 cursor-pointer max-w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7b83eb]"
                                                 >
-                                                    <Plus size={10} className="text-slate-400 group-hover:text-[#7b83eb]" />
-                                                    <span className="truncate max-w-[125px]">{sug.title}</span>
+                                                    <Plus size={11} aria-hidden="true" className="shrink-0" />
+                                                    <span className="truncate">{sug.title}</span>
                                                 </button>
                                             ))}
                                         </div>
                                     )}
 
                                     {/* Task List */}
-                                    <div className="space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar pt-0.5">
-                                        {makerTasks.length === 0 ? (
-                                            <div className="py-4 text-center border border-dashed rounded-xl" style={{ borderColor: 'rgba(255, 255, 255, 0.08)' }}>
-                                                <p className="text-xs text-slate-400">
-                                                    {planScope === 'day'
-                                                        ? 'No tasks added yet. Type above or click a suggestion to start.'
-                                                        : 'No weekly tasks added yet. Type above or click a suggestion to distribute across the week.'}
-                                                </p>
-                                            </div>
-                                        ) : (
-                                            makerTasks.map((t, idx) => (
-                                                <div
+                                    {makerTasks.length === 0 ? (
+                                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                                            {planScope === 'day'
+                                                ? 'No tasks yet. You can still generate a plan with just meals and breaks.'
+                                                : 'No tasks yet. Add a few and they\'ll be spread across the week.'}
+                                        </p>
+                                    ) : (
+                                        <ul className="space-y-1 max-h-44 overflow-y-auto custom-scrollbar" aria-label="Tasks to plan">
+                                            {makerTasks.map((t, idx) => (
+                                                <li
                                                     key={idx}
-                                                    className="flex items-center justify-between px-3 py-2 rounded-xl border group hover:border-[#5b5fc7]/40 transition-all bg-black/25 dark:bg-white/[0.04]"
-                                                    style={{
-                                                        borderColor: 'rgba(255, 255, 255, 0.07)',
-                                                    }}
+                                                    className="flex items-center justify-between pl-3 pr-1.5 py-1.5 rounded-xl group bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.05] dark:hover:bg-white/[0.07] transition-colors"
                                                 >
                                                     <div className="flex items-center gap-2.5 min-w-0">
-                                                        <span className="w-2 h-2 rounded-full bg-[#5b5fc7] shrink-0"></span>
-                                                        <span className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-[#5b5fc7] shrink-0" aria-hidden="true"></span>
+                                                        <span className="text-sm truncate" style={{ color: 'var(--text-primary)' }}>
                                                             {t.title}
                                                         </span>
                                                     </div>
 
-                                                    <div className="flex items-center gap-1">
+                                                    <div className="flex items-center gap-0.5">
                                                         <button
                                                             type="button"
                                                             onClick={() => {
@@ -4057,40 +3809,241 @@ export const Routine = ({
                                                                 });
                                                                 setIsMakerOpen(false);
                                                             }}
-                                                            className="p-1 rounded text-slate-400 hover:text-indigo-400 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
+                                                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-400 hover:bg-black/5 dark:hover:bg-white/5 opacity-60 group-hover:opacity-100 focus:opacity-100 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7b83eb]"
                                                             title="Schedule this task at specific time"
+                                                            aria-label={`Schedule ${t.title} at a specific time`}
                                                         >
                                                             <Clock size={13} />
                                                         </button>
                                                         <button
                                                             type="button"
                                                             onClick={() => setMakerTasks((prev) => prev.filter((_, i) => i !== idx))}
-                                                            className="p-1 rounded text-slate-400 hover:text-red-400 opacity-60 group-hover:opacity-100 transition-all cursor-pointer"
+                                                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-black/5 dark:hover:bg-white/5 opacity-60 group-hover:opacity-100 focus:opacity-100 transition-all cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                                                            aria-label={`Remove ${t.title}`}
                                                         >
                                                             <Trash2 size={13} />
                                                         </button>
                                                     </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </section>
+
+                                {/* Secondary: schedule settings, one quiet panel with labelled rows */}
+                                <section
+                                    aria-label="Schedule settings"
+                                    className="rounded-2xl border px-4 py-3 grid grid-cols-[84px_1fr] items-center gap-x-3 gap-y-2.5"
+                                    style={{ background: 'rgba(127, 127, 127, 0.04)', borderColor: 'var(--border-secondary)' }}
+                                >
+                                    {(() => {
+                                        const activeDaysCount = Math.max(1, activeWeekDates.length);
+                                        const maxWeeklyHours = Math.max(40, activeDaysCount * 16);
+                                        const maxCustomHours = planScope === 'day' ? 16 : maxWeeklyHours;
+                                        const presets = planScope === 'day'
+                                            ? [2, 4, 6, 8, 10]
+                                            : activeDaysCount >= 6
+                                            ? [20, 40, 60, 80, 100]
+                                            : [15, 25, 40, 60, 80];
+                                        const currentHours = planScope === 'day' ? allottedHours : weeklyTotalHours;
+                                        const isCustom = !presets.includes(currentHours);
+
+                                        return (
+                                            <>
+                                                <span id="planner-hours-label" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                    {planScope === 'day' ? 'Hours free' : 'Hours / week'}
+                                                </span>
+                                                <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-labelledby="planner-hours-label">
+                                                    {presets.map((h) => (
+                                                        <button
+                                                            key={h}
+                                                            type="button"
+                                                            aria-pressed={currentHours === h}
+                                                            onClick={() => {
+                                                                if (planScope === 'day') setAllottedHours(h);
+                                                                else setWeeklyTotalHours(h);
+                                                            }}
+                                                            className={plannerChipClass(currentHours === h)}
+                                                        >
+                                                            {h}h
+                                                        </button>
+                                                    ))}
+                                                    <label className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                                                        <span className="sr-only">Custom hours</span>
+                                                        <input
+                                                            type="number"
+                                                            min={1}
+                                                            max={maxCustomHours}
+                                                            value={currentHours}
+                                                            onChange={(e) => {
+                                                                const val = Math.max(1, Math.min(maxCustomHours, Number(e.target.value) || 1));
+                                                                if (planScope === 'day') setAllottedHours(val);
+                                                                else setWeeklyTotalHours(val);
+                                                            }}
+                                                            className={`w-14 h-7 px-1.5 rounded-lg text-xs font-semibold border bg-transparent text-center focus:outline-none focus:border-[#5b5fc7] focus:ring-2 focus:ring-[#5b5fc7]/25 ${
+                                                                isCustom ? 'border-[#5b5fc7]' : 'border-slate-400/30 dark:border-white/10'
+                                                            }`}
+                                                            style={{ color: 'var(--text-primary)' }}
+                                                        />
+                                                        h
+                                                    </label>
+                                                    {planScope === 'week' && (
+                                                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                                                            about {(weeklyTotalHours / activeDaysCount).toFixed(1)}h a day
+                                                        </span>
+                                                    )}
                                                 </div>
-                                            ))
-                                        )}
+                                            </>
+                                        );
+                                    })()}
+
+                                    <label htmlFor="planner-start-hour" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                        Starts at
+                                    </label>
+                                    <div>
+                                        <select
+                                            id="planner-start-hour"
+                                            value={planScope === 'day' ? startHourInput : weekStartHourInput}
+                                            onChange={(e) => {
+                                                const val = Number(e.target.value);
+                                                if (planScope === 'day') setStartHourInput(val);
+                                                else setWeekStartHourInput(val);
+                                            }}
+                                            className="h-7 px-2 rounded-lg text-xs font-semibold border border-slate-400/30 dark:border-white/10 bg-transparent focus:outline-none focus:border-[#5b5fc7] focus:ring-2 focus:ring-[#5b5fc7]/25 cursor-pointer"
+                                            style={{ color: 'var(--text-primary)' }}
+                                        >
+                                            {hours
+                                                .filter((h) => (formatDateStr(selectedDate) === todayStr && planScope === 'day' ? h >= new Date().getHours() : h >= (is24HourWindow ? 0 : 6) && h <= 23))
+                                                .map((h) => (
+                                                    <option key={h} value={h} className="bg-slate-900 text-white">
+                                                        {formatHourLabel(h)}
+                                                    </option>
+                                                ))}
+                                        </select>
                                     </div>
-                                </div>
+
+                                    <span id="planner-include-label" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                        Include
+                                    </span>
+                                    <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-labelledby="planner-include-label">
+                                        {[
+                                            { label: 'Breakfast', on: includeBreakfast, toggle: () => setIncludeBreakfast(!includeBreakfast) },
+                                            { label: 'Lunch', on: includeLunch, toggle: () => setIncludeLunch(!includeLunch) },
+                                            { label: 'Rest breaks', on: includeRestBlocks, toggle: () => setIncludeRestBlocks(!includeRestBlocks) },
+                                            { label: 'Dinner', on: includeDinner, toggle: () => setIncludeDinner(!includeDinner) },
+                                        ].map((opt) => (
+                                            <button key={opt.label} type="button" aria-pressed={opt.on} onClick={opt.toggle} className={plannerChipClass(opt.on)}>
+                                                {opt.on && <Check size={12} aria-hidden="true" />}
+                                                {opt.label}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {/* Occupation Context (Mutually Exclusive) */}
+                                    <span id="planner-context-label" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                        Busy at
+                                    </span>
+                                    <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-labelledby="planner-context-label">
+                                        {(() => {
+                                            const OCCUPATION_OPTIONS = [
+                                                { label: 'School', title: 'School' },
+                                                { label: 'College', title: 'College' },
+                                                { label: 'Office', title: 'Office' },
+                                                { label: 'Uni', title: 'Uni' },
+                                            ];
+
+                                            const selectedOccupation = OCCUPATION_OPTIONS.find((occ) =>
+                                                makerTasks.some((t) => {
+                                                    const low = t.title.toLowerCase().trim();
+                                                    if (occ.label === 'Uni') {
+                                                        return low === 'uni' || low.startsWith('uni ') || low.endsWith(' uni') || low.includes(' uni ') || low.includes('university');
+                                                    }
+                                                    return low.includes(occ.label.toLowerCase());
+                                                })
+                                            );
+                                            const hasOccupationSelected = Boolean(selectedOccupation);
+
+                                            return (
+                                                <>
+                                                    {OCCUPATION_OPTIONS.map((occ) => {
+                                                        const isSelected = selectedOccupation?.label === occ.label;
+                                                        const isDisabled = hasOccupationSelected && !isSelected;
+
+                                                        return (
+                                                            <button
+                                                                key={occ.label}
+                                                                type="button"
+                                                                aria-pressed={isSelected}
+                                                                disabled={isDisabled}
+                                                                title={isDisabled ? 'Only one occupation can be chosen at a time' : undefined}
+                                                                onClick={() => {
+                                                                    if (isSelected) {
+                                                                        setMakerTasks((prev) => prev.filter((t) => !isOccupationBlock(t.title)));
+                                                                    } else if (!isDisabled) {
+                                                                        setMakerTasks((prev) => [
+                                                                            ...prev.filter((t) => !isOccupationBlock(t.title)),
+                                                                            { title: occ.title, category: 'development', priority: 'high' },
+                                                                        ]);
+                                                                        if (startHourInput > 9) {
+                                                                            setStartHourInput(9);
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                className={plannerChipClass(isSelected, isDisabled)}
+                                                            >
+                                                                {isSelected && <Check size={12} aria-hidden="true" />}
+                                                                {occ.label}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                    {hasOccupationSelected && (
+                                                        <span className="text-xs text-slate-500 dark:text-slate-400">Pick one at a time</span>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+
+                                    {planScope === 'week' && (
+                                        <>
+                                            <span id="planner-days-label" className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                                Days
+                                            </span>
+                                            <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-labelledby="planner-days-label">
+                                                <span className={plannerChipClass(true)} style={{ cursor: 'default' }}>
+                                                    <Check size={12} aria-hidden="true" />
+                                                    Mon–Fri
+                                                </span>
+                                                <button type="button" aria-pressed={includeSaturday} onClick={() => setIncludeSaturday(!includeSaturday)} className={plannerChipClass(includeSaturday)}>
+                                                    {includeSaturday && <Check size={12} aria-hidden="true" />}
+                                                    Saturday
+                                                </button>
+                                                <button type="button" aria-pressed={includeSunday} onClick={() => setIncludeSunday(!includeSunday)} className={plannerChipClass(includeSunday)}>
+                                                    {includeSunday && <Check size={12} aria-hidden="true" />}
+                                                    Sunday
+                                                </button>
+                                            </div>
+                                        </>
+                                    )}
+                                </section>
 
                                 {/* Footer Phase 1 */}
-                                <div className="flex items-center justify-between pt-3 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
-                                    <div className="text-xs text-slate-400">
-                                        <span>
+                                <div className="flex items-center justify-between gap-3 pt-3.5 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 min-w-0" aria-live="polite">
+                                        <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
                                             {planScope === 'day'
-                                                ? `Budget: ${allottedHours}h available from ${formatHourLabel(startHourInput)}`
-                                                : `Weekly Budget: ${weeklyTotalHours}h total (~${(weeklyTotalHours / Math.max(1, activeWeekDates.length)).toFixed(1)}h/day starting ${formatHourLabel(weekStartHourInput)})`}
+                                                ? `${allottedHours}h from ${formatHourLabel(startHourInput)}`
+                                                : `${weeklyTotalHours}h over ${activeWeekDates.length} days`}
                                         </span>
-                                    </div>
+                                        {planScope === 'week' && `, from ${formatHourLabel(weekStartHourInput)}`}
+                                        {`, ${makerTasks.length} ${makerTasks.length === 1 ? 'task' : 'tasks'}`}
+                                    </p>
 
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 shrink-0">
                                         <button
                                             type="button"
                                             onClick={() => setIsMakerOpen(false)}
-                                            className="px-3.5 py-1.5 rounded-xl text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-all text-slate-400 hover:text-slate-200 cursor-pointer"
+                                            className="px-3.5 py-2 rounded-xl text-sm font-medium hover:bg-black/5 dark:hover:bg-white/5 transition-colors text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#7b83eb]"
                                         >
                                             Cancel
                                         </button>
@@ -4099,15 +4052,18 @@ export const Routine = ({
                                             onClick={handleInitiateGenerate}
                                             title={`Generate routine with ${activeModelDisplayName}`}
                                             disabled={isGenerating || isAIGenerating || (makerTasks.length === 0 && !includeLunch && !includeDinner && !includeBreakfast)}
-                                            className="px-4 py-2 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] text-white font-semibold text-xs shadow-sm shadow-[#5b5fc7]/20 transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                                            className="px-5 py-2 rounded-xl bg-[#5b5fc7] hover:bg-[#4f52b2] text-white font-semibold text-sm shadow-lg shadow-[#5b5fc7]/25 transition-colors disabled:opacity-50 disabled:shadow-none disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-[#a5abff]"
                                         >
                                             {isGenerating || isAIGenerating ? (
                                                 <>
-                                                    <Loader2 size={13} className="animate-spin text-white" />
-                                                    <span>Generating...</span>
+                                                    <Loader2 size={15} className="animate-spin text-white" />
+                                                    <span>Generating…</span>
                                                 </>
                                             ) : (
-                                                <span>Generate</span>
+                                                <>
+                                                    <Sparkles size={15} aria-hidden="true" />
+                                                    <span>{planScope === 'day' ? 'Generate plan' : 'Generate week'}</span>
+                                                </>
                                             )}
                                         </button>
                                     </div>
@@ -4130,9 +4086,11 @@ export const Routine = ({
                                             <span className="text-slate-300 font-medium">
                                                 Generated with <span className="text-white font-semibold">{reviewPrompts?.modelDisplayName || activeModelDisplayName}</span>
                                             </span>
-                                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 font-semibold">
-                                                100% Offline
-                                            </span>
+                                            {!isExternalEngine(engine) && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 font-semibold">
+                                                    100% Offline
+                                                </span>
+                                            )}
                                         </div>
                                         <button
                                             type="button"
@@ -4354,24 +4312,23 @@ export const Routine = ({
                                         if (!mindsetData) return null;
                                         return (
                                             <div
-                                                className="flex items-center justify-between px-3.5 py-2 rounded-xl border text-xs gap-3"
+                                                className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl border"
                                                 style={{
                                                     background: isDark ? 'rgba(91, 95, 199, 0.08)' : 'rgba(91, 95, 199, 0.04)',
                                                     borderColor: isDark ? 'rgba(91, 95, 199, 0.25)' : 'rgba(91, 95, 199, 0.2)',
                                                 }}
                                             >
-                                                <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                    <Quote size={13} className="text-[#7b83eb] shrink-0" />
-                                                    <span className="text-[11px] truncate italic" style={{ color: 'var(--text-primary)' }}>
-                                                        “{mindsetData.quote}”
-                                                    </span>
-                                                    <span className="text-[10px] text-[#7b83eb] shrink-0 font-medium">— {mindsetData.author}</span>
+                                                <Quote size={13} className="text-[#7b83eb] shrink-0 mt-0.5" aria-hidden="true" />
+                                                {/* Quote and tip stack so neither can squeeze the other out of view */}
+                                                <div className="min-w-0 flex-1 space-y-1">
+                                                    <p className="text-xs italic leading-snug" style={{ color: 'var(--text-primary)' }}>
+                                                        “{mindsetData.quote}”{' '}
+                                                        <span className="not-italic text-[11px] text-[#7b83eb] font-medium whitespace-nowrap">— {mindsetData.author}</span>
+                                                    </p>
+                                                    {mindsetData.tip && (
+                                                        <p className="text-[11px] font-medium text-emerald-400 leading-snug">{mindsetData.tip}</p>
+                                                    )}
                                                 </div>
-                                                {mindsetData.tip && (
-                                                    <span className="text-[10px] font-semibold text-emerald-400 shrink-0 hidden md:inline">
-                                                        {mindsetData.tip}
-                                                    </span>
-                                                )}
                                             </div>
                                         );
                                     })()}
@@ -4695,35 +4652,105 @@ export const Routine = ({
                         </button>
 
                         <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
-                            <div className="absolute inset-0 rounded-2xl bg-[#5b5fc7]/20 animate-ping opacity-40"></div>
+                            <div className="absolute inset-0 rounded-2xl bg-[#5b5fc7]/20 motion-safe:animate-ping opacity-40"></div>
                             <div className="w-14 h-14 rounded-2xl bg-[#5b5fc7] flex items-center justify-center shadow-lg shadow-[#5b5fc7]/25">
-                                <Bot size={26} className="text-white animate-pulse" />
+                                <Bot size={26} className="text-white motion-safe:animate-pulse" />
                             </div>
                         </div>
 
-                        <div>
-                            <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-                                AI Generating {planScope === 'week' ? 'Weekly' : 'Daily'} Schedule
-                            </h3>
-                            <p className="text-xs text-[#7b83eb] font-medium mt-1">
-                                {aiStatusMessage || engineProgress?.text || 'Optimizing focus blocks based on local time...'}
-                            </p>
-                            {engineProgress?.progress !== undefined && engineProgress.progress > 0 && (
-                                <div className="w-full bg-black/30 rounded-full h-1.5 mt-3 overflow-hidden">
+                        {(() => {
+                            // Rough count of blocks a day plan should contain, so streamed items can drive the bar
+                            const expectedItems = planScope === 'day'
+                                ? Math.max(2, makerTasks.length + [includeBreakfast, includeLunch, includeDinner].filter(Boolean).length + (includeRestBlocks ? 2 : 0))
+                                : 0;
+                            const isLoadingModel = /starting|connecting|loading/i.test(aiStatusMessage) || (engineProgress?.progress !== undefined && engineProgress.progress > 0 && engineProgress.progress < 1);
+                            const isDrafting = aiItemsDrafted > 0;
+                            // Streamed items when we have them, otherwise an easing curve over time that never reaches 100%
+                            const progress = isLoadingModel && engineProgress?.progress
+                                ? engineProgress.progress
+                                : isDrafting && expectedItems > 0
+                                ? Math.min(0.95, 0.15 + (aiItemsDrafted / expectedItems) * 0.8)
+                                : Math.min(0.9, 1 - Math.exp(-aiElapsedSec / 25));
+                            const almostDone = (isDrafting && expectedItems > 0 && aiItemsDrafted >= expectedItems - 1) || (!isLoadingModel && aiElapsedSec >= 25);
+
+                            const headline = isLoadingModel
+                                ? 'Waking up the model'
+                                : almostDone
+                                ? 'Almost done'
+                                : isDrafting
+                                ? `Placed ${aiItemsDrafted} ${aiItemsDrafted === 1 ? 'block' : 'blocks'}${expectedItems ? ` of about ${expectedItems}` : ''}`
+                                : planScope === 'week'
+                                ? 'Spreading tasks across your week'
+                                : 'Planning your day';
+                            const detail = isLoadingModel
+                                ? aiStatusMessage || engineProgress?.text || 'Loading the model into memory.'
+                                : almostDone
+                                ? aiElapsedSec >= 60
+                                    ? 'Taking longer than usual. Small on-device models can be slow on long plans.'
+                                    : 'Fitting the last blocks around your meals and breaks.'
+                                : isDrafting
+                                ? 'Writing focus blocks in order.'
+                                : 'Reading your tasks, hours and breaks.';
+                            const steps = [
+                                { label: 'Load model', state: isLoadingModel ? 'active' : 'done' },
+                                { label: 'Draft blocks', state: isLoadingModel ? 'todo' : almostDone ? 'done' : 'active' },
+                                { label: 'Final checks', state: almostDone ? 'active' : 'todo' },
+                            ] as const;
+
+                            return (
+                                <div className="space-y-3">
+                                    <div aria-live="polite">
+                                        <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                            {headline}
+                                        </h3>
+                                        <p className="text-xs text-slate-400 mt-1 min-h-[16px]">{detail}</p>
+                                    </div>
+
                                     <div
-                                        className="bg-[#5b5fc7] h-full transition-all duration-300"
-                                        style={{ width: `${Math.round(engineProgress.progress * 100)}%` }}
-                                    />
+                                        className="w-full bg-black/30 dark:bg-white/[0.06] rounded-full h-1.5 overflow-hidden"
+                                        role="progressbar"
+                                        aria-label="Plan generation progress"
+                                        aria-valuemin={0}
+                                        aria-valuemax={100}
+                                        aria-valuenow={Math.round(progress * 100)}
+                                    >
+                                        <div
+                                            className="bg-[#5b5fc7] h-full rounded-full transition-[width] duration-700 ease-out"
+                                            style={{ width: `${Math.max(4, Math.round(progress * 100))}%` }}
+                                        />
+                                    </div>
+
+                                    <ol className="flex items-center justify-center gap-3 text-[11px]">
+                                        {steps.map((step) => (
+                                            <li
+                                                key={step.label}
+                                                className={`flex items-center gap-1.5 ${
+                                                    step.state === 'done' ? 'text-emerald-400' : step.state === 'active' ? 'text-slate-200 font-semibold' : 'text-slate-500'
+                                                }`}
+                                            >
+                                                {step.state === 'done' ? (
+                                                    <Check size={12} aria-hidden="true" />
+                                                ) : step.state === 'active' ? (
+                                                    <Loader2 size={12} className="motion-safe:animate-spin" aria-hidden="true" />
+                                                ) : (
+                                                    <Circle size={10} aria-hidden="true" />
+                                                )}
+                                                {step.label}
+                                            </li>
+                                        ))}
+                                    </ol>
                                 </div>
-                            )}
-                        </div>
+                            );
+                        })()}
 
                         <div className="p-3 rounded-xl bg-black/20 dark:bg-white/[0.03] border border-white/5 text-[11px] text-slate-400 space-y-1">
                             <p>
-                                <span className="font-semibold text-slate-300">Local Reference:</span>{' '}
+                                {activeModelDisplayName}, {aiElapsedSec}s elapsed. Local time{' '}
                                 {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({Intl.DateTimeFormat().resolvedOptions().timeZone})
                             </p>
-                            <p className="text-[10px] opacity-75">Running on-device via WebGPU • Zero server requests</p>
+                            <p className="text-[10px] opacity-75">
+                                {isExternalEngine(engine) ? `Sent to ${engine.config.model}` : 'Running on-device. Nothing leaves your computer.'}
+                            </p>
                         </div>
 
                         <div className="pt-1 flex flex-col items-center gap-2">

@@ -2,6 +2,24 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { studyAssistantService, StudiedTopic } from '../renderer/lib/studyAssistantService';
 import { useStore } from '../renderer/lib/store';
 import { PlannedRoutineItem } from '../renderer/types/routine';
+import * as webllm from '@mlc-ai/web-llm';
+import {
+    hasModelInCache,
+    hasAnyDownloadedModel,
+    deleteModelFromCache,
+    getModelCacheUsageMB,
+    initEngine,
+    markModelDownloaded,
+    getPersistedDownloadedModels,
+    MODELS_CHANGED_EVENT,
+} from '../renderer/lib/ai';
+
+vi.mock('@mlc-ai/web-llm', () => ({
+    CreateMLCEngine: vi.fn(),
+    hasModelInCache: vi.fn(),
+    deleteModelAllInfoInCache: vi.fn(),
+    prebuiltAppConfig: { model_list: [] },
+}));
 
 describe('Study Assistant Service', () => {
     let mockStorage: Record<string, string> = {};
@@ -269,5 +287,127 @@ describe('Study Assistant Service', () => {
             studyAssistantService.checkUpcomingRoutineActivities();
             expect(window.electronAPI.showNotification).not.toHaveBeenCalled();
         });
+    });
+});
+
+describe('Study Assistant AI model persistence', () => {
+    const MODEL_ID = 'Llama-3.2-1B-Instruct-q4f32_1-MLC';
+    let mockStorage: Record<string, string> = {};
+    const dispatchEvent = vi.fn();
+    const estimate = vi.fn();
+    let cacheStore: Record<string, string[]> = {};
+
+    beforeEach(() => {
+        mockStorage = {};
+        vi.mocked(webllm.hasModelInCache).mockReset();
+        vi.mocked(webllm.deleteModelAllInfoInCache).mockReset().mockResolvedValue(undefined);
+        vi.mocked(webllm.CreateMLCEngine).mockReset().mockResolvedValue({ id: 'engine' } as any);
+        dispatchEvent.mockReset();
+        estimate.mockReset().mockResolvedValue({ quota: 100 * 1024 ** 3, usage: 0 });
+
+        vi.stubGlobal('localStorage', {
+            getItem: (key: string) => mockStorage[key] || null,
+            setItem: (key: string, value: string) => { mockStorage[key] = value; },
+            removeItem: (key: string) => { delete mockStorage[key]; },
+            clear: () => { mockStorage = {}; },
+        });
+        vi.stubGlobal('window', { dispatchEvent });
+        cacheStore = {
+            'webllm/model': [
+                `https://huggingface.co/mlc-ai/${MODEL_ID}/resolve/main/params_shard_0.bin`,
+                `https://huggingface.co/mlc-ai/${MODEL_ID}/resolve/main/params_shard_1.bin`,
+                'https://huggingface.co/mlc-ai/gemma-2-2b-it-q4f32_1-MLC/resolve/main/params_shard_0.bin',
+            ],
+            other: [`https://example.com/${MODEL_ID}/unrelated`],
+        };
+        vi.stubGlobal('caches', {
+            keys: async () => Object.keys(cacheStore),
+            open: async (name: string) => ({
+                keys: async () => cacheStore[name].map((url) => ({ url })),
+                match: async () => new Response('', { headers: { 'content-length': String(32 * 1024 * 1024) } }),
+                delete: async (req: { url: string }) => {
+                    cacheStore[name] = cacheStore[name].filter((u) => u !== req.url);
+                    return true;
+                },
+            }),
+        });
+        vi.stubGlobal('navigator', { gpu: {}, storage: { estimate } });
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('reports a fully cached model as installed and remembers it', async () => {
+        vi.mocked(webllm.hasModelInCache).mockResolvedValue(true);
+
+        expect(await hasModelInCache(MODEL_ID)).toBe(true);
+        expect(webllm.hasModelInCache).toHaveBeenCalledWith(MODEL_ID, webllm.prebuiltAppConfig);
+        expect(getPersistedDownloadedModels()).toContain(MODEL_ID);
+    });
+
+    it('treats a partially downloaded model as not installed and clears the stale marker', async () => {
+        markModelDownloaded(MODEL_ID);
+        vi.mocked(webllm.hasModelInCache).mockResolvedValue(false);
+
+        expect(await hasModelInCache(MODEL_ID)).toBe(false);
+        expect(getPersistedDownloadedModels()).not.toContain(MODEL_ID);
+        expect(await hasAnyDownloadedModel()).toBeNull();
+    });
+
+    it('finds the installed model on relaunch', async () => {
+        vi.mocked(webllm.hasModelInCache).mockImplementation(async (id: string) => id === MODEL_ID);
+
+        expect(await hasAnyDownloadedModel()).toBe(MODEL_ID);
+    });
+
+    it('loads a cached model from disk without the download pre-flight', async () => {
+        vi.mocked(webllm.hasModelInCache).mockResolvedValue(true);
+        const progress = vi.fn();
+
+        const result = await initEngine(progress, MODEL_ID);
+
+        expect(result.modelName).toBe(MODEL_ID);
+        expect(estimate).not.toHaveBeenCalled();
+        expect(progress.mock.calls[0][0].text).toBe('Llama 3.2 1B is installed. Loading from disk...');
+        expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: MODELS_CHANGED_EVENT }));
+    });
+
+    it('runs the download pre-flight when the model is not cached', async () => {
+        vi.mocked(webllm.hasModelInCache).mockResolvedValue(false);
+        const progress = vi.fn();
+
+        await initEngine(progress, MODEL_ID);
+
+        expect(estimate).toHaveBeenCalled();
+        expect(progress.mock.calls[0][0].text).toBe(`Initializing ${MODEL_ID}...`);
+        expect(getPersistedDownloadedModels()).toContain(MODEL_ID);
+    });
+
+    it('deletes all model files and notifies the UI', async () => {
+        markModelDownloaded(MODEL_ID);
+        vi.mocked(webllm.hasModelInCache).mockResolvedValue(true);
+
+        await deleteModelFromCache(MODEL_ID);
+
+        expect(webllm.deleteModelAllInfoInCache).toHaveBeenCalledWith(MODEL_ID, webllm.prebuiltAppConfig);
+        expect(getPersistedDownloadedModels()).not.toContain(MODEL_ID);
+        expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: MODELS_CHANGED_EVENT }));
+    });
+
+    it('measures and clears an unfinished download without touching other models', async () => {
+        vi.mocked(webllm.hasModelInCache).mockResolvedValue(false);
+
+        expect(await getModelCacheUsageMB(MODEL_ID)).toBe(64);
+
+        await deleteModelFromCache(MODEL_ID);
+
+        // web-llm's cleanup would re-fetch the missing tensor-cache.json, so it is skipped
+        expect(webllm.deleteModelAllInfoInCache).not.toHaveBeenCalled();
+        expect(cacheStore['webllm/model']).toEqual([
+            'https://huggingface.co/mlc-ai/gemma-2-2b-it-q4f32_1-MLC/resolve/main/params_shard_0.bin',
+        ]);
+        expect(cacheStore.other).toHaveLength(1);
+        expect(await getModelCacheUsageMB(MODEL_ID)).toBe(0);
     });
 });

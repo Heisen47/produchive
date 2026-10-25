@@ -1,4 +1,5 @@
 import { inferActivityDetails } from './activityAutoTracker';
+import { buildSystemPrompt } from './ai';
 
 export interface ProductivityAnalysis {
     rating: number;
@@ -12,6 +13,8 @@ export interface ProductivityAnalysis {
     };
     timestamp?: number;
     modelName?: string;
+    /** False when the built-in heuristic wrote the report (no model, or the model failed) */
+    usedModel?: boolean;
 }
 
 export interface AnalysisInput {
@@ -39,6 +42,10 @@ export interface AnalysisInput {
     }>;
     engine?: any;
     modelName?: string;
+    /** Inclusive YYYY-MM-DD days being analysed; defaults to today */
+    range?: { start: string; end: string };
+    /** How the prompt names the period, e.g. "today" or "Mon 19 – Sun 25 October" */
+    periodLabel?: string;
 }
 
 export interface ActivityIdentity {
@@ -580,11 +587,15 @@ export async function generateProductivityAnalysis(input: AnalysisInput): Promis
         return `${y}-${m}-${day}`;
     })();
 
-    const todayCalendarItems = (routines || []).filter(
-        (r) => r.dateStr === todayStr && !r.isAutoDetected && r.category !== 'meal' && r.category !== 'break' && r.category !== 'sleep'
+    const range = input.range || { start: todayStr, end: todayStr };
+    const periodLabel = input.periodLabel || 'today';
+    const inRange = (dateStr: string) => dateStr >= range.start && dateStr <= range.end;
+
+    const plannedItems = (routines || []).filter(
+        (r) => inRange(r.dateStr) && !r.isAutoDetected && r.category !== 'meal' && r.category !== 'break' && r.category !== 'sleep'
     );
-    const todayCalendarTitles = todayCalendarItems.map((r) => r.title.trim()).filter(Boolean);
-    const effectiveGoals = todayCalendarTitles.length > 0 ? todayCalendarTitles : goals;
+    const plannedTitles = plannedItems.map((r) => r.title.trim()).filter(Boolean);
+    const effectiveGoals = plannedTitles.length > 0 ? plannedTitles : goals;
 
     const aggregatedItems = new Map<string, { duration: number; identity: ActivityIdentity }>();
 
@@ -624,6 +635,22 @@ export async function generateProductivityAnalysis(input: AnalysisInput): Promis
         }
     });
 
+    const topProductive = sanitizeCategoryList(Array.from(categorizedApps.productive)).slice(0, 3);
+    const topDistracting = sanitizeCategoryList(Array.from(categorizedApps.distracting)).slice(0, 3);
+
+    const heuristicTips: string[] = [];
+    if (topDistracting.length > 0) {
+        heuristicTips.push(`Block or limit ${topDistracting[0]} during your next deep work block.`);
+    }
+    if (topProductive.length > 0) {
+        heuristicTips.push(`Start your next session in ${topProductive[0]} before opening anything else.`);
+    }
+    if (effectiveGoals.length === 0) {
+        heuristicTips.push('Plan tasks in Routine so your next report can score you against them.');
+    } else {
+        heuristicTips.push('Take a 5-minute break between long focus blocks.');
+    }
+
     if (engine) {
         try {
             const sortedItems = Array.from(aggregatedItems.values())
@@ -633,7 +660,8 @@ export async function generateProductivityAnalysis(input: AnalysisInput): Promis
             const activitySummary = sortedItems
                 .map((item, idx) => {
                     const ctx = item.identity.cleanContext ? ` (Context: ${item.identity.cleanContext})` : '';
-                    return `${idx + 1}. "${item.identity.displayName}" | Application: ${item.identity.appName} | Duration: ${formatDuration(item.duration)}${ctx}`;
+                    const share = totalDurationMs > 0 ? Math.round((item.duration / totalDurationMs) * 100) : 0;
+                    return `${idx + 1}. "${item.identity.displayName}" | Application: ${item.identity.appName} | Duration: ${formatDuration(item.duration)} (${share}% of tracked time)${ctx}`;
                 })
                 .join('\n');
 
@@ -648,57 +676,43 @@ export async function generateProductivityAnalysis(input: AnalysisInput): Promis
             }
 
             let routineSummaryText = '';
-            const todayRoutines = (routines || []).filter((r) => r.dateStr === todayStr);
-            if (todayRoutines.length > 0) {
-                const scheduled = todayRoutines.filter((r) => !r.isAutoDetected);
+            const periodRoutines = (routines || []).filter((r) => inRange(r.dateStr));
+            if (periodRoutines.length > 0) {
+                const scheduled = periodRoutines.filter((r) => !r.isAutoDetected);
                 const scheduledLines = scheduled
                     .map((r) => `- [${r.completed ? 'COMPLETED' : 'PENDING'}] ${r.title} (${r.durationMinutes}m) [${r.category}]`)
                     .join('\n');
                 routineSummaryText = `Scheduled Routine Calendar:\n${scheduledLines || '- None'}`;
             }
 
-            const prompt = `You are the AI cognitive brain of Produchive.
-Your task is to analyze the user's recorded windows, browser tabs, and applications against their stated goals and determine whether each activity can be considered PRODUCTIVE, NEUTRAL, or DISTRACTING.
+            const prompt = `Period analysed: ${periodLabel}
 
-User Goals & Targeted Work:
+Goals:
 ${goalsText}
-${routineSummaryText ? `\n${routineSummaryText}` : ''}
-
-Recorded Activities:
+${routineSummaryText ? `\n${routineSummaryText}\n` : ''}
+Tracked activities (longest first, total ${formatDuration(totalDurationMs)}):
 ${activitySummary}
 ${focusSessionText}
 
-CRITICAL COGNITIVE JUDGMENT RULES:
-1. Use your brain to evaluate the true nature and context of each activity against the user's goals:
-   - Activities that actively advance the user's goals, technical learning, software engineering, writing, problem-solving, or coursework MUST be determined as "productive".
-   - Non-work entertainment, social media (Twitter/X, Reddit, TikTok, Instagram), gaming, or casual video streaming unrelated to goals MUST be determined as "distracting".
-   - Necessary background tools, system utilities, communication, or search navigation that are ambiguous or operational MUST be determined as "neutral".
-2. Group EVERY recorded activity into the appropriate list in "categorization":
-   - "productive": array of exact activity names you judged as productive.
-   - "neutral": array of exact activity names you judged as neutral.
-   - "distracting": array of exact activity names you judged as distracting.
-3. Determine an overall rating (1-10) and verdict ("productive", "neutral", "unproductive") reflecting the proportion of time spent on activities you determined as productive vs distracting:
-   - If extensive time was spent on activities you judged as distracting (e.g. >= 40% of time), the rating must be low (1-4) with verdict 'unproductive'.
-   - If time was dominated by activities you judged as productive, rating should be high (7-10) with verdict 'productive'.
-4. Provide a clear, honest explanation calling out the specific activities and explaining WHY your cognitive judgment classified them as productive or distracting.
-5. Provide actionable coaching tips.
+Put every activity name above, copied exactly, into one list in "categorization".
+Write "explanation" and "tips" to the person directly as "you" (e.g. "You spent 2h in VS Code"). Never call them "the user", "the student" or by their role.
 
-Respond ONLY with this JSON structure:
+Reply with only this JSON:
 {
-  "rating": number (1-10),
+  "rating": <number 1-10>,
   "verdict": "productive" | "neutral" | "unproductive",
-  "explanation": "concise explanation calling out exact activities and why your AI brain judged them productive or distracting",
-  "tips": ["actionable tip 1", "actionable tip 2"],
+  "explanation": "<2-3 sentences: what went well, then what cost the most time, naming real activities>",
+  "tips": ["<concrete next step tied to a goal>", "<concrete next step>"],
   "categorization": {
-    "productive": ["exact activity names from the list"],
-    "neutral": ["exact activity names from the list"],
-    "distracting": ["exact activity names from the list"]
+    "productive": ["<exact activity name>"],
+    "neutral": ["<exact activity name>"],
+    "distracting": ["<exact activity name>"]
   }
 }`;
 
             const completion = await engine.chat.completions.create({
                 messages: [
-                    { role: 'system', content: 'You are an objective AI productivity brain that determines whether activities are productive or distracting against goals. Return JSON only.' },
+                    { role: 'system', content: buildSystemPrompt(customPrompt, selectedRole) },
                     { role: 'user', content: prompt }
                 ],
                 temperature: 0.2,
@@ -722,7 +736,7 @@ Respond ONLY with this JSON structure:
                 rating: parsedRating,
                 verdict: parsedVerdict,
                 explanation: formatDomainOnly(result.explanation || 'Analysis complete.'),
-                tips: (Array.isArray(result.tips) && result.tips.length > 0 ? result.tips : ['Keep up your focus momentum!']).map(formatDomainOnly),
+                tips: (Array.isArray(result.tips) && result.tips.filter(Boolean).length > 0 ? result.tips.filter(Boolean) : heuristicTips).map(formatDomainOnly),
                 categorization: {
                     productive: sanitizeCategoryList(result.categorization?.productive || Array.from(categorizedApps.productive)),
                     neutral: sanitizeCategoryList(result.categorization?.neutral || Array.from(categorizedApps.neutral)),
@@ -730,6 +744,7 @@ Respond ONLY with this JSON structure:
                 },
                 timestamp: Date.now(),
                 modelName: resolveModelDisplayName(input.modelName, true),
+                usedModel: true,
             };
         } catch (llmErr) {
             console.warn('[productivityAnalysisService] LLM completion failed, falling back to tab-level heuristic:', llmErr);
@@ -754,42 +769,26 @@ Respond ONLY with this JSON structure:
     const verdict: 'productive' | 'neutral' | 'unproductive' =
         score >= 7 ? 'productive' : score >= 4 ? 'neutral' : 'unproductive';
 
-    const topProductive = sanitizeCategoryList(Array.from(categorizedApps.productive)).slice(0, 3);
-    const topDistracting = sanitizeCategoryList(Array.from(categorizedApps.distracting)).slice(0, 3);
-
     let explanation = '';
     if (verdict === 'productive') {
         explanation = topProductive.length > 0
-            ? `Strong focus today! You made high progress in ${topProductive.join(', ')} with solid objective alignment.`
-            : `Great focus maintained across your active workspaces with high productive adherence.`;
+            ? `You kept a strong focus, with most of your time in ${topProductive.join(', ')}.`
+            : `You kept a strong focus across your work apps.`;
     } else if (verdict === 'neutral') {
         explanation = topDistracting.length > 0
-            ? `Balanced output with noticeable distractions. Time in ${topDistracting[0]} countered your progress in ${topProductive[0] || 'work tasks'}.`
-            : `Moderate productivity today with occasional context switching between tasks.`;
+            ? `You made progress in ${topProductive[0] || 'your work apps'}, but time in ${topDistracting[0]} pulled against it.`
+            : `You split your time between work and other apps, switching context often.`;
     } else {
         explanation = topDistracting.length > 0
-            ? `Heavy distraction detected: extensive time spent on ${topDistracting.join(', ')} significantly impacted your planned goals.`
-            : `Off-task activity and context switches dominated your schedule today.`;
-    }
-
-    const tips: string[] = [];
-    if (topDistracting.length > 0) {
-        tips.push(`Block or limit time on ${topDistracting[0]} during deep work blocks.`);
-    }
-    if (topProductive.length > 0) {
-        tips.push(`Schedule key work in ${topProductive[0]} during morning circadian peaks.`);
-    }
-    if (effectiveGoals.length === 0) {
-        tips.push('Set targets in your Routine Calendar for exact task adherence tracking.');
-    } else {
-        tips.push('Take a 5-minute breather between intense coding and study sessions.');
+            ? `Most of your time went to ${topDistracting.join(', ')}, which pulled you away from your goals.`
+            : `Off-task apps and context switches took most of your time.`;
     }
 
     return {
         rating: score,
         verdict,
         explanation: formatDomainOnly(explanation),
-        tips: tips.map(formatDomainOnly),
+        tips: heuristicTips.map(formatDomainOnly),
         categorization: {
             productive: sanitizeCategoryList(Array.from(categorizedApps.productive)),
             neutral: sanitizeCategoryList(Array.from(categorizedApps.neutral)),
@@ -797,5 +796,6 @@ Respond ONLY with this JSON structure:
         },
         timestamp: Date.now(),
         modelName: resolveModelDisplayName(input.modelName, false),
+        usedModel: false,
     };
 }

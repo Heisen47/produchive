@@ -762,6 +762,9 @@ export const ShareCard: React.FC<ShareCardProps> = ({ analysis, goals, dateLabel
         <>
             {/* Trigger Button */}
             <button
+                type="button"
+                aria-label="Share report as an image"
+                title="Share report"
                 onClick={() => setIsOpen(true)}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all duration-300 hover:scale-105 active:scale-95 group"
                 style={{
@@ -817,6 +820,8 @@ export const ShareCard: React.FC<ShareCardProps> = ({ analysis, goals, dateLabel
                                 </div>
                             </div>
                             <button
+                                type="button"
+                                aria-label="Close"
                                 onClick={() => setIsOpen(false)}
                                 className="w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-200 hover:scale-110"
                                 style={{

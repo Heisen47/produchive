@@ -42,6 +42,29 @@ export interface FocusSession {
   endedAtReadable: string;
 }
 
+export type ExternalAIProvider =
+  | 'anthropic'
+  | 'openai'
+  | 'gemini'
+  | 'openrouter'
+  | 'groq'
+  | 'mistral'
+  | 'deepseek'
+  | 'xai'
+  | 'together'
+  | 'perplexity'
+  | 'ollama'
+  | 'lmstudio'
+  | 'custom';
+
+export interface ExternalAIConfig {
+  provider: ExternalAIProvider;
+  baseUrl: string;
+  model: string;
+  hasKey: boolean;
+  configured: boolean;
+}
+
 declare global {
   interface Window {
     electronAPI: {
@@ -105,6 +128,21 @@ declare global {
       onUpdateStatus: (callback: (status: any) => void) => void;
 
       // App settings
+      externalAIGetConfig: () => Promise<ExternalAIConfig | null>;
+      externalAISaveConfig: (config: {
+        provider: ExternalAIProvider;
+        model: string;
+        baseUrl?: string;
+        apiKey?: string | null;
+      }) => Promise<ExternalAIConfig | null>;
+      externalAIClearConfig: () => Promise<null>;
+      externalAIListModels: (input: { provider: ExternalAIProvider; baseUrl?: string; apiKey?: string }) => Promise<string[]>;
+      externalAIChat: (request: {
+        requestId: string;
+        messages: { role: string; content: string }[];
+        temperature?: number;
+      }) => Promise<{ content?: string; error?: string; aborted?: boolean }>;
+      externalAIAbort: (requestId?: string) => Promise<void>;
       getSettings: () => Promise<Record<string, any>>;
       setSetting: (key: string, value: any) => Promise<Record<string, any>>;
 

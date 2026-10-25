@@ -14,7 +14,7 @@ import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
 import { Navbar } from './components/Navbar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
-import { initEngine, parseAIErrorMessage, AVAILABLE_MODELS, hasModelInCache, getPersistedDownloadedModels, markModelDownloaded, AIModel } from './lib/ai';
+import { initEngine, parseAIErrorMessage, AVAILABLE_MODELS, hasModelInCache, getPersistedDownloadedModels, requestPersistentStorage, MODELS_CHANGED_EVENT, AIModel } from './lib/ai';
 import { useStore } from './lib/store';
 import { apiClient } from './lib/api';
 import { syncEngine } from './lib/services';
@@ -25,6 +25,8 @@ import { studyAssistantService } from './lib/studyAssistantService';
 import {
     Loader2,
     Bot,
+    ChevronDown,
+    Cloud,
     XCircle,
     LayoutDashboard,
     BarChart3,
@@ -43,7 +45,10 @@ import { Footer } from './components/Footer';
 import { DownloadProgress } from './components/DownloadProgress';
 import { UpdateBanner } from './components/UpdateBanner';
 import { PeekabooCat } from './components/PeekabooCat';
+import { SakuraTree } from './components/SakuraTree';
 import { ModelManager } from './components/ModelManager';
+import { createExternalEngine, isExternalEngine, getAISource, setAISource, PROVIDER_LABELS } from './lib/externalEngine';
+import type { ExternalAIConfig } from './global';
 import { PromptEditorModal } from './components/PromptEditorModal';
 import { Routine } from './components/Routine';
 import { FeedbackModal } from './components/FeedbackModal';
@@ -80,6 +85,7 @@ const AppContent = () => {
     const [isDataLoaded, setDataLoaded] = useState(false);
     const [viewKey, setViewKey] = useState(0);
     const [isCatEnabled, setCatEnabled] = useState(true);
+    const [isInRoom, setInRoom] = useState(false);
 
     const toggleCat = async () => {
         const newValue = !isCatEnabled;
@@ -268,30 +274,55 @@ const AppContent = () => {
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState<{ text: string; progress?: number }>({ text: '' });
     const [showModelSelector, setShowModelSelector] = useState(false);
+    const [externalConfig, setExternalConfig] = useState<ExternalAIConfig | null>(null);
+
+    // Restore the API model on launch when it was the last one used (no download or GPU load needed)
+    useEffect(() => {
+        let mounted = true;
+        window.electronAPI?.externalAIGetConfig?.().then((config) => {
+            if (!mounted) return;
+            setExternalConfig(config);
+            if (config?.configured && getAISource() === 'external') {
+                const external = createExternalEngine(config);
+                setEngine(external);
+                setModelName(config.model);
+                aiNudgeService.setEngine(external);
+            }
+        }).catch(() => {});
+        return () => { mounted = false; };
+    }, []);
     const [showPromptEditor, setShowPromptEditor] = useState(false);
     const loadingRef = useRef(false);
     const selectorRef = useRef<HTMLDivElement>(null);
 
-    // Detect if any supported AI model is already cached locally on the machine
+    // Detect which supported AI model is fully installed on disk (survives app restarts)
     useEffect(() => {
         let mounted = true;
+        requestPersistentStorage();
         const checkDownloaded = async () => {
-            for (const model of AVAILABLE_MODELS) {
+            // Prefer the user's selected model, then any other installed one
+            const ordered = [...AVAILABLE_MODELS].sort((a, b) =>
+                Number(b.id === selectedModelId) - Number(a.id === selectedModelId)
+            );
+            for (const model of ordered) {
                 try {
-                    const cached = await hasModelInCache(model.id);
-                    if (cached && mounted) {
-                        markModelDownloaded(model.id);
-                        setDownloadedModel(model);
-                        break;
+                    if (await hasModelInCache(model.id)) {
+                        if (mounted) setDownloadedModel(model);
+                        return;
                     }
                 } catch {
                     // Ignore cache checking errors
                 }
             }
+            if (mounted) setDownloadedModel(null);
         };
         checkDownloaded();
-        return () => { mounted = false; };
-    }, [engine]);
+        window.addEventListener(MODELS_CHANGED_EVENT, checkDownloaded);
+        return () => {
+            mounted = false;
+            window.removeEventListener(MODELS_CHANGED_EVENT, checkDownloaded);
+        };
+    }, [engine, selectedModelId]);
 
     // Close selector when clicking outside
     useEffect(() => {
@@ -340,6 +371,7 @@ const AppContent = () => {
                 });
             }, targetModelId);
             if (loadingRef.current) {
+                setAISource('local');
                 setEngine(result.engine);
                 setModelName(result.modelName);
                 aiNudgeService.setEngine(result.engine);
@@ -365,6 +397,32 @@ const AppContent = () => {
         setProgress({ text: '' });
     };
 
+    const unloadEngine = async () => {
+        try {
+            await engine?.unload?.();
+        } catch (e) {
+            console.warn('Failed to unload AI engine', e);
+        }
+        cancelEngine();
+        setEngine(null);
+        setModelName('');
+    };
+
+    // Switch to an API model; frees the GPU memory held by a local model first
+    const activateExternalEngine = async (config: ExternalAIConfig) => {
+        if (engine && !isExternalEngine(engine)) await unloadEngine();
+        cancelEngine();
+        const external = createExternalEngine(config);
+        setEngine(external);
+        setModelName(config.model);
+        aiNudgeService.setEngine(external);
+        setAISource('external');
+    };
+
+    const activeModelLabel = isExternalEngine(engine)
+        ? engine.config.model
+        : AVAILABLE_MODELS.find((m) => m.id === modelName)?.name || modelName.split('-')[0];
+
     if (!isDataLoaded) {
         return (
             <div className="h-screen w-screen flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
@@ -383,6 +441,8 @@ const AppContent = () => {
 
     return (
         <div className="h-screen w-screen flex overflow-hidden font-sans selection:bg-blue-500/30" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+            {/* Background tree: first child so all later (positioned) content paints over it */}
+            {!isInRoom && <SakuraTree />}
             <ErrorModal />
             <ActivityConfirmationPopup />
             <DebugPanel />
@@ -426,7 +486,7 @@ const AppContent = () => {
             />
 
             {/* Main Content */}
-            <main className="flex-1 flex flex-col min-w-0 relative" style={{ background: 'var(--bg-primary)' }}>
+            <main className="flex-1 flex flex-col min-w-0 relative">
                 <UpdateBanner />
 
                 {/* Header */}
@@ -461,102 +521,100 @@ const AppContent = () => {
                                 <XCircle size={16} />
                                 Stop
                             </button>
-                        ) : engine ? (
-                            <div className="relative" ref={selectorRef}>
-                                <button
-                                    onClick={() => setShowModelSelector(!showModelSelector)}
-                                    className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-xl transition-all hover:bg-green-500/20 active:scale-95 cursor-pointer"
-                                    style={{
-                                        background: 'rgba(34, 197, 94, 0.1)',
-                                        color: '#4ade80',
-                                        border: '1px solid rgba(34, 197, 94, 0.2)',
-                                    }}
-                                >
-                                    <Bot size={14} />
-                                    <span className="font-medium">{modelName.split('-')[0]}</span>
-                                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse ml-1" />
-                                </button>
+                        ) : (
+                            <div className="relative flex items-center gap-1.5" ref={selectorRef}>
+                                {engine ? (
+                                    <button
+                                        onClick={() => setShowModelSelector(!showModelSelector)}
+                                        className="flex items-center gap-2 text-sm px-3 py-1.5 rounded-xl transition-all hover:bg-green-500/20 active:scale-95 cursor-pointer"
+                                        style={{
+                                            background: 'rgba(34, 197, 94, 0.1)',
+                                            color: '#4ade80',
+                                            border: '1px solid rgba(34, 197, 94, 0.2)',
+                                        }}
+                                        title={isExternalEngine(engine) ? `Using ${engine.config.model} via ${PROVIDER_LABELS[engine.config.provider]}` : undefined}
+                                    >
+                                        {isExternalEngine(engine) ? <Cloud size={14} /> : <Bot size={14} />}
+                                        <span className="font-medium max-w-[160px] truncate">{activeModelLabel}</span>
+                                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse ml-1" />
+                                    </button>
+                                ) : downloadedModel ? (
+                                    <>
+                                        <button
+                                            onClick={() => startEngine(downloadedModel.id)}
+                                            className="flex items-center gap-2 text-sm px-3.5 py-1.5 rounded-xl transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                                            style={{
+                                                background: 'rgba(99, 102, 241, 0.12)',
+                                                color: '#a5b4fc',
+                                                border: '1px solid rgba(99, 102, 241, 0.3)',
+                                            }}
+                                            title={`${downloadedModel.name} is installed on this device. Click to load it — no download needed.`}
+                                        >
+                                            <Bot size={14} className="text-indigo-400" />
+                                            <span className="font-semibold">{downloadedModel.name}</span>
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-mono">Installed</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setShowModelSelector(!showModelSelector)}
+                                            aria-label="Choose AI model"
+                                            title="Choose AI model"
+                                            className="p-1.5 rounded-lg transition-colors hover:bg-[var(--bg-card-hover)] cursor-pointer"
+                                            style={{ color: 'var(--text-muted)', border: '1px solid var(--border-primary)' }}
+                                        >
+                                            <ChevronDown size={14} />
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button
+                                        onClick={() => setShowModelSelector(!showModelSelector)}
+                                        className="text-sm px-4 py-2 rounded-xl font-medium transition-all duration-300 flex items-center gap-2 glow-ring hover:scale-105 cursor-pointer"
+                                        style={{
+                                            background: 'var(--bg-elevated)',
+                                            color: 'var(--text-primary)',
+                                            border: '1px solid var(--border-primary)',
+                                        }}
+                                    >
+                                        <Bot size={16} style={{ color: 'var(--accent)' }} />
+                                        Activate AI
+                                    </button>
+                                )}
 
                                 {showModelSelector && (
-                                    <div 
-                                        className="absolute top-full right-0 mt-2 w-80 p-4 rounded-xl shadow-2xl border animate-fade-in z-50 overflow-hidden"
+                                    <div
+                                        className="absolute top-full right-0 mt-2 w-[380px] max-w-[calc(100vw-32px)] rounded-xl shadow-2xl border animate-fade-in z-50 overflow-hidden"
                                         style={{
-                                            background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                                            background: isDark ? 'rgba(15, 23, 42, 0.97)' : 'rgba(255, 255, 255, 0.97)',
                                             borderColor: 'var(--border-secondary)',
                                             backdropFilter: 'blur(20px)'
                                         }}
                                     >
-                                        <div className="flex justify-between items-center mb-4 pb-2 border-b border-white/10">
-                                            <h4 className="font-bold text-sm">Select Model</h4>
-                                            <button 
-                                                onClick={() => setShowModelSelector(false)}
-                                                className="text-xs opacity-60 hover:opacity-100 p-1"
-                                            >
-                                                Close
-                                            </button>
-                                        </div>
-                                        <div className="max-h-[60vh] overflow-y-auto custom-scrollbar">
-                                            <ModelManager />
-                                        </div>
-                                        <div className="mt-4 pt-3 border-t border-white/10 flex gap-2">
-                                            <button
-                                                onClick={() => {
-                                                    // Trigger reload if model changed
-                                                    if (selectedModelId && selectedModelId !== modelName) {
-                                                        cancelEngine();
-                                                        setTimeout(() => startEngine(), 100);
-                                                    }
-                                                    setShowModelSelector(false);
-                                                }}
-                                                className="flex-grow py-2 rounded-lg text-xs font-bold transition-colors hover:bg-white/10 bg-white/5"
-                                            >
-                                                Apply & Reload
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    setShowModelSelector(false);
-                                                    setShowPromptEditor(true);
-                                                }}
-                                                className="px-3 py-2 rounded-lg text-xs font-bold transition-colors hover:bg-white/10 bg-white/5 flex items-center gap-1"
-                                                title="Edit AI system prompt"
-                                            >
-                                                <Settings size={12} />
-                                                Prompt
-                                            </button>
-                                        </div>
+                                        <ModelManager
+                                            activeModelId={engine && !isExternalEngine(engine) ? modelName : undefined}
+                                            externalConfig={externalConfig}
+                                            externalActive={isExternalEngine(engine)}
+                                            onExternalConfigChange={setExternalConfig}
+                                            onUseExternal={async (config) => {
+                                                await activateExternalEngine(config);
+                                                setShowModelSelector(false);
+                                            }}
+                                            onApply={(modelId) => {
+                                                cancelEngine();
+                                                setShowModelSelector(false);
+                                                setTimeout(() => startEngine(modelId), 100);
+                                            }}
+                                            onEditPrompt={() => {
+                                                setShowModelSelector(false);
+                                                setShowPromptEditor(true);
+                                            }}
+                                            onClose={() => setShowModelSelector(false)}
+                                            onUnloadActive={async () => {
+                                                await unloadEngine();
+                                                setShowModelSelector(false);
+                                            }}
+                                        />
                                     </div>
                                 )}
                             </div>
-                        ) : downloadedModel ? (
-                            <div className="relative" ref={selectorRef}>
-                                <button
-                                    onClick={() => startEngine(downloadedModel.id)}
-                                    className="flex items-center gap-2 text-sm px-3.5 py-1.5 rounded-xl transition-all hover:scale-105 active:scale-95 cursor-pointer"
-                                    style={{
-                                        background: 'rgba(99, 102, 241, 0.12)',
-                                        color: '#a5b4fc',
-                                        border: '1px solid rgba(99, 102, 241, 0.3)',
-                                    }}
-                                    title={`Locally cached model: ${downloadedModel.name}. Click to load into WebGPU.`}
-                                >
-                                    <Bot size={14} className="text-indigo-400" />
-                                    <span className="font-semibold">{downloadedModel.name}</span>
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-mono">Ready</span>
-                                </button>
-                            </div>
-                        ) : (
-                            <button
-                                onClick={() => startEngine()}
-                                className="text-sm px-4 py-2 rounded-xl font-medium transition-all duration-300 flex items-center gap-2 glow-ring hover:scale-105 cursor-pointer"
-                                style={{
-                                    background: 'var(--bg-elevated)',
-                                    color: 'var(--text-primary)',
-                                    border: '1px solid var(--border-primary)',
-                                }}
-                            >
-                                <Bot size={16} style={{ color: 'var(--accent)' }} />
-                                Activate AI
-                            </button>
                         )}
 
                         <button
@@ -650,11 +708,11 @@ const AppContent = () => {
 
                             {currentView === 'ai' && (
                                 <div className="space-y-6">
-                                    <ProductivityJudge engine={engine} onNavigate={handleViewChange} />
+                                    <ProductivityJudge engine={engine} modelLabel={engine ? activeModelLabel : undefined} onNavigate={handleViewChange} />
                                 </div>
                             )}
 
-                            {currentView === 'focusroom' && <StudyRooms onNavigate={handleViewChange} />}
+                            {currentView === 'focusroom' && <StudyRooms onNavigate={handleViewChange} onRoomChange={setInRoom} />}
                         </div>
                     </div>
                 </div>

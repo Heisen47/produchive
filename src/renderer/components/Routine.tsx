@@ -782,6 +782,18 @@ export const Routine = ({
     } | null>(null);
     const [showPromptAccordion, setShowPromptAccordion] = useState<boolean>(false);
     const generationCancelledRef = useRef<boolean>(false);
+    // Live loader feedback: blocks the model has written so far and seconds since generation began
+    const [aiItemsDrafted, setAiItemsDrafted] = useState(0);
+    const [aiElapsedSec, setAiElapsedSec] = useState(0);
+
+    useEffect(() => {
+        if (!isAIGenerating) return;
+        setAiItemsDrafted(0);
+        setAiElapsedSec(0);
+        const startedAt = Date.now();
+        const timer = setInterval(() => setAiElapsedSec(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+        return () => clearInterval(timer);
+    }, [isAIGenerating]);
     const generationAbortControllerRef = useRef<AbortController | null>(null);
 
     const handleCancelGeneration = () => {
@@ -1140,6 +1152,7 @@ export const Routine = ({
                     includeRestBlocks,
                     role: user?.role || selectedRole || 'Professional',
                     signal: controller.signal,
+                    onProgress: setAiItemsDrafted,
                 });
 
                 if (generationCancelledRef.current || controller.signal.aborted) return;
@@ -1244,6 +1257,7 @@ export const Routine = ({
                 includeRestBlocks,
                 role: user?.role || selectedRole || 'Professional',
                 signal: controller.signal,
+                onProgress: setAiItemsDrafted,
             });
 
             if (generationCancelledRef.current || controller.signal.aborted) return;
@@ -4057,9 +4071,11 @@ export const Routine = ({
                                             <span className="text-slate-300 font-medium">
                                                 Generated with <span className="text-white font-semibold">{reviewPrompts?.modelDisplayName || activeModelDisplayName}</span>
                                             </span>
-                                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 font-semibold">
-                                                100% Offline
-                                            </span>
+                                            {!isExternalEngine(engine) && (
+                                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 font-semibold">
+                                                    100% Offline
+                                                </span>
+                                            )}
                                         </div>
                                         <button
                                             type="button"
@@ -4281,24 +4297,23 @@ export const Routine = ({
                                         if (!mindsetData) return null;
                                         return (
                                             <div
-                                                className="flex items-center justify-between px-3.5 py-2 rounded-xl border text-xs gap-3"
+                                                className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl border"
                                                 style={{
                                                     background: isDark ? 'rgba(91, 95, 199, 0.08)' : 'rgba(91, 95, 199, 0.04)',
                                                     borderColor: isDark ? 'rgba(91, 95, 199, 0.25)' : 'rgba(91, 95, 199, 0.2)',
                                                 }}
                                             >
-                                                <div className="flex items-center gap-2 min-w-0 flex-1">
-                                                    <Quote size={13} className="text-[#7b83eb] shrink-0" />
-                                                    <span className="text-[11px] truncate italic" style={{ color: 'var(--text-primary)' }}>
-                                                        “{mindsetData.quote}”
-                                                    </span>
-                                                    <span className="text-[10px] text-[#7b83eb] shrink-0 font-medium">— {mindsetData.author}</span>
+                                                <Quote size={13} className="text-[#7b83eb] shrink-0 mt-0.5" aria-hidden="true" />
+                                                {/* Quote and tip stack so neither can squeeze the other out of view */}
+                                                <div className="min-w-0 flex-1 space-y-1">
+                                                    <p className="text-xs italic leading-snug" style={{ color: 'var(--text-primary)' }}>
+                                                        “{mindsetData.quote}”{' '}
+                                                        <span className="not-italic text-[11px] text-[#7b83eb] font-medium whitespace-nowrap">— {mindsetData.author}</span>
+                                                    </p>
+                                                    {mindsetData.tip && (
+                                                        <p className="text-[11px] font-medium text-emerald-400 leading-snug">{mindsetData.tip}</p>
+                                                    )}
                                                 </div>
-                                                {mindsetData.tip && (
-                                                    <span className="text-[10px] font-semibold text-emerald-400 shrink-0 hidden md:inline">
-                                                        {mindsetData.tip}
-                                                    </span>
-                                                )}
                                             </div>
                                         );
                                     })()}
@@ -4622,35 +4637,105 @@ export const Routine = ({
                         </button>
 
                         <div className="relative w-16 h-16 mx-auto flex items-center justify-center">
-                            <div className="absolute inset-0 rounded-2xl bg-[#5b5fc7]/20 animate-ping opacity-40"></div>
+                            <div className="absolute inset-0 rounded-2xl bg-[#5b5fc7]/20 motion-safe:animate-ping opacity-40"></div>
                             <div className="w-14 h-14 rounded-2xl bg-[#5b5fc7] flex items-center justify-center shadow-lg shadow-[#5b5fc7]/25">
-                                <Bot size={26} className="text-white animate-pulse" />
+                                <Bot size={26} className="text-white motion-safe:animate-pulse" />
                             </div>
                         </div>
 
-                        <div>
-                            <h3 className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>
-                                AI Generating {planScope === 'week' ? 'Weekly' : 'Daily'} Schedule
-                            </h3>
-                            <p className="text-xs text-[#7b83eb] font-medium mt-1">
-                                {aiStatusMessage || engineProgress?.text || 'Optimizing focus blocks based on local time...'}
-                            </p>
-                            {engineProgress?.progress !== undefined && engineProgress.progress > 0 && (
-                                <div className="w-full bg-black/30 rounded-full h-1.5 mt-3 overflow-hidden">
+                        {(() => {
+                            // Rough count of blocks a day plan should contain, so streamed items can drive the bar
+                            const expectedItems = planScope === 'day'
+                                ? Math.max(2, makerTasks.length + [includeBreakfast, includeLunch, includeDinner].filter(Boolean).length + (includeRestBlocks ? 2 : 0))
+                                : 0;
+                            const isLoadingModel = /starting|connecting|loading/i.test(aiStatusMessage) || (engineProgress?.progress !== undefined && engineProgress.progress > 0 && engineProgress.progress < 1);
+                            const isDrafting = aiItemsDrafted > 0;
+                            // Streamed items when we have them, otherwise an easing curve over time that never reaches 100%
+                            const progress = isLoadingModel && engineProgress?.progress
+                                ? engineProgress.progress
+                                : isDrafting && expectedItems > 0
+                                ? Math.min(0.95, 0.15 + (aiItemsDrafted / expectedItems) * 0.8)
+                                : Math.min(0.9, 1 - Math.exp(-aiElapsedSec / 25));
+                            const almostDone = (isDrafting && expectedItems > 0 && aiItemsDrafted >= expectedItems - 1) || (!isLoadingModel && aiElapsedSec >= 25);
+
+                            const headline = isLoadingModel
+                                ? 'Waking up the model'
+                                : almostDone
+                                ? 'Almost done'
+                                : isDrafting
+                                ? `Placed ${aiItemsDrafted} ${aiItemsDrafted === 1 ? 'block' : 'blocks'}${expectedItems ? ` of about ${expectedItems}` : ''}`
+                                : planScope === 'week'
+                                ? 'Spreading tasks across your week'
+                                : 'Planning your day';
+                            const detail = isLoadingModel
+                                ? aiStatusMessage || engineProgress?.text || 'Loading the model into memory.'
+                                : almostDone
+                                ? aiElapsedSec >= 60
+                                    ? 'Taking longer than usual. Small on-device models can be slow on long plans.'
+                                    : 'Fitting the last blocks around your meals and breaks.'
+                                : isDrafting
+                                ? 'Writing focus blocks in order.'
+                                : 'Reading your tasks, hours and breaks.';
+                            const steps = [
+                                { label: 'Load model', state: isLoadingModel ? 'active' : 'done' },
+                                { label: 'Draft blocks', state: isLoadingModel ? 'todo' : almostDone ? 'done' : 'active' },
+                                { label: 'Final checks', state: almostDone ? 'active' : 'todo' },
+                            ] as const;
+
+                            return (
+                                <div className="space-y-3">
+                                    <div aria-live="polite">
+                                        <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                            {headline}
+                                        </h3>
+                                        <p className="text-xs text-slate-400 mt-1 min-h-[16px]">{detail}</p>
+                                    </div>
+
                                     <div
-                                        className="bg-[#5b5fc7] h-full transition-all duration-300"
-                                        style={{ width: `${Math.round(engineProgress.progress * 100)}%` }}
-                                    />
+                                        className="w-full bg-black/30 dark:bg-white/[0.06] rounded-full h-1.5 overflow-hidden"
+                                        role="progressbar"
+                                        aria-label="Plan generation progress"
+                                        aria-valuemin={0}
+                                        aria-valuemax={100}
+                                        aria-valuenow={Math.round(progress * 100)}
+                                    >
+                                        <div
+                                            className="bg-[#5b5fc7] h-full rounded-full transition-[width] duration-700 ease-out"
+                                            style={{ width: `${Math.max(4, Math.round(progress * 100))}%` }}
+                                        />
+                                    </div>
+
+                                    <ol className="flex items-center justify-center gap-3 text-[11px]">
+                                        {steps.map((step) => (
+                                            <li
+                                                key={step.label}
+                                                className={`flex items-center gap-1.5 ${
+                                                    step.state === 'done' ? 'text-emerald-400' : step.state === 'active' ? 'text-slate-200 font-semibold' : 'text-slate-500'
+                                                }`}
+                                            >
+                                                {step.state === 'done' ? (
+                                                    <Check size={12} aria-hidden="true" />
+                                                ) : step.state === 'active' ? (
+                                                    <Loader2 size={12} className="motion-safe:animate-spin" aria-hidden="true" />
+                                                ) : (
+                                                    <Circle size={10} aria-hidden="true" />
+                                                )}
+                                                {step.label}
+                                            </li>
+                                        ))}
+                                    </ol>
                                 </div>
-                            )}
-                        </div>
+                            );
+                        })()}
 
                         <div className="p-3 rounded-xl bg-black/20 dark:bg-white/[0.03] border border-white/5 text-[11px] text-slate-400 space-y-1">
                             <p>
-                                <span className="font-semibold text-slate-300">Local Reference:</span>{' '}
+                                {activeModelDisplayName}, {aiElapsedSec}s elapsed. Local time{' '}
                                 {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} ({Intl.DateTimeFormat().resolvedOptions().timeZone})
                             </p>
-                            <p className="text-[10px] opacity-75">Running on-device via WebGPU • Zero server requests</p>
+                            <p className="text-[10px] opacity-75">
+                                {isExternalEngine(engine) ? `Sent to ${engine.config.model}` : 'Running on-device. Nothing leaves your computer.'}
+                            </p>
                         </div>
 
                         <div className="pt-1 flex flex-col items-center gap-2">

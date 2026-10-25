@@ -1,0 +1,72 @@
+/* Background sakura tree. Only transform/opacity animate, on separate layers. */
+
+.sakura-tree {
+  --sakura-wood: #d8a7b8;
+  --sakura-blossom: #ff6fa3;
+  --sakura-blossom-light: #ffb3cf;
+  position: fixed;
+  /* Below the 64px sticky header so the canopy isn't blurred away */
+  top: 64px;
+  right: 0;
+  height: calc(100vh - 64px);
+  aspect-ratio: 820 / 900;
+  opacity: 0.09;
+  pointer-events: none;
+  overflow: hidden;
+  contain: strict;
+}
+
+.theme-light .sakura-tree {
+  --sakura-wood: #8a5a6b;
+  --sakura-blossom: #e8799f;
+  --sakura-blossom-light: #f4a9c2;
+  opacity: 0.14;
+}
+
+.sakura-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.sakura-layer-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.sakura-branch {
+  will-change: transform;
+  animation: sakura-sway ease-in-out infinite alternate;
+}
+
+@keyframes sakura-sway {
+  from { transform: rotate(calc(var(--sway) * -1)); }
+  to { transform: rotate(var(--sway)); }
+}
+
+.sakura-petal {
+  position: absolute;
+  border-radius: 80% 0 80% 0;
+  background: var(--sakura-blossom-light);
+  opacity: 0;
+  will-change: transform, opacity;
+  animation: sakura-fall linear infinite;
+}
+
+@keyframes sakura-fall {
+  0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 0; }
+  10% { opacity: 1; }
+  50% { transform: translate3d(calc(var(--drift) * 0.4), 35vh, 0) rotate(200deg); }
+  85% { opacity: 1; }
+  100% { transform: translate3d(var(--drift), 70vh, 0) rotate(420deg); opacity: 0; }
+}
+
+.sakura-paused .sakura-branch,
+.sakura-paused .sakura-petal {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sakura-branch { animation: none; will-change: auto; }
+  .sakura-petal { display: none; }
+}

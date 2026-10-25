@@ -76,7 +76,7 @@ describe('productivityAnalysisService', () => {
         expect(report).toBeDefined();
         expect(report.rating).toBeLessThanOrEqual(4);
         expect(report.verdict).toBe('unproductive');
-        expect(report.explanation).toContain('Heavy distraction');
+        expect(report.explanation).toContain('Most of your time went to');
         expect(report.categorization.distracting.some((d) => d.includes('YouTube'))).toBe(true);
         expect(report.categorization.productive.some((p) => p.includes('Antigravity IDE'))).toBe(true);
     });

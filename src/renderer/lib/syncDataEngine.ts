@@ -1,6 +1,7 @@
 import { SyncDataPayload } from './syncCrypto';
 import { PlannedRoutineItem } from '../types/routine';
 import { useStore } from './store';
+import { CATFOOD_SETTING_KEY, mergeIncomingCatfood, useCatfoodStore } from './catfoodStore';
 
 export interface MergeSummary {
   tasksAdded: number;
@@ -273,6 +274,16 @@ export async function mergeSyncPayload(
     console.error('Failed to persist merged routines:', err);
   }
 
+  // Catfood ledgers merge per device/day (settings are otherwise shallow-merged, which would drop local earnings)
+  let settings = remote.data.settings;
+  if (mode === 'merge' && settings && settings[CATFOOD_SETTING_KEY]) {
+    const catfood = mergeIncomingCatfood(settings[CATFOOD_SETTING_KEY]);
+    settings = { ...settings, [CATFOOD_SETTING_KEY]: catfood };
+  }
+  if (settings && settings[CATFOOD_SETTING_KEY]) {
+    useCatfoodStore.getState().replaceLedger(settings[CATFOOD_SETTING_KEY]);
+  }
+
   // 4. Persist DB items via batch IPC if available
   if (window.electronAPI?.importSyncData) {
     try {
@@ -281,7 +292,7 @@ export async function mergeSyncPayload(
         goals: goalMerge.merged,
         ratings: remoteRatings,
         focusSessions: remoteSessions,
-        settings: remote.data.settings,
+        settings,
         mode,
       });
     } catch (err) {

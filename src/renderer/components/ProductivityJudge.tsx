@@ -1,571 +1,444 @@
-import { useState, useRef, useEffect } from 'react';
-import { Brain, Loader2, Minus, Lightbulb, CheckCircle2, XCircle, AlertTriangle, Clock, BookOpen, Calendar, ArrowRight, Cpu } from 'lucide-react';
-import Lottie from 'lottie-react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { Loader2, Lightbulb, Clock, BookOpen, CalendarCheck, RefreshCw, Sparkles, AlertCircle } from 'lucide-react';
 import { useStore } from '../lib/store';
-import { HistoricalReports } from './HistoricalReports';
 import { ActivityHeatmap } from './ActivityHeatmap';
 import { ShareCard } from './ShareCard';
 import { useTheme } from './ThemeProvider';
+import { generateProductivityAnalysis, formatDomainOnly } from '../lib/productivityAnalysisService';
 import {
-    generateProductivityAnalysis,
-    ProductivityAnalysis,
-    formatDomainOnly,
-    sanitizeCategoryList,
-    resolveModelDisplayName,
-} from '../lib/productivityAnalysisService';
+    DateRange,
+    StoredReport,
+    compactBreakdown,
+    datesInRange,
+    focusSessionsInRange,
+    formatDuration,
+    formatGeneratedAt,
+    formatRangeTitle,
+    isSingleDay,
+    latestScoresByDay,
+    newActivitySinceReport,
+    rangeForPreset,
+    rangeIncludes,
+    recentDays,
+    relativeRangeLabel,
+    reportsForRange,
+    summarizeActivities,
+    toDateStr,
+} from '../lib/insightsReport';
+import { InsightsDayPicker } from './InsightsDayPicker';
+import { CategoryLists, TimeSplitBar } from './InsightsTimeBreakdown';
 import { TrackedActivitiesModal } from './TrackedActivitiesModal';
 import confetti from 'canvas-confetti';
-import badCatAnimation from '../assets/bad_cat.json';
-import danceAnimation from '../assets/dance.json';
 
 interface ProductivityJudgeProps {
     engine: any;
+    /** Name of the loaded model as shown in the top bar, e.g. "Gemma 2 2B" */
+    modelLabel?: string;
     onNavigate?: (view: string) => void;
 }
 
-export const ProductivityJudge = ({ engine, onNavigate }: ProductivityJudgeProps) => {
+const VERDICT_LABEL: Record<string, string> = {
+    productive: 'Productive',
+    neutral: 'Mixed',
+    unproductive: 'Off track',
+};
+
+const focusRing = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400';
+const sceneLabel: Record<string, string> = { classroom: 'Classroom', cafe: 'Café', library: 'Library' };
+
+export const ProductivityJudge = ({ engine, modelLabel, onNavigate }: ProductivityJudgeProps) => {
     const { goals, activities, addRating, selectedRole, customPrompt, routines, loadRoutines, ratings } = useStore();
     const { isDark } = useTheme();
 
-    const todayStr = (() => {
-        const d = new Date();
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${y}-${m}-${day}`;
-    })();
-
-    // Extract planned tasks from Routine Calendar for today (exclude meal/break/sleep)
-    const todayCalendarItems = (routines || []).filter(
-        (r) => r.dateStr === todayStr && !r.isAutoDetected && r.category !== 'meal' && r.category !== 'break' && r.category !== 'sleep'
-    );
-    const todayCalendarTitles = todayCalendarItems.map((r) => r.title.trim()).filter(Boolean);
-
-    // Primary source: today's planned calendar tasks. Fallback: legacy goals from store
-    const effectiveGoals = todayCalendarTitles.length > 0 ? todayCalendarTitles : goals;
-
+    const [range, setRange] = useState<DateRange>(() => rangeForPreset('today'));
+    const [pickedReportTs, setPickedReportTs] = useState<number | null>(null);
     const [analyzing, setAnalyzing] = useState(false);
-    const [analysis, setAnalysis] = useState<ProductivityAnalysis | null>(() => {
-        if (ratings && ratings.length > 0) {
-            const latest = ratings[ratings.length - 1];
-            if (latest?.verdict && latest?.rating) return latest;
-        }
-        return null;
-    });
     const [error, setError] = useState<string | null>(null);
-    const canvasRef = useRef<HTMLCanvasElement>(null);
     const [focusSessions, setFocusSessions] = useState<any[]>([]);
+    const [pastActivities, setPastActivities] = useState<Record<string, any[]>>({});
+    const [loadingDays, setLoadingDays] = useState(false);
     const [activitiesModalCategory, setActivitiesModalCategory] = useState<'all' | 'productive' | 'neutral' | 'distracting' | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
 
-    // Listen for routine calendar updates to keep today's plan synchronized
+    const todayStr = toDateStr(new Date());
+    const days = recentDays(7);
+
     useEffect(() => {
-        const handleRoutineUpdate = () => {
-            loadRoutines();
-        };
+        const handleRoutineUpdate = () => loadRoutines();
         window.addEventListener('produchive_routine_updated', handleRoutineUpdate);
-        return () => {
-            window.removeEventListener('produchive_routine_updated', handleRoutineUpdate);
-        };
+        return () => window.removeEventListener('produchive_routine_updated', handleRoutineUpdate);
     }, [loadRoutines]);
 
-    // Load focus sessions on mount
     useEffect(() => {
         const api = (window as any).electronAPI;
-        if (api?.getFocusSessions) {
-            api.getFocusSessions().then((s: any[]) => setFocusSessions(s)).catch(() => {});
-        }
+        api?.getFocusSessions?.().then((s: any[]) => setFocusSessions(s || [])).catch(() => {});
     }, []);
 
-    const formatDuration = (ms: number) => {
-        const seconds = Math.floor(ms / 1000);
-        const minutes = Math.floor(seconds / 60);
-        const hours = Math.floor(minutes / 60);
+    // Past days come from their activity log files; today stays live from the store
+    useEffect(() => {
+        setPickedReportTs(null);
+        setError(null);
+        const pastDates = datesInRange(range).filter((d) => d !== todayStr);
+        if (pastDates.length === 0) return;
+        let cancelled = false;
+        setLoadingDays(true);
+        window.electronAPI
+            .getActivityDataRange(pastDates[0], pastDates[pastDates.length - 1])
+            .then((byDay: any) => {
+                if (cancelled) return;
+                const next: Record<string, any[]> = {};
+                pastDates.forEach((d) => { next[d] = byDay?.[d]?.activities || []; });
+                setPastActivities((prev) => ({ ...prev, ...next }));
+            })
+            .catch(() => {})
+            .finally(() => !cancelled && setLoadingDays(false));
+        return () => { cancelled = true; };
+    }, [range.start, range.end, todayStr]);
 
-        if (hours > 0) return `${hours}h ${minutes % 60}m`;
-        if (minutes > 0) return `${minutes}m`;
-        return `${seconds}s`;
-    };
+    const rangeActivities = useMemo(
+        () => datesInRange(range).flatMap((d) => (d === todayStr ? activities || [] : pastActivities[d] || [])),
+        [range, todayStr, activities, pastActivities]
+    );
+
+    const plannedItems = (routines || []).filter(
+        (r) => rangeIncludes(range, r.dateStr) && !r.isAutoDetected && r.category !== 'meal' && r.category !== 'break' && r.category !== 'sleep'
+    );
+    const plannedTitles = plannedItems.map((r) => r.title.trim()).filter(Boolean);
+    // Legacy goals only ever describe today
+    const effectiveGoals = plannedTitles.length > 0 ? plannedTitles : rangeIncludes(range, todayStr) ? goals : [];
+
+    const rangeFocusSessions = focusSessionsInRange(focusSessions, range);
+    const rangeFocusSeconds = rangeFocusSessions.reduce((s: number, f: any) => s + (f.durationSeconds || 0), 0);
+
+    const reports = reportsForRange(ratings, range);
+    const report: StoredReport | undefined = reports.find((r) => r.timestamp === pickedReportTs) || reports[0];
+
+    const liveBreakdown = useMemo(
+        () => summarizeActivities(rangeActivities, report?.categorization, effectiveGoals),
+        // effectiveGoals is derived each render; its contents are what matter
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [rangeActivities, report, effectiveGoals.join('|')]
+    );
+    // The report explains itself with the numbers it was scored on; older reports fall back to the logs
+    const breakdown = report?.breakdown?.items?.length ? report.breakdown : liveBreakdown;
+    const newSinceMs = report ? newActivitySinceReport(report, liveBreakdown.totalMs) : 0;
+
+    const scores = latestScoresByDay(ratings, days);
+    const weekReport = reportsForRange(ratings, rangeForPreset('last7'))[0];
+    const weekScore = weekReport ? Number(weekReport.rating) : undefined;
+
+    const relative = relativeRangeLabel(range);
+    const title = formatRangeTitle(range);
+    const isDay = isSingleDay(range);
+    const periodNoun = isDay ? 'day' : 'week';
+    const hasData = liveBreakdown.totalMs > 0;
+    const includesToday = rangeIncludes(range, todayStr);
 
     const triggerConfetti = () => {
-        if (canvasRef.current) {
-            const myConfetti = confetti.create(canvasRef.current, {
-                resize: true,
-                useWorker: true
-            });
-            myConfetti({
-                particleCount: 100,
-                spread: 160,
-                origin: { y: 0.6 }
-            });
-        }
+        if (!canvasRef.current) return;
+        confetti.create(canvasRef.current, { resize: true, useWorker: true, disableForReducedMotion: true })({
+            particleCount: 80,
+            spread: 140,
+            origin: { y: 0.3 },
+        });
     };
 
-    const analyzeProductivity = async () => {
+    const generateReport = async () => {
         setError(null);
-
-        if (!activities || activities.length === 0) {
-            setError("No activity recorded to analyze yet. Start monitoring to log active applications.");
-            return;
-        }
-
+        if (!hasData) return;
         setAnalyzing(true);
         try {
             const result = await generateProductivityAnalysis({
-                activities,
+                activities: rangeActivities,
                 routines,
                 goals: effectiveGoals,
                 selectedRole,
                 customPrompt,
-                focusSessions,
+                focusSessions: rangeFocusSessions,
                 engine,
+                modelName: modelLabel,
+                range,
+                periodLabel: relative ? `${relative.toLowerCase()} (${title})` : title,
             });
-
-            setAnalysis(result);
-            addRating(result);
-
-            if (typeof result.rating === 'number' && result.rating >= 6) {
-                setTimeout(() => triggerConfetti(), 500);
-            }
+            const stored: StoredReport = {
+                ...result,
+                modelName: result.usedModel ? modelLabel || result.modelName : 'Quick estimate',
+                rangeStart: range.start,
+                rangeEnd: range.end,
+                breakdown: compactBreakdown(summarizeActivities(rangeActivities, result.categorization, effectiveGoals)),
+                focusSeconds: rangeFocusSeconds,
+                plannedTaskCount: plannedTitles.length,
+            };
+            addRating(stored);
+            setPickedReportTs(null);
+            if (result.rating >= 7) setTimeout(triggerConfetti, 300);
         } catch (err: any) {
-            setError(err?.message || "Error analyzing productivity.");
+            setError(err?.message || 'Something went wrong while generating the report.');
         } finally {
             setAnalyzing(false);
         }
     };
 
-    const getVerdictStyle = (verdict: string) => {
-        switch (verdict) {
-            case 'productive': return {
-                bg: isDark ? 'linear-gradient(135deg, rgba(34,197,94,0.1), rgba(16,185,129,0.08))' : 'linear-gradient(135deg, rgba(34,197,94,0.08), rgba(16,185,129,0.05))',
-                border: 'rgba(34,197,94,0.3)',
-            };
-            case 'unproductive': return {
-                bg: isDark ? 'linear-gradient(135deg, rgba(239,68,68,0.1), rgba(249,115,22,0.08))' : 'linear-gradient(135deg, rgba(239,68,68,0.08), rgba(249,115,22,0.05))',
-                border: 'rgba(239,68,68,0.3)',
-            };
-            default: return {
-                bg: isDark ? 'linear-gradient(135deg, rgba(234,179,8,0.1), rgba(245,158,11,0.08))' : 'linear-gradient(135deg, rgba(234,179,8,0.08), rgba(245,158,11,0.05))',
-                border: 'rgba(234,179,8,0.3)',
-            };
-        }
+    const categorizationFromBreakdown = {
+        productive: breakdown.items.filter((i) => i.category === 'productive').map((i) => i.name),
+        neutral: breakdown.items.filter((i) => i.category === 'neutral').map((i) => i.name),
+        distracting: breakdown.items.filter((i) => i.category === 'distracting').map((i) => i.name),
     };
 
-    const hasData = activities && activities.length > 0;
+    const generateLabel = analyzing ? 'Generating report…' : report ? 'Regenerate' : isDay ? 'Generate report' : 'Generate weekly report';
+
+    const renderGenerateButton = (primary: boolean) => (
+        <button
+            type="button"
+            onClick={generateReport}
+            disabled={analyzing || !hasData}
+            className={`inline-flex items-center gap-2 rounded-xl font-semibold transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${focusRing} ${
+                primary
+                    ? 'px-5 py-2.5 text-sm bg-indigo-500 hover:bg-indigo-400 text-white'
+                    : 'px-3.5 py-2 text-sm border hover:bg-indigo-500/10'
+            }`}
+            style={primary ? undefined : { borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+        >
+            {analyzing ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : report ? <RefreshCw size={16} aria-hidden="true" /> : <Sparkles size={16} aria-hidden="true" />}
+            {generateLabel}
+        </button>
+    );
+
+    const scoreNumber = report ? (typeof report.rating === 'number' ? report.rating : parseInt(String(report.rating), 10)) : null;
 
     return (
-        <div className="mt-6 space-y-6">
-            {effectiveGoals.length > 0 ? (
-                /* Today's Planned Target Schedule Summary */
-                <div
-                    className="rounded-2xl p-4 md:p-5 border transition-all animate-fade-in"
-                    style={{
-                        background: isDark ? 'rgba(30, 41, 59, 0.35)' : 'rgba(241, 245, 249, 0.7)',
-                        borderColor: isDark ? 'rgba(99, 102, 241, 0.25)' : 'rgba(99, 102, 241, 0.2)',
-                    }}
-                >
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2.5">
-                            <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400">
-                                <Calendar size={16} />
-                            </div>
-                            <div>
-                                <h4 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
-                                    Today's Target Schedule ({effectiveGoals.length} {effectiveGoals.length === 1 ? 'task' : 'tasks'})
-                                </h4>
-                                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                                    AI evaluation measures your tracked activity against this schedule
-                                </p>
-                            </div>
-                        </div>
-                        {onNavigate && (
-                            <button
-                                type="button"
-                                onClick={() => onNavigate('routine')}
-                                className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
-                            >
-                                <span>Edit Schedule</span>
-                                <ArrowRight size={12} />
-                            </button>
-                        )}
-                    </div>
+        <div
+            className="mt-2 space-y-8"
+            style={{ '--insights-link': isDark ? '#a5b4fc' : '#4338ca', '--insights-warn': isDark ? '#fde68a' : '#92400e' } as React.CSSProperties}
+        >
+            <InsightsDayPicker days={days} scores={scores} weekScore={weekScore} range={range} onChange={setRange} />
 
-                    <div className="flex flex-wrap gap-2 pt-1">
-                        {todayCalendarItems.length > 0 ? (
-                            todayCalendarItems.map((item, i) => (
-                                <div
-                                    key={item.id || i}
-                                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium"
-                                    style={{
-                                        background: isDark ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                                        borderColor: item.completed ? 'rgba(34, 197, 94, 0.4)' : 'var(--border-secondary)',
-                                    }}
-                                >
-                                    <span className={`w-2 h-2 rounded-full shrink-0 ${item.completed ? 'bg-green-500' : 'bg-indigo-400'}`} />
-                                    <span style={{ color: 'var(--text-primary)' }}>{item.title}</span>
-                                    <span className="text-[10px] text-slate-400 font-mono">({item.durationMinutes}m)</span>
-                                </div>
-                            ))
-                        ) : (
-                            effectiveGoals.map((g, i) => (
-                                <div
-                                    key={i}
-                                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-medium"
-                                    style={{
-                                        background: isDark ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.8)',
-                                        borderColor: 'var(--border-secondary)',
-                                    }}
-                                >
-                                    <span className="w-2 h-2 rounded-full shrink-0 bg-indigo-400" />
-                                    <span style={{ color: 'var(--text-primary)' }}>{g}</span>
-                                </div>
-                            ))
+            {/* Period header: what is being reviewed, how much data, which report */}
+            <header className="flex flex-wrap items-end justify-between gap-4">
+                <div className="min-w-0">
+                    {relative && <p className="text-sm font-medium text-[color:var(--insights-link)]">{relative}</p>}
+                    <h2 className="font-display text-3xl md:text-4xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                        {title}
+                    </h2>
+                    <p className="mt-2 text-sm flex flex-wrap gap-x-4 gap-y-1" style={{ color: 'var(--text-secondary)' }}>
+                        <span className="flex items-center gap-1.5">
+                            <Clock size={14} aria-hidden="true" />
+                            {loadingDays ? 'Loading activity…' : liveBreakdown.totalMs === 0 ? 'No activity tracked' : `${formatDuration(liveBreakdown.totalMs)} tracked${includesToday && isDay ? ' so far' : ''}`}
+                        </span>
+                        {report?.timestamp && (
+                            <span>
+                                Report generated {formatGeneratedAt(report.timestamp)}
+                                {report.modelName === 'Quick estimate'
+                                    ? ' as a quick estimate (no AI model)'
+                                    : report.modelName ? ` with ${report.modelName.replace(/ \(Local WebGPU\)$/, '')}` : ''}
+                            </span>
                         )}
-                    </div>
+                    </p>
                 </div>
-            ) : (
-                <div
-                    className="rounded-2xl p-4 border flex items-center justify-between gap-4 animate-fade-in"
-                    style={{
-                        background: isDark ? 'rgba(30, 41, 59, 0.3)' : 'rgba(241, 245, 249, 0.6)',
-                        borderColor: isDark ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.15)',
-                    }}
-                >
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-xl bg-indigo-500/15 text-indigo-400 shrink-0">
-                            <Calendar size={16} />
-                        </div>
-                        <div>
-                            <h4 className="text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
-                                No Schedule Planned for Today
-                            </h4>
-                            <p className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                                AI will evaluate activity against standard productivity categories. Add tasks in Routine Calendar for targeted adherence scoring.
-                            </p>
-                        </div>
+                {report && (
+                    <div className="flex items-center gap-2">
+                        {reports.length > 1 && (
+                            <label className="text-sm flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
+                                <span className="sr-only">Show an earlier report for this {periodNoun}</span>
+                                <select
+                                    value={report.timestamp}
+                                    onChange={(e) => setPickedReportTs(Number(e.target.value))}
+                                    className={`rounded-xl px-3 py-2 text-sm border cursor-pointer ${focusRing}`}
+                                    style={{ background: 'var(--bg-input)', borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+                                >
+                                    {reports.map((r, i) => (
+                                        <option key={r.timestamp ?? i} value={r.timestamp}>
+                                            {i === 0 ? 'Latest' : formatGeneratedAt(r.timestamp || 0)}: {r.rating}/10
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        )}
+                        {renderGenerateButton(false)}
+                        <ShareCard analysis={report} goals={effectiveGoals} dateLabel={title} modelName={report.modelName} />
                     </div>
-                    {onNavigate && (
-                        <button
-                            type="button"
-                            onClick={() => onNavigate('routine')}
-                            className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
-                        >
-                            <span>Open Calendar</span>
-                            <ArrowRight size={12} />
-                        </button>
-                    )}
+                )}
+            </header>
+
+            <div aria-live="polite" className="sr-only">{analyzing ? 'Generating report' : ''}</div>
+
+            {error && (
+                <div role="alert" className="rounded-xl px-4 py-3 text-sm flex items-start gap-2 border border-rose-500/40 bg-rose-500/10" style={{ color: 'var(--text-primary)' }}>
+                    <AlertCircle size={16} className="text-rose-400 mt-0.5 shrink-0" aria-hidden="true" />
+                    <span>Couldn't generate the report. {error}</span>
                 </div>
             )}
 
-            <div className="relative group">
-                <button
-                    onClick={analyzeProductivity}
-                    disabled={analyzing || !hasData}
-                    title={!hasData ? "Please enable monitoring to record active application data" : undefined}
-                    className="w-full px-6 py-4 rounded-2xl font-bold transition-all duration-300 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.02] active:scale-[0.98] cursor-pointer"
-                    style={{
-                        background: 'linear-gradient(135deg, #6366f1, #8b5cf6, #6366f1)',
-                        backgroundSize: '200% 200%',
-                        color: '#fff',
-                        boxShadow: analyzing || !hasData ? 'none' : '0 8px 30px rgba(99,102,241,0.4)',
-                        animation: !analyzing && hasData ? 'gradientShift 3s ease infinite' : undefined,
-                    }}
-                >
-                    {analyzing ? (
-                        <>
-                            <Loader2 size={24} className="animate-spin" />
-                            <span>Analyzing Your Day...</span>
-                        </>
-                    ) : (
-                        <>
-                            <Brain size={24} />
-                            <span>Generate AI Report</span>
-                        </>
-                    )}
-                </button>
-
-                <div className="flex items-center justify-center gap-2 mt-2 text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                    {engine ? (
-                        <span className="flex items-center gap-1 text-emerald-400">
-                            <Cpu size={12} />
-                            <span>Using WebLLM On-Device Engine</span>
-                        </span>
-                    ) : (
-                        <span className="opacity-70">
-                            Using Fast AI Heuristic Engine · Click Activate AI in header for deep LLM reasoning
-                        </span>
-                    )}
+            {newSinceMs > 0 && !analyzing && (
+                <div role="status" className="rounded-xl px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-3 border border-amber-400/30 bg-amber-400/10" style={{ color: 'var(--text-primary)' }}>
+                    <span className="flex items-center gap-2">
+                        <Clock size={16} className="text-[color:var(--insights-warn)]" aria-hidden="true" />
+                        You've tracked {formatDuration(newSinceMs)} more since this report.
+                    </span>
+                    <button type="button" onClick={generateReport} className={`font-semibold text-[color:var(--insights-warn)] hover:underline cursor-pointer rounded ${focusRing}`}>
+                        Regenerate
+                    </button>
                 </div>
+            )}
 
-                {!hasData && (
-                    <div className="absolute top-full left-0 right-0 mt-2 text-center pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-20">
-                        <span
-                            className="text-xs font-medium px-3.5 py-1.5 rounded-full inline-block shadow-lg"
-                            style={{
-                                background: isDark ? 'rgba(30, 41, 59, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-                                color: isDark ? '#cbd5e1' : '#475569',
-                                border: isDark ? '1px solid rgba(255, 255, 255, 0.12)' : '1px solid rgba(0, 0, 0, 0.1)',
-                                backdropFilter: 'blur(8px)',
-                            }}
-                        >
-                            Please start monitoring from the Dashboard to record activity before analyzing
-                        </span>
-                    </div>
-                )}
-            </div>
+            {!hasData && !loadingDays ? (
+                /* Nothing tracked for this period */
+                <section className="rounded-2xl p-8 border text-center" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-secondary)' }}>
+                    <h3 className="font-display text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        Nothing tracked {isDay ? (relative === 'Today' ? 'yet today' : 'on this day') : 'in these 7 days'}
+                    </h3>
+                    <p className="mt-2 text-sm max-w-md mx-auto" style={{ color: 'var(--text-secondary)' }}>
+                        {includesToday
+                            ? 'Produchive records the apps you use while tracking is on. Turn it on from the Dashboard, then come back for a report.'
+                            : 'No activity was recorded, so there is nothing to review. Pick another day above.'}
+                    </p>
+                    {includesToday && onNavigate && (
+                        <button type="button" onClick={() => onNavigate('dashboard')} className={`mt-5 px-5 py-2.5 rounded-xl text-sm font-semibold bg-indigo-500 hover:bg-indigo-400 text-white cursor-pointer ${focusRing}`}>
+                            Go to Dashboard
+                        </button>
+                    )}
+                </section>
+            ) : (
+                <section
+                    aria-label={report ? `Report for ${title}` : `Activity for ${title}`}
+                    className="relative rounded-2xl border overflow-hidden"
+                    style={{ background: isDark ? 'rgba(15, 22, 41, 0.85)' : 'var(--bg-card-solid)', borderColor: 'var(--border-primary)' }}
+                >
+                    <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none z-10" aria-hidden="true" />
 
-
-
-            {analysis && (() => {
-                const style = getVerdictStyle(analysis.verdict);
-                return (
-                    <div
-                        className="rounded-2xl p-6 animate-fade-in-up relative overflow-hidden"
-                        style={{
-                            background: style.bg,
-                            border: `1px solid ${style.border}`,
-                            backdropFilter: 'blur(20px)',
-                        }}
-                    >
-                        <canvas
-                            ref={canvasRef}
-                            style={{
-                                position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                width: '100%',
-                                height: '100%',
-                                pointerEvents: 'none',
-                                zIndex: 10
-                            }}
-                        />
-
-                        {/* Header: Score & Verdict */}
-                        <div className="flex items-center justify-between mb-6 pb-6" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
-                            <div className="flex items-center gap-4">
-                                <div
-                                    className="w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-bold"
-                                    style={{
-                                        background: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.6)',
-                                        color: 'var(--text-primary)',
-                                        border: '1px solid var(--border-primary)',
-                                    }}
-                                >
-                                    {typeof analysis.rating === 'number' ? `${analysis.rating}/10` : analysis.rating}
+                    {/* Score and summary, or the call to generate one */}
+                    <div className="p-6 md:p-8 grid gap-6 md:grid-cols-[auto_1fr] md:items-start">
+                        {report && scoreNumber !== null ? (
+                            <>
+                                <div className="flex md:flex-col items-baseline md:items-start gap-3 md:gap-1 md:pr-8 md:border-r" style={{ borderColor: 'var(--border-secondary)' }}>
+                                    <p className="font-display font-bold leading-none tabular-nums" style={{ color: 'var(--text-primary)' }}>
+                                        <span className="text-6xl md:text-7xl">{scoreNumber}</span>
+                                        <span className="text-2xl" style={{ color: 'var(--text-secondary)' }}>/10</span>
+                                    </p>
+                                    <p className="text-base font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                                        {VERDICT_LABEL[report.verdict] || report.verdict} {periodNoun}
+                                    </p>
                                 </div>
-                                <div>
-                                    <h3 className="text-xl font-display font-bold capitalize" style={{ color: 'var(--text-primary)' }}>{analysis.verdict} Day</h3>
-                                    <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Based on your activity history</p>
-                                </div>
-                            </div>
-
-                            <div className="flex items-center gap-3">
-                                {/* Bad Cat for low scores */}
-                                {(typeof analysis.rating === 'number' && analysis.rating <= 5) && (
-                                    <div className="w-24 h-24">
-                                        <Lottie animationData={badCatAnimation} loop={true} />
-                                    </div>
-                                )}
-
-                                {/* Dance for high scores */}
-                                {(typeof analysis.rating === 'number' && analysis.rating >= 6) && (
-                                    <div className="w-24 h-24">
-                                        <Lottie animationData={danceAnimation} loop={true} />
-                                    </div>
-                                )}
-
-                                {/* Share Button */}
-                                <ShareCard
-                                    analysis={analysis}
-                                    goals={effectiveGoals}
-                                    modelName={analysis.modelName || resolveModelDisplayName(engine?.selectedModel || localStorage.getItem('selectedModelId'))}
-                                />
-                            </div>
-                        </div>
-
-                        {/* Explanation */}
-                        <div className="mb-8">
-                            <p className="text-lg leading-relaxed font-medium" style={{ color: 'var(--text-primary)' }}>
-                                "{formatDomainOnly(analysis.explanation)}"
-                            </p>
-                        </div>
-
-                        {/* Categorization Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                            {[
-                                { title: 'Productive', key: 'productive' as const, items: sanitizeCategoryList(analysis.categorization.productive), icon: CheckCircle2, color: '#4ade80', borderColor: 'rgba(34,197,94,0.2)' },
-                                { title: 'Distracting', key: 'distracting' as const, items: sanitizeCategoryList(analysis.categorization.distracting), icon: XCircle, color: '#f87171', borderColor: 'rgba(239,68,68,0.2)' },
-                                { title: 'Neutral', key: 'neutral' as const, items: sanitizeCategoryList(analysis.categorization.neutral), icon: Minus, color: '#fbbf24', borderColor: 'rgba(234,179,8,0.2)' },
-                            ].map((cat, i) => (
-                                <div
-                                    key={i}
-                                    className="rounded-xl p-4 flex flex-col justify-between"
-                                    style={{
-                                        background: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.5)',
-                                        border: `1px solid ${cat.borderColor}`,
-                                    }}
-                                >
-                                    <div>
-                                        <div className="flex items-center justify-between mb-3">
-                                            <h5 className="text-xs font-bold uppercase tracking-wider flex items-center gap-2" style={{ color: cat.color }}>
-                                                <cat.icon size={14} /> {cat.title} ({cat.items.length})
-                                            </h5>
-                                            {cat.items.length > 5 && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setActivitiesModalCategory(cat.key)}
-                                                    className="text-[11px] font-semibold hover:underline cursor-pointer opacity-80 hover:opacity-100"
-                                                    style={{ color: cat.color }}
-                                                >
-                                                    View all
-                                                </button>
-                                            )}
-                                        </div>
-                                        <ul className="space-y-1.5">
-                                            {cat.items.length > 0 ? (
-                                                cat.items.slice(0, 5).map((app: string, j: number) => (
-                                                    <li key={j} className="text-sm truncate" title={app} style={{ color: 'var(--text-secondary)' }}>• {app}</li>
-                                                ))
-                                            ) : <li className="text-sm italic" style={{ color: 'var(--text-muted)' }}>None detected</li>}
-                                        </ul>
-                                    </div>
-
-                                    {cat.items.length > 5 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setActivitiesModalCategory(cat.key)}
-                                            className="mt-3 pt-2 text-xs font-semibold hover:underline flex items-center justify-between cursor-pointer border-t transition-all opacity-85 hover:opacity-100 w-full"
-                                            style={{
-                                                color: cat.color,
-                                                borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
-                                            }}
-                                        >
-                                            <span>+{cat.items.length - 5} more</span>
-                                            <ArrowRight size={12} />
-                                        </button>
+                                <p className="text-lg leading-relaxed max-w-[68ch]" style={{ color: 'var(--text-primary)' }}>
+                                    {formatDomainOnly(report.explanation)}
+                                </p>
+                            </>
+                        ) : (
+                            <div className="md:col-span-2 flex flex-wrap items-center justify-between gap-4">
+                                <div className="max-w-xl">
+                                    <h3 className="font-display text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>
+                                        No report for this {periodNoun} yet
+                                    </h3>
+                                    <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                                        {analyzing
+                                            ? engine
+                                                ? 'Reading your activity. On-device models can take up to a minute.'
+                                                : 'Scoring your activity…'
+                                            : `Generate one to get a score and what to try next, based on the ${formatDuration(liveBreakdown.totalMs)} below.`}
+                                    </p>
+                                    {!engine && !analyzing && (
+                                        <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                                            No AI model is loaded, so you'll get a quick estimate. Choose a model in the top bar for a written review.
+                                        </p>
                                     )}
                                 </div>
-                            ))}
-                        </div>
+                                {renderGenerateButton(true)}
+                            </div>
+                        )}
+                    </div>
 
-                        {/* Modal to view all tracked activities with scrollbar */}
-                        <TrackedActivitiesModal
-                            isOpen={activitiesModalCategory !== null}
-                            onClose={() => setActivitiesModalCategory(null)}
-                            categorization={analysis.categorization}
-                            initialCategory={activitiesModalCategory || 'all'}
-                        />
+                    {/* Evidence: where the time went */}
+                    <div className="px-6 md:px-8 pb-6 md:pb-8 space-y-5">
+                        <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
+                            Where your {formatDuration(breakdown.totalMs)} went
+                        </h3>
+                        {breakdown.totalMs > 0 && <TimeSplitBar breakdown={breakdown} focusSeconds={report ? report.focusSeconds ?? rangeFocusSeconds : rangeFocusSeconds} />}
+                        <CategoryLists breakdown={breakdown} onViewAll={(c) => setActivitiesModalCategory(c)} />
+                    </div>
 
-                        {/* Tips */}
-                        <div
-                            className="rounded-xl p-5"
-                            style={{
-                                background: isDark ? 'rgba(37, 99, 235, 0.1)' : 'rgba(37, 99, 235, 0.06)',
-                                border: '1px solid rgba(37, 99, 235, 0.2)',
-                            }}
-                        >
-                            <h4 className="flex items-center gap-2 font-bold mb-3" style={{ color: '#93c5fd' }}>
-                                <Lightbulb size={18} />
-                                Productivity Tips
-                            </h4>
-                            <ul className="space-y-2">
-                                {analysis.tips.map((tip, i) => (
-                                    <li key={i} className="text-sm flex items-start gap-2" style={{ color: isDark ? '#dbeafe' : '#1e40af' }}>
-                                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ background: 'var(--accent)' }} />
+                    {report && report.tips?.length > 0 && (
+                        <div className="px-6 md:px-8 py-6 border-t" style={{ borderColor: 'var(--border-secondary)' }}>
+                            <h3 className="flex items-center gap-2 text-base font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
+                                <Lightbulb size={16} className="text-[color:var(--insights-link)]" aria-hidden="true" />
+                                Try next
+                            </h3>
+                            <ul className="space-y-2 max-w-[72ch]">
+                                {report.tips.map((tip, i) => (
+                                    <li key={i} className="text-sm leading-relaxed flex items-start gap-2.5" style={{ color: 'var(--text-primary)' }}>
+                                        <span className="mt-2 w-1.5 h-1.5 rounded-full shrink-0 bg-indigo-400" aria-hidden="true" />
                                         {formatDomainOnly(tip)}
                                     </li>
                                 ))}
                             </ul>
                         </div>
+                    )}
+
+                    {/* What the score was measured against */}
+                    <div className="px-6 md:px-8 py-4 border-t text-sm flex flex-wrap items-center justify-between gap-3" style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}>
+                        <span className="flex items-center gap-2">
+                            <CalendarCheck size={15} aria-hidden="true" />
+                            {effectiveGoals.length > 0
+                                ? `Scored against ${effectiveGoals.length} planned ${effectiveGoals.length === 1 ? 'task' : 'tasks'}: ${effectiveGoals.slice(0, 3).join(', ')}${effectiveGoals.length > 3 ? '…' : ''}`
+                                : `No tasks planned for this ${periodNoun}, so it's scored against general habits for a ${selectedRole || 'student'}.`}
+                        </span>
+                        {onNavigate && (
+                            <button type="button" onClick={() => onNavigate('routine')} className={`font-medium text-[color:var(--insights-link)] hover:underline cursor-pointer rounded ${focusRing}`}>
+                                {effectiveGoals.length > 0 ? 'Edit plan' : isDay ? 'Plan your day' : 'Plan your week'}
+                            </button>
+                        )}
                     </div>
-                );
-            })()}
+                </section>
+            )}
 
+            <TrackedActivitiesModal
+                isOpen={activitiesModalCategory !== null}
+                onClose={() => setActivitiesModalCategory(null)}
+                categorization={categorizationFromBreakdown}
+                initialCategory={activitiesModalCategory || 'all'}
+            />
 
-            {/* Focus Sessions Summary (grouped by day) */}
-            {focusSessions.length > 0 && (() => {
-                const sceneLabel: Record<string, string> = { classroom: 'Classroom', cafe: 'Café', library: 'Library' };
-                const sceneColors: Record<string, string> = { classroom: '#4ade80', cafe: '#f59e0b', library: '#a78bfa' };
-                const byDay: Record<string, { totalSec: number; rooms: Record<string, number>; date: string }> = {};
-                focusSessions.forEach((s: any) => {
-                    const d = new Date(s.startedAt);
-                    const key = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-                    if (!byDay[key]) byDay[key] = { totalSec: 0, rooms: {}, date: key };
-                    byDay[key].totalSec += s.durationSeconds || 0;
-                    byDay[key].rooms[s.scene] = (byDay[key].rooms[s.scene] || 0) + 1;
-                });
-                const days = Object.values(byDay).slice(0, 10);
-                const totalSec = focusSessions.reduce((sum: number, s: any) => sum + (s.durationSeconds || 0), 0);
-
-                return (
-                    <div className="glass-card rounded-2xl overflow-hidden border border-purple-500/20">
-                        <div className="p-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
-                            <div
-                                onClick={() => onNavigate?.('focusroom')}
-                                className="flex items-center gap-3 cursor-pointer group"
-                                title="Click to open Focus Rooms"
-                            >
-                                <div className="p-2 rounded-xl bg-purple-500/15 text-purple-400 group-hover:bg-purple-500/25 transition-colors">
-                                    <BookOpen size={16} />
-                                </div>
-                                <div>
-                                    <h4 className="text-sm font-bold group-hover:text-purple-300 transition-colors" style={{ color: 'var(--text-primary)' }}>
-                                        Focus Room Sessions
-                                    </h4>
-                                    <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                                        {focusSessions.length} session{focusSessions.length !== 1 ? 's' : ''} · {formatDuration(totalSec * 1000)} total
-                                    </p>
-                                </div>
-                            </div>
-                            {onNavigate && (
-                                <button
-                                    type="button"
-                                    onClick={() => onNavigate('focusroom')}
-                                    className="text-xs font-semibold text-purple-400 hover:text-purple-300 hover:underline flex items-center gap-1 cursor-pointer transition-colors"
-                                >
-                                    <span>Enter Rooms</span>
-                                    <ArrowRight size={12} />
-                                </button>
-                            )}
+            {/* Focus Room sessions in the selected period */}
+            <section aria-labelledby="focus-sessions-heading" className="rounded-2xl border" style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border-secondary)' }}>
+                <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                        <BookOpen size={18} className="text-[color:var(--insights-link)]" aria-hidden="true" />
+                        <div>
+                            <h3 id="focus-sessions-heading" className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Focus Room sessions</h3>
+                            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                                {rangeFocusSessions.length > 0
+                                    ? `${rangeFocusSessions.length} ${rangeFocusSessions.length === 1 ? 'session' : 'sessions'}, ${formatDuration(rangeFocusSeconds * 1000)} in total`
+                                    : `No sessions ${isDay ? 'on this day' : 'in these 7 days'}`}
+                            </p>
                         </div>
-                        <div style={{ maxHeight: 200, overflowY: 'auto' }} className="custom-scrollbar">
-                            {days.map((day, i) => {
-                                const roomEntries = Object.entries(day.rooms);
+                    </div>
+                    {onNavigate && (
+                        <button type="button" onClick={() => onNavigate('focusroom')} className={`text-sm font-medium text-[color:var(--insights-link)] hover:underline cursor-pointer rounded ${focusRing}`}>
+                            Open Focus Rooms
+                        </button>
+                    )}
+                </div>
+                {rangeFocusSessions.length > 0 && (
+                    <ul className="border-t max-h-56 overflow-y-auto custom-scrollbar" style={{ borderColor: 'var(--border-secondary)' }}>
+                        {[...rangeFocusSessions]
+                            .sort((a: any, b: any) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+                            .map((s: any, i: number) => {
+                                const started = new Date(s.startedAt);
+                                const when = isDay
+                                    ? started.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                                    : started.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
                                 return (
-                                    <div
-                                        key={day.date}
-                                        onClick={() => onNavigate?.('focusroom')}
-                                        className="flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-purple-500/10 cursor-pointer group select-none"
-                                        style={{ borderBottom: i < days.length - 1 ? '1px solid var(--border-secondary)' : 'none' }}
-                                        title="Click to enter Focus Rooms"
-                                    >
-                                        <span className="text-xs font-semibold" style={{ color: 'var(--text-muted)', minWidth: 85, whiteSpace: 'nowrap' }}>{day.date}</span>
-                                        <div className="flex-1 flex gap-1.5 flex-wrap">
-                                            {roomEntries.map(([scene, count]) => {
-                                                const color = sceneColors[scene] || '#a78bfa';
-                                                return (
-                                                    <span key={scene} className="text-xs font-semibold px-2 py-0.5 rounded-md transition-transform group-hover:scale-105" style={{ color, background: `${color}15` }}>
-                                                        {sceneLabel[scene] || scene}{count > 1 ? ` (×${count})` : ''}
-                                                    </span>
-                                                );
-                                            })}
-                                        </div>
-                                        <span className="text-xs font-bold px-2 py-0.5 rounded-md" style={{ color: '#a78bfa', background: 'rgba(167,139,250,0.12)' }}>
-                                            {formatDuration(day.totalSec * 1000)}
-                                        </span>
-                                        <ArrowRight size={12} className="text-purple-400/40 group-hover:text-purple-400 group-hover:translate-x-0.5 transition-all" />
-                                    </div>
+                                    <li key={s.id || i} className="px-5 py-2.5 flex items-center gap-4 text-sm border-b last:border-b-0" style={{ borderColor: 'var(--border-secondary)' }}>
+                                        <span className="w-24 shrink-0 tabular-nums" style={{ color: 'var(--text-secondary)' }}>{when}</span>
+                                        <span className="flex-1" style={{ color: 'var(--text-primary)' }}>{sceneLabel[s.scene] || s.scene}</span>
+                                        <span className="tabular-nums font-medium" style={{ color: 'var(--text-primary)' }}>{formatDuration((s.durationSeconds || 0) * 1000)}</span>
+                                    </li>
                                 );
                             })}
-                        </div>
-                    </div>
-                );
-            })()}
+                    </ul>
+                )}
+            </section>
 
-            {/* Heatmap Section */}
             <ActivityHeatmap />
-
-            {/* Historical Reports Section */}
-            <HistoricalReports engine={engine} />
         </div>
     );
 };

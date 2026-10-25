@@ -443,7 +443,8 @@ export const generateCompletion = async (
     engine: any,
     messages: { role: string; content: string }[],
     temperature = 0.7,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    onToken?: (textSoFar: string) => void
 ) => {
     if (signal?.aborted) {
         const err = new Error("Operation cancelled by user");
@@ -461,6 +462,27 @@ export const generateCompletion = async (
 
     try {
         const startTime = Date.now();
+        // Stream from the on-device engine when the caller wants live progress; API engines return in one go
+        if (onToken && !engine.isExternal) {
+            const chunks = await engine.chat.completions.create({
+                messages,
+                temperature,
+                stream: true,
+                ...(signal ? { signal } : {}),
+            });
+            let text = '';
+            for await (const chunk of chunks) {
+                if (signal?.aborted) break;
+                const delta = chunk?.choices?.[0]?.delta?.content;
+                if (delta) {
+                    text += delta;
+                    onToken(text);
+                }
+            }
+            log('info', `Completion streamed in ${Date.now() - startTime}ms`);
+            return text;
+        }
+
         const completion = await engine.chat.completions.create({
             messages,
             temperature,
@@ -541,6 +563,8 @@ export interface CalendarScheduleRequest {
     role?: string;
     compiledUserPrompt?: string;
     signal?: AbortSignal;
+    /** Called while the on-device model streams, with the number of schedule items drafted so far */
+    onProgress?: (itemsDrafted: number) => void;
 }
 
 export const CALENDAR_SCHEDULER_SYSTEM_PROMPT = `You are an elite productivity architect and cognitive performance coach. Your mission is to build a realistic, high-impact calendar routine tailored to the user's tasks, energy rhythms, and time budget.
@@ -778,8 +802,8 @@ export const compileCalendarSchedulePrompts = (
         `SCHEDULING EXECUTION DIRECTIVES:`,
         `1. Sizing: Size cognitive deep-work tasks realistically (45-90 min). For quick reviews or admin tasks, use 15-30 min.`,
         `2. Breathing Room: Insert 10-20 min buffer intervals between separate demanding blocks to avoid conveyor-belt burnout.`,
-        `3. Subtitles: Provide an actionable, high-performance technique for each task (e.g. "Pomodoro 50/10: Isolate edge cases", "Active Recall: Solve before reviewing answers").`,
-        `4. Strict Output: Return ONLY the raw JSON array of objects. No markdown wrappers, no introductory or concluding explanations.`
+        `3. Subtitles: Provide a short actionable technique for each task, under 10 words (e.g. "Pomodoro 50/10: Isolate edge cases", "Active Recall: Solve before reviewing answers").`,
+        `4. Strict Output: Return ONLY the raw JSON array of objects, one compact object per line with no indentation. No markdown wrappers, no introductory or concluding explanations.`
     ].filter((line) => line !== null).join('\n');
 
     const systemPromptTemplate = request.customSystemPrompt && request.customSystemPrompt.trim()
@@ -836,7 +860,10 @@ export const generateAICalendarSchedule = async (
     ];
 
     try {
-        const rawResponse = await generateCompletion(engine, messages, 0.4, request.signal);
+        const onToken = request.onProgress
+            ? (text: string) => request.onProgress!((text.match(/"title"\s*:/g) || []).length)
+            : undefined;
+        const rawResponse = await generateCompletion(engine, messages, 0.4, request.signal, onToken);
         if (request.signal?.aborted) {
             const abortErr = new Error("Operation cancelled by user");
             abortErr.name = "AbortError";

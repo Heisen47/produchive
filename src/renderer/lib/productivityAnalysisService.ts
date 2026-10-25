@@ -13,6 +13,8 @@ export interface ProductivityAnalysis {
     };
     timestamp?: number;
     modelName?: string;
+    /** False when the built-in heuristic wrote the report (no model, or the model failed) */
+    usedModel?: boolean;
 }
 
 export interface AnalysisInput {
@@ -40,6 +42,10 @@ export interface AnalysisInput {
     }>;
     engine?: any;
     modelName?: string;
+    /** Inclusive YYYY-MM-DD days being analysed; defaults to today */
+    range?: { start: string; end: string };
+    /** How the prompt names the period, e.g. "today" or "Mon 19 – Sun 25 October" */
+    periodLabel?: string;
 }
 
 export interface ActivityIdentity {
@@ -581,11 +587,15 @@ export async function generateProductivityAnalysis(input: AnalysisInput): Promis
         return `${y}-${m}-${day}`;
     })();
 
-    const todayCalendarItems = (routines || []).filter(
-        (r) => r.dateStr === todayStr && !r.isAutoDetected && r.category !== 'meal' && r.category !== 'break' && r.category !== 'sleep'
+    const range = input.range || { start: todayStr, end: todayStr };
+    const periodLabel = input.periodLabel || 'today';
+    const inRange = (dateStr: string) => dateStr >= range.start && dateStr <= range.end;
+
+    const plannedItems = (routines || []).filter(
+        (r) => inRange(r.dateStr) && !r.isAutoDetected && r.category !== 'meal' && r.category !== 'break' && r.category !== 'sleep'
     );
-    const todayCalendarTitles = todayCalendarItems.map((r) => r.title.trim()).filter(Boolean);
-    const effectiveGoals = todayCalendarTitles.length > 0 ? todayCalendarTitles : goals;
+    const plannedTitles = plannedItems.map((r) => r.title.trim()).filter(Boolean);
+    const effectiveGoals = plannedTitles.length > 0 ? plannedTitles : goals;
 
     const aggregatedItems = new Map<string, { duration: number; identity: ActivityIdentity }>();
 
@@ -625,6 +635,22 @@ export async function generateProductivityAnalysis(input: AnalysisInput): Promis
         }
     });
 
+    const topProductive = sanitizeCategoryList(Array.from(categorizedApps.productive)).slice(0, 3);
+    const topDistracting = sanitizeCategoryList(Array.from(categorizedApps.distracting)).slice(0, 3);
+
+    const heuristicTips: string[] = [];
+    if (topDistracting.length > 0) {
+        heuristicTips.push(`Block or limit ${topDistracting[0]} during your next deep work block.`);
+    }
+    if (topProductive.length > 0) {
+        heuristicTips.push(`Start your next session in ${topProductive[0]} before opening anything else.`);
+    }
+    if (effectiveGoals.length === 0) {
+        heuristicTips.push('Plan tasks in Routine so your next report can score you against them.');
+    } else {
+        heuristicTips.push('Take a 5-minute break between long focus blocks.');
+    }
+
     if (engine) {
         try {
             const sortedItems = Array.from(aggregatedItems.values())
@@ -650,16 +676,18 @@ export async function generateProductivityAnalysis(input: AnalysisInput): Promis
             }
 
             let routineSummaryText = '';
-            const todayRoutines = (routines || []).filter((r) => r.dateStr === todayStr);
-            if (todayRoutines.length > 0) {
-                const scheduled = todayRoutines.filter((r) => !r.isAutoDetected);
+            const periodRoutines = (routines || []).filter((r) => inRange(r.dateStr));
+            if (periodRoutines.length > 0) {
+                const scheduled = periodRoutines.filter((r) => !r.isAutoDetected);
                 const scheduledLines = scheduled
                     .map((r) => `- [${r.completed ? 'COMPLETED' : 'PENDING'}] ${r.title} (${r.durationMinutes}m) [${r.category}]`)
                     .join('\n');
                 routineSummaryText = `Scheduled Routine Calendar:\n${scheduledLines || '- None'}`;
             }
 
-            const prompt = `Today's goals:
+            const prompt = `Period analysed: ${periodLabel}
+
+Goals:
 ${goalsText}
 ${routineSummaryText ? `\n${routineSummaryText}\n` : ''}
 Tracked activities (longest first, total ${formatDuration(totalDurationMs)}):
@@ -667,6 +695,7 @@ ${activitySummary}
 ${focusSessionText}
 
 Put every activity name above, copied exactly, into one list in "categorization".
+Write "explanation" and "tips" to the person directly as "you" (e.g. "You spent 2h in VS Code"). Never call them "the user", "the student" or by their role.
 
 Reply with only this JSON:
 {
@@ -707,7 +736,7 @@ Reply with only this JSON:
                 rating: parsedRating,
                 verdict: parsedVerdict,
                 explanation: formatDomainOnly(result.explanation || 'Analysis complete.'),
-                tips: (Array.isArray(result.tips) && result.tips.length > 0 ? result.tips : ['Keep up your focus momentum!']).map(formatDomainOnly),
+                tips: (Array.isArray(result.tips) && result.tips.filter(Boolean).length > 0 ? result.tips.filter(Boolean) : heuristicTips).map(formatDomainOnly),
                 categorization: {
                     productive: sanitizeCategoryList(result.categorization?.productive || Array.from(categorizedApps.productive)),
                     neutral: sanitizeCategoryList(result.categorization?.neutral || Array.from(categorizedApps.neutral)),
@@ -715,6 +744,7 @@ Reply with only this JSON:
                 },
                 timestamp: Date.now(),
                 modelName: resolveModelDisplayName(input.modelName, true),
+                usedModel: true,
             };
         } catch (llmErr) {
             console.warn('[productivityAnalysisService] LLM completion failed, falling back to tab-level heuristic:', llmErr);
@@ -739,42 +769,26 @@ Reply with only this JSON:
     const verdict: 'productive' | 'neutral' | 'unproductive' =
         score >= 7 ? 'productive' : score >= 4 ? 'neutral' : 'unproductive';
 
-    const topProductive = sanitizeCategoryList(Array.from(categorizedApps.productive)).slice(0, 3);
-    const topDistracting = sanitizeCategoryList(Array.from(categorizedApps.distracting)).slice(0, 3);
-
     let explanation = '';
     if (verdict === 'productive') {
         explanation = topProductive.length > 0
-            ? `Strong focus today! You made high progress in ${topProductive.join(', ')} with solid objective alignment.`
-            : `Great focus maintained across your active workspaces with high productive adherence.`;
+            ? `You kept a strong focus, with most of your time in ${topProductive.join(', ')}.`
+            : `You kept a strong focus across your work apps.`;
     } else if (verdict === 'neutral') {
         explanation = topDistracting.length > 0
-            ? `Balanced output with noticeable distractions. Time in ${topDistracting[0]} countered your progress in ${topProductive[0] || 'work tasks'}.`
-            : `Moderate productivity today with occasional context switching between tasks.`;
+            ? `You made progress in ${topProductive[0] || 'your work apps'}, but time in ${topDistracting[0]} pulled against it.`
+            : `You split your time between work and other apps, switching context often.`;
     } else {
         explanation = topDistracting.length > 0
-            ? `Heavy distraction detected: extensive time spent on ${topDistracting.join(', ')} significantly impacted your planned goals.`
-            : `Off-task activity and context switches dominated your schedule today.`;
-    }
-
-    const tips: string[] = [];
-    if (topDistracting.length > 0) {
-        tips.push(`Block or limit time on ${topDistracting[0]} during deep work blocks.`);
-    }
-    if (topProductive.length > 0) {
-        tips.push(`Schedule key work in ${topProductive[0]} during morning circadian peaks.`);
-    }
-    if (effectiveGoals.length === 0) {
-        tips.push('Set targets in your Routine Calendar for exact task adherence tracking.');
-    } else {
-        tips.push('Take a 5-minute breather between intense coding and study sessions.');
+            ? `Most of your time went to ${topDistracting.join(', ')}, which pulled you away from your goals.`
+            : `Off-task apps and context switches took most of your time.`;
     }
 
     return {
         rating: score,
         verdict,
         explanation: formatDomainOnly(explanation),
-        tips: tips.map(formatDomainOnly),
+        tips: heuristicTips.map(formatDomainOnly),
         categorization: {
             productive: sanitizeCategoryList(Array.from(categorizedApps.productive)),
             neutral: sanitizeCategoryList(Array.from(categorizedApps.neutral)),
@@ -782,5 +796,6 @@ Reply with only this JSON:
         },
         timestamp: Date.now(),
         modelName: resolveModelDisplayName(input.modelName, false),
+        usedModel: false,
     };
 }

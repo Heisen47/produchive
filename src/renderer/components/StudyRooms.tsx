@@ -12,9 +12,14 @@ import { useTheme } from './ThemeProvider';
 import { openWebPage } from '../lib/urls';
 import { WS_BASE_URL } from '../lib/config';
 
-export const StudyRooms = ({ onNavigate }: { onNavigate?: (view: string) => void }) => {
+export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: string) => void; onRoomChange?: (inRoom: boolean) => void }) => {
     const { isDark } = useTheme();
     const [mode, setMode] = useState<'lobby' | 'solo' | 'multiplayer'>('lobby');
+
+    useEffect(() => {
+        onRoomChange?.(mode !== 'lobby');
+        return () => onRoomChange?.(false);
+    }, [mode, onRoomChange]);
     const isPremium = useStore(state => state.isPremium);
     const user = useStore(state => state.user);
 

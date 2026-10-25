@@ -5,6 +5,7 @@ import Lottie from 'lottie-react';
 import catAnimation from '../assets/cat.json';
 import { version } from '../../../package.json';
 import { openUrl, WEB_BASE_URL } from '../lib/urls';
+import { CatfoodChip } from './CatfoodChip';
 
 
 interface FooterProps {
@@ -106,6 +107,8 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                 </div>
 
                 <div className="flex items-center gap-3 sm:gap-4 order-1 sm:order-2 z-10">
+                    <CatfoodChip isCatEnabled={isCatEnabled} />
+
                     <button
                         type="button"
                         onClick={() => window.dispatchEvent(new CustomEvent('produchive_toggle_debug'))}

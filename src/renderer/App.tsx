@@ -45,6 +45,7 @@ import { Footer } from './components/Footer';
 import { DownloadProgress } from './components/DownloadProgress';
 import { UpdateBanner } from './components/UpdateBanner';
 import { PeekabooCat } from './components/PeekabooCat';
+import { SakuraTree } from './components/SakuraTree';
 import { ModelManager } from './components/ModelManager';
 import { createExternalEngine, isExternalEngine, getAISource, setAISource, PROVIDER_LABELS } from './lib/externalEngine';
 import type { ExternalAIConfig } from './global';
@@ -84,6 +85,7 @@ const AppContent = () => {
     const [isDataLoaded, setDataLoaded] = useState(false);
     const [viewKey, setViewKey] = useState(0);
     const [isCatEnabled, setCatEnabled] = useState(true);
+    const [isInRoom, setInRoom] = useState(false);
 
     const toggleCat = async () => {
         const newValue = !isCatEnabled;
@@ -439,6 +441,8 @@ const AppContent = () => {
 
     return (
         <div className="h-screen w-screen flex overflow-hidden font-sans selection:bg-blue-500/30" style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+            {/* Background tree: first child so all later (positioned) content paints over it */}
+            {!isInRoom && <SakuraTree />}
             <ErrorModal />
             <ActivityConfirmationPopup />
             <DebugPanel />
@@ -482,7 +486,7 @@ const AppContent = () => {
             />
 
             {/* Main Content */}
-            <main className="flex-1 flex flex-col min-w-0 relative" style={{ background: 'var(--bg-primary)' }}>
+            <main className="flex-1 flex flex-col min-w-0 relative">
                 <UpdateBanner />
 
                 {/* Header */}
@@ -704,11 +708,11 @@ const AppContent = () => {
 
                             {currentView === 'ai' && (
                                 <div className="space-y-6">
-                                    <ProductivityJudge engine={engine} onNavigate={handleViewChange} />
+                                    <ProductivityJudge engine={engine} modelLabel={engine ? activeModelLabel : undefined} onNavigate={handleViewChange} />
                                 </div>
                             )}
 
-                            {currentView === 'focusroom' && <StudyRooms onNavigate={handleViewChange} />}
+                            {currentView === 'focusroom' && <StudyRooms onNavigate={handleViewChange} onRoomChange={setInRoom} />}
                         </div>
                     </div>
                 </div>

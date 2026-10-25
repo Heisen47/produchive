@@ -57,7 +57,7 @@ import { isExternalEngine } from '../lib/externalEngine';
 import {
     distributeSmartSchedule,
     allocateProductiveTaskDurations,
-    recalculateSequentialSchedule,
+    layoutHumanDay,
     generateForwardSmartSchedule,
     generateWeeklySmartSchedule,
     isOccupationBlock,
@@ -408,7 +408,15 @@ export const Routine = ({
     };
 
     // ─── View Modes: 'work_week' (5 days) | 'week' (7 days) | 'day' (1 day) ───
-    const [viewMode, setViewMode] = useState<'work_week' | 'week' | 'day'>('work_week');
+    // Weekdays open on the work week; weekends open on the full week so Sat/Sun are visible
+    const isWeekendDate = (date: Date) => date.getDay() === 0 || date.getDay() === 6;
+    const [viewMode, setViewMode] = useState<'work_week' | 'week' | 'day'>(() => (isWeekendDate(new Date()) ? 'week' : 'work_week'));
+    // Follow the selected day until the user picks Work week or Week themselves
+    const viewModeChosenRef = useRef(false);
+    const chooseViewMode = (mode: 'work_week' | 'week' | 'day') => {
+        if (mode !== 'day') viewModeChosenRef.current = true;
+        setViewMode(mode);
+    };
     const [is24HourWindow, setIs24HourWindow] = useState<boolean>(() => {
         try {
             const saved = localStorage.getItem('produchive_calendar_24h_window');
@@ -437,6 +445,11 @@ export const Routine = ({
     }, [is24HourWindow]);
 
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+
+    useEffect(() => {
+        if (viewModeChosenRef.current) return;
+        setViewMode((mode) => (mode === 'day' ? mode : isWeekendDate(selectedDate) ? 'week' : 'work_week'));
+    }, [selectedDate]);
     const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
     const [pickerMonth, setPickerMonth] = useState<Date>(new Date());
     const [isMakerOpen, setIsMakerOpen] = useState(false);
@@ -1348,18 +1361,20 @@ export const Routine = ({
         const currentH = new Date().getHours();
         const actualStartHour = isSelectedToday ? Math.max(startHourInput, currentH) : startHourInput;
 
-        if (planScope === 'week') {
-            const dayItems = previewSchedule.filter((i) => i.dateStr === targetDateStr && i.id !== itemId);
-            const otherDaysItems = previewSchedule.filter((i) => i.dateStr !== targetDateStr);
-            const recalculatedDay = recalculateSequentialSchedule(dayItems, actualStartHour, 0);
-            setPreviewSchedule([...otherDaysItems, ...recalculatedDay]);
-            return;
-        }
+        // Close the gap by pulling later blocks up, keeping meals where they are and buffers between blocks
+        const relayDay = (dayItems: PlannedRoutineItem[]) => {
+            const remaining = dayItems.filter((i) => i.id !== itemId);
+            const dayStart = Math.min(
+                ...dayItems.map((i) => i.startHour * 60 + i.startMinute),
+                Math.max(actualStartHour * 60, isSelectedToday ? new Date().getHours() * 60 + new Date().getMinutes() : 0)
+            );
+            return layoutHumanDay(remaining, { dateStr: targetDateStr, dayStartMins: dayStart, compact: true });
+        };
 
-        setPreviewSchedule((prev) => {
-            const filtered = prev.filter((item) => item.id !== itemId);
-            return recalculateSequentialSchedule(filtered, actualStartHour, 0);
-        });
+        setPreviewSchedule((prev) => [
+            ...prev.filter((i) => i.dateStr !== targetDateStr),
+            ...relayDay(prev.filter((i) => i.dateStr === targetDateStr)),
+        ]);
     };
 
     // ─── Drag and Drop Handlers with Past Task & Past Timeslot Blocking ───
@@ -1772,7 +1787,7 @@ export const Routine = ({
                         }}
                     >
                         <button
-                            onClick={() => setViewMode('day')}
+                            onClick={() => chooseViewMode('day')}
                             className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
                                 viewMode === 'day' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
                             }`}
@@ -1783,7 +1798,7 @@ export const Routine = ({
                             Day
                         </button>
                         <button
-                            onClick={() => setViewMode('work_week')}
+                            onClick={() => chooseViewMode('work_week')}
                             className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
                                 viewMode === 'work_week' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
                             }`}
@@ -1794,7 +1809,7 @@ export const Routine = ({
                             Work week
                         </button>
                         <button
-                            onClick={() => setViewMode('week')}
+                            onClick={() => chooseViewMode('week')}
                             className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
                                 viewMode === 'week' ? 'bg-[#5b5fc7] text-white shadow-sm' : ''
                             }`}

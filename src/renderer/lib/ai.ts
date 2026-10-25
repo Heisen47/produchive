@@ -6,7 +6,7 @@ import {
     prebuiltAppConfig,
 } from "@mlc-ai/web-llm";
 import { PlannedRoutineItem } from '../types/routine';
-import { resolveCollisionsSequentially } from './smartScheduler';
+import { layoutHumanDay } from './smartScheduler';
 
 export const CACHED_MODELS_STORAGE_KEY = 'produchive_downloaded_models';
 
@@ -651,7 +651,9 @@ export const sanitizeAndValidateScheduleItems = (
         'development', 'research', 'meeting', 'design', 'writing', 'break', 'meal', 'sleep', 'other'
     ];
 
-    const todayDateStr = new Date().toISOString().split('T')[0];
+    // Local date, not UTC, so "today" is right in every timezone
+    const nowDate = new Date();
+    const todayDateStr = `${nowDate.getFullYear()}-${String(nowDate.getMonth() + 1).padStart(2, '0')}-${String(nowDate.getDate()).padStart(2, '0')}`;
     const currentTotalMins = request.currentHour * 60 + request.currentMinute;
 
     const sanitized: PlannedRoutineItem[] = [];
@@ -714,9 +716,26 @@ export const sanitizeAndValidateScheduleItems = (
         grouped.set(item.dateStr, list);
     }
 
+    const isWeek = Boolean(request.targetDates && request.targetDates.length > 0);
+    const workBudgetMins = isWeek
+        ? (request.totalWeeklyHours ? Math.round((request.totalWeeklyHours * 60) / request.targetDates!.length) : undefined)
+        : (request.allottedHours ? request.allottedHours * 60 : undefined);
+    const nowMins = nowDate.getHours() * 60 + nowDate.getMinutes();
+
     const resolved: PlannedRoutineItem[] = [];
-    for (const [, itemsForDate] of grouped) {
-        resolved.push(...resolveCollisionsSequentially(itemsForDate));
+    for (const [dateStr, itemsForDate] of grouped) {
+        // The caller already moved the target day's start past "now"; other days of a week start on the hour
+        let dayStartMins = dateStr === request.targetDateStr ? currentTotalMins : request.currentHour * 60;
+        if (dateStr !== request.targetDateStr && dateStr === todayDateStr) dayStartMins = Math.max(dayStartMins, nowMins);
+        resolved.push(...layoutHumanDay(itemsForDate, {
+            dateStr,
+            dayStartMins,
+            workBudgetMins,
+            includeBreakfast: request.includeBreakfast,
+            includeLunch: request.includeLunch,
+            includeDinner: request.includeDinner,
+            includeRestBlocks: request.includeRestBlocks,
+        }));
     }
 
     return resolved;

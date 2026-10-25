@@ -887,7 +887,9 @@ export const autoBalanceSchedule = (
         }
     }
 
-    return recalculateSequentialSchedule(updated, startHour, startMinute);
+    // Re-lay the day from where it currently begins, keeping meals in place and buffers between blocks
+    const earliest = updated.length > 0 ? Math.min(...updated.map((item) => item.startHour * 60 + item.startMinute)) : startHour * 60 + startMinute;
+    return layoutHumanDay(updated, { dateStr: updated[0]?.dateStr || '', dayStartMins: earliest, compact: true });
 };
 
 /**
@@ -1352,3 +1354,292 @@ export const generateWeeklySmartSchedule = (
     return fullWeeklySchedule;
 };
 
+
+export interface HumanDayLayoutOptions {
+    dateStr: string;
+    /** Minutes after midnight the day's plan may start (never before this) */
+    dayStartMins: number;
+    /** Focus minutes the user has for this day; longer plans are scaled down to fit */
+    workBudgetMins?: number;
+    includeBreakfast?: boolean;
+    includeLunch?: boolean;
+    includeDinner?: boolean;
+    includeRestBlocks?: boolean;
+    /** Pack flexible items in their current order instead of honouring their start times (used after edits) */
+    compact?: boolean;
+}
+
+type MealKind = 'breakfast' | 'lunch' | 'dinner';
+
+const MEAL_WINDOWS: Record<MealKind, { at: number; earliest: number; latest: number; duration: number; title: string; subtitle: string }> = {
+    breakfast: { at: 8 * 60, earliest: 7 * 60, latest: 10 * 60, duration: 30, title: 'Breakfast', subtitle: 'Eat away from the screen' },
+    lunch: { at: 13 * 60, earliest: 12 * 60, latest: 14 * 60 + 30, duration: 45, title: 'Lunch', subtitle: 'Step away and eat properly' },
+    dinner: { at: 19 * 60 + 30, earliest: 18 * 60 + 30, latest: 21 * 60 + 30, duration: 45, title: 'Dinner', subtitle: 'Screens off while you eat' },
+};
+
+const OCCUPATION_START = 9 * 60;
+const OCCUPATION_END = 17 * 60;
+/** A model-suggested start is kept only if it leaves at most this much idle time */
+const MAX_HONOURED_GAP = 60;
+/** Continuous focus after which a short break is added (when rest breaks are on) */
+const FOCUS_STREAK_LIMIT = 110;
+/** Longest single focus block; longer work is split into sessions */
+const MAX_FOCUS_BLOCK = 90;
+
+const roundUpTo = (mins: number, step: number) => Math.ceil(mins / step) * step;
+const startOf = (item: PlannedRoutineItem) => item.startHour * 60 + item.startMinute;
+
+const isFocusWork = (item: PlannedRoutineItem) =>
+    item.category !== 'meal' && item.category !== 'break' && item.category !== 'sleep' && !isOccupationBlock(item.title);
+
+const mealKindOf = (item: PlannedRoutineItem): MealKind | null => {
+    const t = item.title.toLowerCase();
+    if (t.includes('breakfast')) return 'breakfast';
+    if (t.includes('lunch') || t.includes('brunch')) return 'lunch';
+    if (t.includes('dinner') || t.includes('supper')) return 'dinner';
+    if (item.category !== 'meal') return null;
+    const s = startOf(item);
+    return s < 11 * 60 ? 'breakfast' : s < 16 * 60 ? 'lunch' : 'dinner';
+};
+
+/** Rest after a focus block: longer blocks earn a longer pause */
+const bufferAfter = (item: PlannedRoutineItem) => (item.durationMinutes > 45 ? 15 : 10);
+
+/**
+ * Lays out one day so a person can actually follow it: starts on clean 5-minute marks,
+ * leaves a 10-15 minute buffer between focus blocks, adds a short break after ~2 hours
+ * of continuous focus, keeps meals in their normal windows, splits blocks longer than
+ * 90 minutes, fits focus work to the day's budget, and keeps office/school hours fixed.
+ * Model-suggested start times are kept when they don't leave long idle gaps.
+ */
+export const layoutHumanDay = (items: PlannedRoutineItem[], options: HumanDayLayoutOptions): PlannedRoutineItem[] => {
+    const { dateStr, workBudgetMins, includeRestBlocks, compact } = options;
+    const dayStart = roundUpTo(Math.max(0, options.dayStartMins), 5);
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dayIndex = !isNaN(y) && !isNaN(m) && !isNaN(d) ? new Date(y, m - 1, d).getDay() : new Date().getDay();
+    const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const mealFlags: Record<MealKind, boolean | undefined> = {
+        breakfast: options.includeBreakfast,
+        lunch: options.includeLunch,
+        dinner: options.includeDinner,
+    };
+
+    const anchors: PlannedRoutineItem[] = [];
+    const sleepItems: PlannedRoutineItem[] = [];
+    let flexible: { item: PlannedRoutineItem; hint: number; order: number }[] = [];
+
+    items.forEach((raw, order) => {
+        const item = { ...raw, dateStr, dayIndex, durationMinutes: Math.max(5, raw.durationMinutes || 30) };
+        if (item.category === 'sleep') {
+            sleepItems.push(item);
+            return;
+        }
+
+        const meal = mealKindOf(item);
+        if (meal) {
+            if (mealFlags[meal] === false) return;
+            const w = MEAL_WINDOWS[meal];
+            if (w.latest < dayStart) return; // That meal time has already passed
+            const hint = startOf(item);
+            const start = compact ? Math.max(hint, dayStart) : Math.max(dayStart, Math.min(w.latest, Math.max(w.earliest, hint)));
+            anchors.push({ ...item, category: 'meal', startHour: Math.floor(start / 60), startMinute: start % 60 });
+            return;
+        }
+
+        if (isOccupationBlock(item.title)) {
+            if (compact) {
+                anchors.push({ ...item, ...(startOf(item) < dayStart ? { startHour: Math.floor(dayStart / 60), startMinute: dayStart % 60 } : {}) });
+                return;
+            }
+            // Office/school hours are fixed; only the part still ahead of us is planned
+            const start = Math.max(OCCUPATION_START, dayStart);
+            if (OCCUPATION_END - start < 30) return;
+            anchors.push({ ...item, startHour: Math.floor(start / 60), startMinute: start % 60, durationMinutes: OCCUPATION_END - start });
+            return;
+        }
+
+        flexible.push({ item, hint: startOf(item), order });
+    });
+
+    // Snap focus work to 15-minute steps and fit it to the day's budget
+    flexible.forEach((f) => {
+        if (isFocusWork(f.item) && !compact) f.item.durationMinutes = Math.max(15, Math.round(f.item.durationMinutes / 15) * 15);
+    });
+    if (workBudgetMins && workBudgetMins > 0 && !compact) {
+        const work = flexible.filter((f) => isFocusWork(f.item));
+        let total = work.reduce((sum, f) => sum + f.item.durationMinutes, 0);
+        while (total > workBudgetMins + 10) {
+            const longest = work.filter((f) => f.item.durationMinutes > 15).sort((a, b) => b.item.durationMinutes - a.item.durationMinutes)[0];
+            if (!longest) break;
+            longest.item.durationMinutes -= 15;
+            total -= 15;
+        }
+    }
+
+    // Split very long blocks into sessions so breaks and meals can sit between them
+    flexible = flexible.flatMap((f) => {
+        if (!isFocusWork(f.item) || f.item.durationMinutes <= MAX_FOCUS_BLOCK + 30) return [f];
+        const parts = Math.ceil(f.item.durationMinutes / MAX_FOCUS_BLOCK);
+        const size = Math.round(f.item.durationMinutes / parts / 15) * 15;
+        return Array.from({ length: parts }, (_, i) => ({
+            ...f,
+            hint: f.hint + i,
+            item: {
+                ...f.item,
+                id: i === 0 ? f.item.id : `${f.item.id}-part${i + 1}`,
+                title: i === 0 ? f.item.title : `${f.item.title} (part ${i + 1})`,
+                durationMinutes: i === parts - 1 ? f.item.durationMinutes - size * (parts - 1) : size,
+            },
+        }));
+    });
+
+    // Add the meals the user asked for when the plan runs through their usual time
+    if (!compact) {
+        const roughEnd = dayStart
+            + flexible.reduce((sum, f) => sum + f.item.durationMinutes + (isFocusWork(f.item) ? 12 : 0), 0)
+            + anchors.reduce((sum, a) => sum + a.durationMinutes, 0);
+        (Object.keys(MEAL_WINDOWS) as MealKind[]).forEach((kind) => {
+            if (mealFlags[kind] !== true || anchors.some((a) => mealKindOf(a) === kind)) return;
+            const w = MEAL_WINDOWS[kind];
+            const coversMeal = kind === 'breakfast' ? dayStart <= 9 * 60 + 30 : w.latest >= dayStart && w.earliest <= roughEnd;
+            if (!coversMeal) return;
+            const start = Math.max(w.at, dayStart);
+            anchors.push({
+                id: makeId(`meal-${kind}`),
+                title: w.title,
+                category: 'meal',
+                priority: 'medium',
+                dayIndex,
+                dateStr,
+                startHour: Math.floor(start / 60),
+                startMinute: start % 60,
+                durationMinutes: w.duration,
+                completed: false,
+                subtitle: w.subtitle,
+            });
+        });
+    }
+
+    // Office/school hours wrap around lunch instead of running through it
+    anchors.sort((a, b) => startOf(a) - startOf(b));
+    const splitAnchors: PlannedRoutineItem[] = [];
+    for (const a of anchors) {
+        if (!isOccupationBlock(a.title)) {
+            splitAnchors.push(a);
+            continue;
+        }
+        const lunch = anchors.find((l) => l.category === 'meal' && startOf(l) > startOf(a) && startOf(l) < startOf(a) + a.durationMinutes);
+        if (!lunch) {
+            splitAnchors.push(a);
+            continue;
+        }
+        const end = startOf(a) + a.durationMinutes;
+        const lunchEnd = startOf(lunch) + lunch.durationMinutes;
+        splitAnchors.push({ ...a, durationMinutes: startOf(lunch) - startOf(a) });
+        if (end - lunchEnd >= 15) {
+            splitAnchors.push({
+                ...a,
+                id: `${a.id}-pm`,
+                title: `${a.title} (afternoon)`,
+                startHour: Math.floor(lunchEnd / 60),
+                startMinute: lunchEnd % 60,
+                durationMinutes: end - lunchEnd,
+            });
+        }
+    }
+    const anchorQueue = splitAnchors.sort((a, b) => startOf(a) - startOf(b));
+
+    // Keep the model's (or the user's) order: earliest suggested start first
+    const queue = flexible
+        .sort((a, b) => Math.max(a.hint, dayStart) - Math.max(b.hint, dayStart) || a.order - b.order)
+        .map((f) => ({ item: f.item, hint: f.hint }));
+
+    const out: PlannedRoutineItem[] = [];
+    let cursor = dayStart;
+    let prev: PlannedRoutineItem | null = null;
+    let focusStreak = 0;
+
+    const place = (item: PlannedRoutineItem, start: number) => {
+        out.push({ ...item, startHour: Math.floor(start / 60) % 24, startMinute: start % 60 });
+        cursor = start + item.durationMinutes;
+        prev = item;
+        focusStreak = isFocusWork(item) ? focusStreak + item.durationMinutes : item.durationMinutes >= 10 ? 0 : focusStreak;
+    };
+
+    const startFor = (entry: { item: PlannedRoutineItem; hint: number }) => {
+        const gap = prev && isFocusWork(prev) ? (isFocusWork(entry.item) ? bufferAfter(prev) : 0) : 0;
+        let start = roundUpTo(cursor + gap, 5);
+        if (!compact && entry.hint > start && entry.hint - start <= MAX_HONOURED_GAP) start = roundUpTo(entry.hint, 5);
+        return start;
+    };
+
+    while (queue.length > 0 || anchorQueue.length > 0) {
+        const anchor = anchorQueue[0];
+
+        if (includeRestBlocks && focusStreak >= FOCUS_STREAK_LIMIT && queue.some((q) => isFocusWork(q.item))) {
+            const start = roundUpTo(cursor, 5);
+            if (!anchor || startOf(anchor) - start >= 45) {
+                place({
+                    id: makeId('break'),
+                    title: 'Short break',
+                    category: 'break',
+                    priority: 'low',
+                    dayIndex,
+                    dateStr,
+                    startHour: 0,
+                    startMinute: 0,
+                    durationMinutes: 15,
+                    completed: false,
+                    subtitle: 'Stand up, stretch, refill your water',
+                }, start);
+                continue;
+            }
+        }
+
+        const fitIndex = queue.findIndex((q) => !anchor || startFor(q) + q.item.durationMinutes <= startOf(anchor));
+        if (fitIndex !== -1) {
+            const [entry] = queue.splice(fitIndex, 1);
+            place(entry.item, startFor(entry));
+            continue;
+        }
+
+        // Nothing fits before the next fixed item. A meal can wait (within its usual window) for one more block
+        const next = queue[0];
+        const mealKind = anchor ? mealKindOf(anchor) : null;
+        if (anchor && next && mealKind) {
+            const start = startFor({ ...next, hint: -1 });
+            if (start < startOf(anchor) && start + next.item.durationMinutes <= MEAL_WINDOWS[mealKind].latest) {
+                queue.shift();
+                place(next.item, start);
+                continue;
+            }
+        }
+
+        // Otherwise use a worthwhile gap for part of the next focus block (not after edits, so blocks keep their identity)
+        if (anchor && next && isFocusWork(next.item) && !compact) {
+            const start = startFor({ ...next, hint: -1 });
+            const usable = Math.floor((startOf(anchor) - start) / 15) * 15;
+            if (usable >= 30 && next.item.durationMinutes - usable >= 30) {
+                place({ ...next.item, durationMinutes: usable }, start);
+                next.item = {
+                    ...next.item,
+                    id: `${next.item.id}-cont`,
+                    title: next.item.title.endsWith('(cont.)') ? next.item.title : `${next.item.title} (cont.)`,
+                    durationMinutes: next.item.durationMinutes - usable,
+                };
+                next.hint = -1;
+            }
+        }
+
+        if (anchor) {
+            anchorQueue.shift();
+            place(anchor, roundUpTo(Math.max(startOf(anchor), cursor), 5));
+        }
+    }
+
+    for (const sleep of sleepItems) {
+        place(sleep, roundUpTo(Math.max(startOf(sleep), cursor), 5));
+    }
+
+    return out;
+};

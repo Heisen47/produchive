@@ -1,4 +1,5 @@
 import { inferActivityDetails } from './activityAutoTracker';
+import { buildSystemPrompt } from './ai';
 
 export interface ProductivityAnalysis {
     rating: number;
@@ -633,7 +634,8 @@ export async function generateProductivityAnalysis(input: AnalysisInput): Promis
             const activitySummary = sortedItems
                 .map((item, idx) => {
                     const ctx = item.identity.cleanContext ? ` (Context: ${item.identity.cleanContext})` : '';
-                    return `${idx + 1}. "${item.identity.displayName}" | Application: ${item.identity.appName} | Duration: ${formatDuration(item.duration)}${ctx}`;
+                    const share = totalDurationMs > 0 ? Math.round((item.duration / totalDurationMs) * 100) : 0;
+                    return `${idx + 1}. "${item.identity.displayName}" | Application: ${item.identity.appName} | Duration: ${formatDuration(item.duration)} (${share}% of tracked time)${ctx}`;
                 })
                 .join('\n');
 
@@ -657,48 +659,31 @@ export async function generateProductivityAnalysis(input: AnalysisInput): Promis
                 routineSummaryText = `Scheduled Routine Calendar:\n${scheduledLines || '- None'}`;
             }
 
-            const prompt = `You are the AI cognitive brain of Produchive.
-Your task is to analyze the user's recorded windows, browser tabs, and applications against their stated goals and determine whether each activity can be considered PRODUCTIVE, NEUTRAL, or DISTRACTING.
-
-User Goals & Targeted Work:
+            const prompt = `Today's goals:
 ${goalsText}
-${routineSummaryText ? `\n${routineSummaryText}` : ''}
-
-Recorded Activities:
+${routineSummaryText ? `\n${routineSummaryText}\n` : ''}
+Tracked activities (longest first, total ${formatDuration(totalDurationMs)}):
 ${activitySummary}
 ${focusSessionText}
 
-CRITICAL COGNITIVE JUDGMENT RULES:
-1. Use your brain to evaluate the true nature and context of each activity against the user's goals:
-   - Activities that actively advance the user's goals, technical learning, software engineering, writing, problem-solving, or coursework MUST be determined as "productive".
-   - Non-work entertainment, social media (Twitter/X, Reddit, TikTok, Instagram), gaming, or casual video streaming unrelated to goals MUST be determined as "distracting".
-   - Necessary background tools, system utilities, communication, or search navigation that are ambiguous or operational MUST be determined as "neutral".
-2. Group EVERY recorded activity into the appropriate list in "categorization":
-   - "productive": array of exact activity names you judged as productive.
-   - "neutral": array of exact activity names you judged as neutral.
-   - "distracting": array of exact activity names you judged as distracting.
-3. Determine an overall rating (1-10) and verdict ("productive", "neutral", "unproductive") reflecting the proportion of time spent on activities you determined as productive vs distracting:
-   - If extensive time was spent on activities you judged as distracting (e.g. >= 40% of time), the rating must be low (1-4) with verdict 'unproductive'.
-   - If time was dominated by activities you judged as productive, rating should be high (7-10) with verdict 'productive'.
-4. Provide a clear, honest explanation calling out the specific activities and explaining WHY your cognitive judgment classified them as productive or distracting.
-5. Provide actionable coaching tips.
+Put every activity name above, copied exactly, into one list in "categorization".
 
-Respond ONLY with this JSON structure:
+Reply with only this JSON:
 {
-  "rating": number (1-10),
+  "rating": <number 1-10>,
   "verdict": "productive" | "neutral" | "unproductive",
-  "explanation": "concise explanation calling out exact activities and why your AI brain judged them productive or distracting",
-  "tips": ["actionable tip 1", "actionable tip 2"],
+  "explanation": "<2-3 sentences: what went well, then what cost the most time, naming real activities>",
+  "tips": ["<concrete next step tied to a goal>", "<concrete next step>"],
   "categorization": {
-    "productive": ["exact activity names from the list"],
-    "neutral": ["exact activity names from the list"],
-    "distracting": ["exact activity names from the list"]
+    "productive": ["<exact activity name>"],
+    "neutral": ["<exact activity name>"],
+    "distracting": ["<exact activity name>"]
   }
 }`;
 
             const completion = await engine.chat.completions.create({
                 messages: [
-                    { role: 'system', content: 'You are an objective AI productivity brain that determines whether activities are productive or distracting against goals. Return JSON only.' },
+                    { role: 'system', content: buildSystemPrompt(customPrompt, selectedRole) },
                     { role: 'user', content: prompt }
                 ],
                 temperature: 0.2,

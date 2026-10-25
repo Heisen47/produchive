@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Task, Activity } from '../global';
 import { PlannedRoutineItem } from '../types/routine';
-import { DEFAULT_PROMPT } from './ai';
+import { DEFAULT_PROMPT, isLegacyDefaultPrompt } from './ai';
 import { syncTaskToRoutineCalendar, syncMultipleGoalsToRoutineCalendar } from './routineSync';
 
 interface Store {
@@ -194,7 +194,10 @@ export const useStore = create<Store>((set, get) => ({
         set({ selectedModelId: modelId });
         if (typeof localStorage !== 'undefined') localStorage.setItem('selectedModelId', modelId);
     },
-    customPrompt: (typeof localStorage !== 'undefined' ? localStorage.getItem('customPrompt') : null) || DEFAULT_PROMPT,
+    customPrompt: (() => {
+        const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('customPrompt') : null;
+        return saved && !isLegacyDefaultPrompt(saved) ? saved : DEFAULT_PROMPT;
+    })(),
     setCustomPrompt: (prompt: string) => {
         set({ customPrompt: prompt });
         if (typeof localStorage !== 'undefined') localStorage.setItem('customPrompt', prompt);

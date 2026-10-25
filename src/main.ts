@@ -20,6 +20,8 @@ import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execSync, exec } from "node:child_process";
 import { getAutoUpdater } from "./lib/autoUpdater";
+import { registerExternalAIHandlers } from "./externalAI";
+import { markStartup, logStartupSummary, startPerfMetrics, stopPerfMetrics } from "./lib/perfStats";
 
 app.setName("Produchive");
 app.name = "Produchive";
@@ -340,7 +342,13 @@ const createWindow = () => {
 
   // Show window only after content is fully painted
   mainWindow.once("ready-to-show", () => {
+    markStartup("window ready-to-show");
     mainWindow?.show();
+  });
+
+  mainWindow.webContents.once("did-finish-load", () => {
+    markStartup("renderer did-finish-load");
+    logStartupSummary();
   });
 
   // and load the index.html of the app.
@@ -1071,6 +1079,8 @@ const startMonitoring = async (): Promise<boolean> => {
 };
 
 function registerIpcHandlers() {
+  registerExternalAIHandlers();
+
   // Open URL in user's default system browser
   ipcMain.handle("open-external-url", async (_event, url: string) => {
     await shell.openExternal(url);
@@ -1813,17 +1823,22 @@ function setupPowerMonitor() {
 
 app.on("ready", async () => {
   logger.info("=== Produchive Starting ===");
+  markStartup("app ready");
+  startPerfMetrics();
   try {
     setupPowerMonitor();
     registerIpcHandlers();
     startLocalAuthServer();
+    markStartup("ipc + auth server set up");
 
     // 2. Initialize DB
     await initDB();
+    markStartup("db initialized");
 
     // 3. Mark app as ready and create window
     isAppReady = true;
     createWindow();
+    markStartup("window created");
 
     // 3b. Initialize auto-updater with the main window
     if (mainWindow) {
@@ -2041,6 +2056,7 @@ app.on("before-quit", () => {
 
   // Stop monitoring
   stopMonitoring();
+  stopPerfMetrics();
 
   logger.info("Restoring blocked activities before quit...");
   stopBlockEnforcement();

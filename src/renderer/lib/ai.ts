@@ -1,9 +1,25 @@
 /// <reference types="@webgpu/types" />
-import { CreateMLCEngine } from "@mlc-ai/web-llm";
+import {
+    CreateMLCEngine,
+    hasModelInCache as webllmHasModelInCache,
+    deleteModelAllInfoInCache,
+    prebuiltAppConfig,
+} from "@mlc-ai/web-llm";
 import { PlannedRoutineItem } from '../types/routine';
 import { resolveCollisionsSequentially } from './smartScheduler';
 
 export const CACHED_MODELS_STORAGE_KEY = 'produchive_downloaded_models';
+
+// Fired on window when a model is installed or removed so UI can refresh its "installed" status
+export const MODELS_CHANGED_EVENT = 'produchive:ai-models-changed';
+
+const notifyModelsChanged = () => {
+    try {
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+            window.dispatchEvent(new Event(MODELS_CHANGED_EVENT));
+        }
+    } catch {}
+};
 
 export const getPersistedDownloadedModels = (): string[] => {
     try {
@@ -119,21 +135,41 @@ const log = (level: 'info' | 'warn' | 'error', ...args: any[]) => {
 };
 
 // Cache Management Helper
+/**
+ * True only when every weight shard of the model is in web-llm's cache, so loading
+ * will not hit the network. A partially downloaded model (interrupted download, disk
+ * full) is NOT installed: web-llm would re-fetch the missing shards on load.
+ * The localStorage marker is only a fallback where the Cache API is unavailable.
+ */
 export const hasModelInCache = async (modelId: string): Promise<boolean> => {
+    if (typeof caches === 'undefined') {
+        return getPersistedDownloadedModels().includes(modelId);
+    }
     try {
-        if (typeof caches !== 'undefined') {
-            const cache = await caches.open('webllm/model');
-            const keys = await cache.keys();
-            const lowerId = modelId.toLowerCase();
-            const exists = keys.some(req => req.url.toLowerCase().includes(lowerId));
-            if (exists) {
-                markModelDownloaded(modelId);
-                return true;
-            }
+        const cached = await webllmHasModelInCache(modelId, prebuiltAppConfig);
+        if (cached) {
+            markModelDownloaded(modelId);
+        } else {
+            unmarkModelDownloaded(modelId);
         }
-        return getPersistedDownloadedModels().includes(modelId);
+        return cached;
     } catch (e) {
+        log('warn', `Cache check failed for ${modelId}`, e);
         return getPersistedDownloadedModels().includes(modelId);
+    }
+};
+
+/**
+ * Ask Chromium to mark this origin's storage as persistent so multi-GB model
+ * files are never evicted under storage pressure.
+ */
+export const requestPersistentStorage = async (): Promise<boolean> => {
+    try {
+        if (typeof navigator === 'undefined' || !navigator.storage?.persist) return false;
+        if (await navigator.storage.persisted()) return true;
+        return await navigator.storage.persist();
+    } catch {
+        return false;
     }
 };
 
@@ -144,30 +180,19 @@ export const getAnyPersistedDownloadedModelId = (): string | null => {
             const match = AVAILABLE_MODELS.find(m => persisted.includes(m.id));
             if (match) return match.id;
         }
-        const selected = typeof localStorage !== 'undefined' ? localStorage.getItem('selectedModelId') : null;
-        if (selected) {
-            const match = AVAILABLE_MODELS.find(m => m.id === selected);
-            if (match) return match.id;
-        }
     } catch {}
     return null;
 };
 
 export const hasAnyDownloadedModel = async (): Promise<string | null> => {
     try {
+        // Check the previously installed model first, then everything else
         const syncId = getAnyPersistedDownloadedModelId();
-        if (syncId) return syncId;
-
-        const selected = typeof localStorage !== 'undefined' ? localStorage.getItem('selectedModelId') : null;
-        if (selected) {
-            const match = AVAILABLE_MODELS.find(m => m.id === selected);
-            if (match && (await hasModelInCache(selected))) return selected;
-        }
-        for (const m of AVAILABLE_MODELS) {
-            if (await hasModelInCache(m.id)) {
-                markModelDownloaded(m.id);
-                return m.id;
-            }
+        const candidates = syncId
+            ? [syncId, ...AVAILABLE_MODELS.map(m => m.id).filter(id => id !== syncId)]
+            : AVAILABLE_MODELS.map(m => m.id);
+        for (const id of candidates) {
+            if (await hasModelInCache(id)) return id;
         }
         return null;
     } catch {
@@ -175,24 +200,74 @@ export const hasAnyDownloadedModel = async (): Promise<string | null> => {
     }
 };
 
+// Cache entries belonging to a model: weights/tokenizer/config live under the model's
+// Hugging Face folder, the compiled WebGPU library is named after its model_lib.
+const isModelCacheUrl = (url: string, modelId: string): boolean => {
+    if (url.includes(`/${modelId}/`)) return true;
+    const lib = prebuiltAppConfig.model_list?.find((m: any) => m.model_id === modelId)?.model_lib;
+    return !!lib && url === lib;
+};
+
+const listModelCacheEntries = async (modelId: string): Promise<{ cache: Cache; request: Request }[]> => {
+    if (typeof caches === 'undefined') return [];
+    const entries: { cache: Cache; request: Request }[] = [];
+    for (const name of await caches.keys()) {
+        if (!name.startsWith('webllm/')) continue;
+        const cache = await caches.open(name);
+        for (const request of await cache.keys()) {
+            if (isModelCacheUrl(request.url, modelId)) entries.push({ cache, request });
+        }
+    }
+    return entries;
+};
+
+/**
+ * Disk used by a model's cached files, including leftovers from an interrupted
+ * download. Returns 0 when nothing is cached.
+ */
+export const getModelCacheUsageMB = async (modelId: string): Promise<number> => {
+    try {
+        let bytes = 0;
+        for (const { cache, request } of await listModelCacheEntries(modelId)) {
+            const res = await cache.match(request);
+            bytes += Number(res?.headers.get('content-length')) || 0;
+        }
+        return bytes / (1024 * 1024);
+    } catch {
+        return 0;
+    }
+};
+
+/** True when some files of the model are cached but it is not fully installed. */
+export const hasPartialModelCache = async (modelId: string): Promise<boolean> => {
+    try {
+        return (await listModelCacheEntries(modelId)).length > 0;
+    } catch {
+        return false;
+    }
+};
+
 export const deleteModelFromCache = async (modelId: string): Promise<void> => {
     try {
         log('info', `Attempting to delete model: ${modelId}`);
+        const fullyInstalled = await hasModelInCache(modelId);
         unmarkModelDownloaded(modelId);
         if (typeof caches !== 'undefined') {
-            const cache = await caches.open('webllm/model');
-            const keys = await cache.keys();
-            
-            const deletions = keys
-                .filter(req => req.url.includes(modelId))
-                .map(req => cache.delete(req));
-            
-            await Promise.all(deletions);
-            log('info', `Deleted ${deletions.length} files for ${modelId}`);
+            // web-llm's own cleanup reads tensor-cache.json, which may be missing (and
+            // re-fetched) for a partial download, so only use it on complete installs.
+            if (fullyInstalled) {
+                await deleteModelAllInfoInCache(modelId, prebuiltAppConfig);
+            }
+            // Sweep whatever is left: partial shards, tokenizer, config, wasm
+            const leftovers = await listModelCacheEntries(modelId);
+            await Promise.all(leftovers.map(({ cache, request }) => cache.delete(request)));
+            log('info', `Deleted cached files for ${modelId} (${leftovers.length} swept)`);
         }
     } catch (e) {
         log('error', 'Failed to delete model from cache', e);
         throw e;
+    } finally {
+        notifyModelsChanged();
     }
 };
 
@@ -274,8 +349,9 @@ export const initEngine = async (
     }
 
     // Pre-flight disk space check before starting large multi-GB downloads
+    let isCached = false;
     if (selectedModelId) {
-        const isCached = await hasModelInCache(selectedModelId);
+        isCached = await hasModelInCache(selectedModelId);
         if (!isCached) {
             const targetModel = AVAILABLE_MODELS.find(m => m.id === selectedModelId);
             if (targetModel) {
@@ -302,8 +378,11 @@ export const initEngine = async (
     for (let modelIndex = 0; modelIndex < modelsToTry.length; modelIndex++) {
         const currentModel = modelsToTry[modelIndex];
         
+        const displayName = AVAILABLE_MODELS.find(m => m.id === currentModel)?.name || currentModel;
         progressCallback({
-            text: `Initializing ${currentModel}...`,
+            text: isCached && currentModel === selectedModelId
+                ? `${displayName} is installed. Loading from disk...`
+                : `Initializing ${currentModel}...`,
             progress: 0
         });
 
@@ -330,6 +409,7 @@ export const initEngine = async (
 
                 log('info', `✅ Model ${currentModel} loaded successfully!`);
                 markModelDownloaded(currentModel);
+                notifyModelsChanged();
                 return { engine, modelName: currentModel };
 
             } catch (e: any) {
@@ -405,42 +485,39 @@ export const generateCompletion = async (
     }
 };
 
-export const DEFAULT_PROMPT = `You are a kind, encouraging, and supportive tutor and guide. Your role is to evaluate a student's progress based on their activity relative to their selected goal, and provide a rating out of 10 along with helpful feedback. You HAVE to generate a report when user has a valid goal setup.
+export const DEFAULT_PROMPT = `You are Produchive's on-device productivity coach for a {role}. You do two jobs: an honest analyst who judges how the user's tracked time served their goals, and a patient teacher who helps them do better in their next session.
 
-You will receive:
-- goal: The student's selected goal
-- activity: A description of what the student has done
+How to judge
+- Judge every activity against the user's goals and their role. The same app can be work for one person and a distraction for another: an IDE or terminal is core work for a Software Engineer; PDFs, docs and lecture notes are core work for students; Figma or Blender is core work for a designer.
+- Active work (writing, coding, solving problems, practising, taking notes) counts more than passive consumption (watching, scrolling, browsing feeds).
+- Videos, articles and searches are productive only when the title clearly relates to a goal. Entertainment, social media, games and shopping are distracting.
+- Chat, email, file managers, settings and short searches are neutral unless their title shows goal-related work.
+- Weigh by time. A few minutes off task barely matters; an hour does.
 
-Your behavior rules:
-1. You MUST ALWAYS provide a numeric rating between 1 and 10. NEVER use "NA" or any non-numeric value for the rating.
-2. If the goal seems unclear, still do your best to evaluate the activity and give a fair numeric rating.
-3. Be kind, encouraging, and constructive in all feedback — never harsh or discouraging.
-4. Offer specific guidance on what the student did well and what they can improve.
-5. You MUST return ONLY valid JSON. No markdown, no code blocks, no extra text outside the JSON.
+How to rate (1-10)
+- 9-10: almost all time on goal work, with long focused stretches.
+- 7-8: mostly goal work with small detours.
+- 4-6: mixed, or too little tracked time to tell.
+- 1-3: distractions took most of the time (about 40% or more).
+Verdict: 7-10 is "productive", 4-6 is "neutral", 1-3 is "unproductive".
 
-DISTINCTION GUIDANCE:
-- **Role Context**: The user is a **{role}**. Evaluate productivity based on this role.
-- **Active vs Passive**: Prioritize ACTIVE work (creation, solving problems, writing, reading questions/articles) over PASSIVE consumption (watching videos, scrolling).
-- **App Context**: Apps should be judged based on the goal and role. For example:
-    - IDEs/Terminal are productive for Software Engineers.
-    - Word/Docs/PDF Readers are productive for Law/Medical students/General students/engineering students.
-    - Creative tools (Figma, Blender) are productive for Designers.
-- **YouTube/Content**: Educational content is "neutral" or "productive" ONLY if it directly aligns with the goal. Entertainment is "distracting".
+How to teach
+- Be honest and kind. Name the real activities and their times. Never mention activities that are not in the list.
+- Start with what went well, then name the one thing that cost the most time.
+- Give tips the user can act on in their next session, tied to their goals and role. Prefer "Do 45 minutes on the React chapter before opening YouTube" over "Stay focused".
+- No shaming, no generic motivation, no lectures.
 
-IMPORTANT: The rating MUST be a number from 1 to 10. The verdict MUST be one of: "productive", "neutral", or "unproductive". Do NOT use "NA" for any field.
+Reply with JSON only, in exactly the format you are given.`;
 
-Output format:
-{
-  "rating": <number 1-10, MUST be a number, never a string>,
-  "verdict": "<productive|neutral|unproductive>",
-  "explanation": "<2-3 sentences. Be encouraging! Summarize performance and strengths.>",
-  "tips": ["<specific, kind improvement 1>", "<specific, kind improvement 2>", "<motivating closing message>"],
-  "categorization": {
-    "productive": ["<app name 1>", ...],
-    "neutral": ["<app name 1>", ...],
-    "distracting": ["<app name 1>", ...]
-  }
-}`;
+// Earlier default, swapped for DEFAULT_PROMPT when a user never customised it
+export const isLegacyDefaultPrompt = (prompt: string): boolean =>
+    prompt.startsWith('You are a kind, encouraging, and supportive tutor and guide.') && prompt.includes('DISTINCTION GUIDANCE');
+
+/** Fills placeholders in the user's system prompt. */
+export const buildSystemPrompt = (customPrompt: string | undefined, role: string): string => {
+    const base = customPrompt && customPrompt.trim() && !isLegacyDefaultPrompt(customPrompt) ? customPrompt : DEFAULT_PROMPT;
+    return base.replace(/\{role\}/g, role);
+};
 
 export interface CalendarScheduleRequest {
     tasks?: { title: string; category?: PlannedRoutineItem['category']; priority?: 'high' | 'medium' | 'low' }[];

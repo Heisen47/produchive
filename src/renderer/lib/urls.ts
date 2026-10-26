@@ -6,6 +6,7 @@
  */
 
 import { API_BASE_URL, WEB_BASE_URL, FEEDBACK_GOOGLE_FORM_URL } from './config';
+import { isServerUp, SERVER_NAP_URL } from './serverStatus';
 
 // Re-export so existing `import { WEB_BASE_URL } from '../lib/urls'` still works.
 export { WEB_BASE_URL, FEEDBACK_GOOGLE_FORM_URL };
@@ -41,9 +42,29 @@ export function openUrl(url: string): void {
  * Open a website page in the user's default system browser.
  * Uses Electron's shell.openExternal via IPC so the URL opens as
  * a new tab in Chrome/Safari/Firefox — not an Electron child window.
+ * The normal route hops through the backend for the token handoff; when the
+ * backend is down, the page is opened on the website directly instead.
  */
 export function openWebPage(path: string): void {
-  openUrl(getWebUrl(path));
+  isServerUp().then((up) => openUrl(up ? getWebUrl(path) : `${WEB_BASE_URL}${path}`));
+}
+
+/**
+ * For features that need the backend (sign-in, Premium, multiplayer rooms).
+ * Returns true when the backend is up; otherwise opens the website's
+ * "server is napping" page and returns false.
+ */
+export async function requireServer(): Promise<boolean> {
+  if (await isServerUp()) return true;
+  openUrl(SERVER_NAP_URL);
+  return false;
+}
+
+/** Open a website page that needs the backend, or the "server is napping" page when it's down. */
+export function openServerPage(path: string): void {
+  requireServer().then((up) => {
+    if (up) openUrl(getWebUrl(path));
+  });
 }
 
 /**

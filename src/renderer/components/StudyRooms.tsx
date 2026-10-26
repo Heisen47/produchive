@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { PremiumPaywall } from './PremiumPaywall';
 import { useTheme } from './ThemeProvider';
-import { openWebPage } from '../lib/urls';
+import { openServerPage, requireServer } from '../lib/urls';
 import { WS_BASE_URL } from '../lib/config';
 
 export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: string) => void; onRoomChange?: (inRoom: boolean) => void }) => {
@@ -133,6 +133,7 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
     };
 
     const handleCreateRoom = async (scene: SceneId) => {
+        if (!(await requireServer())) return;
         setLoading(true);
         setLoadingMessage('Creating your room...');
         try {
@@ -193,6 +194,7 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
     };
 
     const handleJoinRoom = async (code: string) => {
+        if (!(await requireServer())) return;
         setLoading(true);
         setLoadingMessage(`Joining room ${code.toUpperCase()}...`);
         try {
@@ -569,11 +571,11 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
                 </button>
 
                 <button
-                    onClick={() => {
-                        if (isPremium) {
+                    onClick={async () => {
+                        if (!isPremium) {
+                            openServerPage('/premium');
+                        } else if (await requireServer()) {
                             setMode('multiplayer');
-                        } else {
-                            openWebPage('/premium');
                         }
                     }}
                     style={{

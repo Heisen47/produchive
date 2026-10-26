@@ -3,7 +3,7 @@ import { X, Mail, Lock, LogIn, Loader2, User, Sparkles, LogOut, ShieldCheck, Ext
 import { useTheme } from './ThemeProvider';
 import { useStore } from '../lib/store';
 import { apiClient } from '../lib/api';
-import { openWebPage } from '../lib/urls';
+import { openWebPage, openServerPage, requireServer } from '../lib/urls';
 
 interface LoginModalProps {
     onClose: () => void;
@@ -51,6 +51,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
         if (checkingSettings) return;
         setCheckingSettings(true);
         try {
+            // Backend down: show the "server is napping" page instead of a failed check
+            if (!(await requireServer())) {
+                onClose();
+                return;
+            }
             await apiClient.checkLogin();
             openWebPage('/settings');
             onClose();
@@ -275,7 +280,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
 
                             {!user.isPremium && (
                                 <button
-                                    onClick={() => { openWebPage('/premium'); onClose(); }}
+                                    onClick={() => { openServerPage('/premium'); onClose(); }}
                                     style={{
                                         width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                                         padding: '11px 0', borderRadius: 12, fontSize: 13, fontWeight: 700,
@@ -435,7 +440,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                             <button
-                                onClick={() => openWebPage('/?from=app&action=login')}
+                                onClick={() => openServerPage('/?from=app&action=login')}
                                 style={{
                                     width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                                     padding: '12px 0', borderRadius: 12, fontSize: 13, fontWeight: 700,
@@ -452,7 +457,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
                             </button>
 
                             <button
-                                onClick={() => openWebPage('/?from=app&action=register')}
+                                onClick={() => openServerPage('/?from=app&action=register')}
                                 style={{
                                     width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                                     padding: '12px 0', borderRadius: 12, fontSize: 13, fontWeight: 600,

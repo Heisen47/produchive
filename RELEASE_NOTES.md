@@ -2,6 +2,17 @@
 
 ---
 
+## Produchive v3.2.1
+
+Patch release that keeps the app friendly while the sign-in server is offline.
+
+### Server Nap Fallback
+- **Graceful Backend Outage Handling**: Sign-in, account settings, Premium upgrades and multiplayer study rooms now check the backend first. If it's down, the app opens the "server is napping" page on produchive.com instead of showing an error.
+- **Website Links Work Without the Backend**: FAQ, Contact and other website links open produchive.com directly while the backend is offline, instead of failing on the auth redirect.
+- **Manual Override**: `VITE_SERVER_STATUS` (`on` | `off` | `auto`, default `auto`) forces the behaviour at build time.
+
+---
+
 ## Produchive v3.2.0
 
 Feature and intelligence release introducing custom external AI model integration, intelligent human-day routine scheduling (`layoutHumanDay`), a gamified virtual companion with Catfood rewards, an animated Sakura blossom environment, and redesigned productivity insights.

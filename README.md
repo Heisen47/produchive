@@ -10,7 +10,7 @@
   It helps the project grow and is the best way to motivate me to keep improving it.
 </div>
 
-https://github.com/user-attachments/assets/8538a127-0ff3-4b76-9a2f-baf27000770b
+https://github.com/user-attachments/assets/ff306f44-c611-46e9-b89a-91c8a5b9d8c8
 
 
 [![produchive v3](https://img.youtube.com/vi/qC3bvMewD70/maxresdefault.jpg)](https://youtu.be/qC3bvMewD70?si=cGpMAaJhc83PT7Lm)

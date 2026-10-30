@@ -1,200 +1,49 @@
 /**
- * Catfood — a small virtual currency earned through genuine productivity and
- * spent on feeding the peekaboo cat.
+ * Catfood — Jogu's food. A small virtual currency earned through solid study
+ * sessions and spent on feeding Jogu, the peekaboo cat.
  *
- * Everything in this file is pure and deterministic so it can be unit tested
- * and recomputed at any time from the same inputs (activity logs, Focus Room
- * sessions, tasks). Earnings are stored per device per day and only ever go up,
- * so recomputing never double-awards and syncing two devices is a simple max.
- *
- * Dates are 'YYYY-MM-DD' UTC strings, matching the activity_logs file names
- * written by the main process.
+ * Everything in this file is pure and deterministic so it can be unit tested.
+ * Awards are keyed (by session id, or by grant name) so recomputing, syncing
+ * or re-rendering can never count the same thing twice.
  */
-import type { Activity, FocusSession, Task } from '../global';
-import { inferActivityDetails, IGNORED_SYSTEM_APPS } from './activityAutoTracker';
+import type { FocusSession } from '../global';
 
 // ─── Tuning ────────────────────────────────────────────────────────────────
 
-/** Per-window activity must total at least this long to count (mirrors MIN_AUTO_LOG_SECONDS). */
-export const MIN_ACTIVITY_MINUTES = 5;
-/** A single window left open all day can't count for more than this. */
-export const MAX_MINUTES_PER_ACTIVITY = 120;
-export const MIN_FOCUS_SESSION_MINUTES = 10;
-export const MAX_FOCUS_SESSION_MINUTES = 120;
-/** Deliberate Focus Room time is worth a little more than passive tracking. */
-export const FOCUS_ROOM_WEIGHT = 1.2;
-/** Quality minutes beyond this per day earn nothing more. */
-export const DAILY_QUALITY_CAP_MINUTES = 480;
-/** A day with at least this many quality minutes counts toward the study streak. */
-export const STUDY_DAY_MIN_MINUTES = 30;
-export const STREAK_BONUS_PER_DAY = 0.05;
-export const MAX_STREAK_BONUS_DAYS = 10;
-export const TASK_BONUS = 2;
-export const MAX_TASK_BONUS_TASKS = 3;
-export const DAILY_CATFOOD_CAP = 100;
-export const FEED_COST = 10;
-/** How long the cat stays "full" after a meal. */
+/** One catfood per full block of this many uninterrupted study minutes. */
+export const SESSION_BLOCK_MINUTES = 30;
+/** A single session counts for at most this long, so a timer left running can't farm food. */
+export const MAX_SESSION_MINUTES = 120;
+/** At most this much catfood per day from study sessions (8h of study). */
+export const DAILY_CATFOOD_CAP = 16;
+/** Given once per user (not per device) so new users can try feeding Jogu right away. */
+export const STARTER_CATFOOD = 3;
+export const STARTER_GRANT_ID = 'starter';
+export const FEED_COST = 1;
+/** How long Jogu stays "full" after a meal. */
 export const FULL_FOR_MS = 4 * 60 * 60 * 1000;
 
-/** Unfed this long, the cat gets hungry (droopy, grumpy when tapped)... */
+/** Unfed this long, Jogu gets hungry (droopy, grumpy when tapped)... */
 export const HUNGRY_AFTER_MS = 24 * 60 * 60 * 1000;
 /** ...and after this long it looks weak. */
 export const WEAK_AFTER_MS = 72 * 60 * 60 * 1000;
 
-/** How much one minute in each category counts as quality time. */
-export const CATEGORY_WEIGHTS: Record<string, number> = {
-    development: 1,
-    writing: 1,
-    design: 0.9,
-    research: 0.7,
-    meeting: 0.4,
-    break: 0,
-    meal: 0,
-    sleep: 0,
-    other: 0,
+// ─── Study sessions ────────────────────────────────────────────────────────
+
+/** Local calendar date (what the user sees as "that day"). */
+export const localDateStr = (ts: number | string | Date): string => {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
-
-/** Categories that count against focus purity. */
-const DISTRACTION_CATEGORIES = new Set(['break']);
-
-// ─── Daily scoring ─────────────────────────────────────────────────────────
-
-export interface DayInputs {
-    date: string;
-    activities: Activity[];
-    focusSessions: FocusSession[];
-    tasks: Task[];
-}
-
-export interface DayQuality {
-    /** Weighted, capped quality minutes. */
-    qualityMinutes: number;
-    /** Unweighted minutes in productive categories (for purity). */
-    productiveMinutes: number;
-    distractionMinutes: number;
-    focusRoomMinutes: number;
-}
-
-export interface DayScore extends DayQuality {
-    date: string;
-    /** productive / (productive + distraction); 1 when nothing was tracked. */
-    focusPurity: number;
-    streakDays: number;
-    streakMultiplier: number;
-    tasksCompleted: number;
-    base: number;
-    taskBonus: number;
-    total: number;
-}
-
-export const utcDateStr = (ts: number | string | Date): string => new Date(ts).toISOString().slice(0, 10);
-
-export const shiftDate = (date: string, days: number): string => {
-    const d = new Date(`${date}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() + days);
-    return d.toISOString().slice(0, 10);
-};
-
-// App name only: matching titles too would ignore e.g. editing a repo called "produchive".
-const isIgnoredApp = (appName: string) => {
-    const app = (appName || '').toLowerCase();
-    return IGNORED_SYSTEM_APPS.some((ignored) => app.includes(ignored));
-};
-
-/** Scores the quality time of one day from its tracked activities and Focus Room sessions. */
-export function computeDayQuality(date: string, activities: Activity[], focusSessions: FocusSession[]): DayQuality {
-    let weighted = 0;
-    let productiveMinutes = 0;
-    let distractionMinutes = 0;
-
-    for (const a of activities || []) {
-        const minutes = (Number(a?.duration) || 0) / 60000;
-        if (minutes < MIN_ACTIVITY_MINUTES) continue;
-        const appName = a.owner?.name || '';
-        if (isIgnoredApp(appName)) continue;
-        const capped = Math.min(minutes, MAX_MINUTES_PER_ACTIVITY);
-        const { category } = inferActivityDetails(appName, a.title || '');
-        if (DISTRACTION_CATEGORIES.has(category)) {
-            distractionMinutes += capped;
-            continue;
-        }
-        const weight = CATEGORY_WEIGHTS[category] ?? 0;
-        if (weight > 0) {
-            weighted += capped * weight;
-            productiveMinutes += capped;
-        }
-    }
-
-    let focusRoomMinutes = 0;
-    for (const s of focusSessions || []) {
-        if (!s?.startedAt || utcDateStr(s.startedAt) !== date) continue;
-        const minutes = (Number(s.durationSeconds) || 0) / 60;
-        if (minutes < MIN_FOCUS_SESSION_MINUTES) continue;
-        focusRoomMinutes += Math.min(minutes, MAX_FOCUS_SESSION_MINUTES);
-    }
-    weighted += focusRoomMinutes * FOCUS_ROOM_WEIGHT;
-    productiveMinutes += focusRoomMinutes;
-
-    return {
-        qualityMinutes: Math.min(weighted, DAILY_QUALITY_CAP_MINUTES),
-        productiveMinutes,
-        distractionMinutes,
-        focusRoomMinutes,
-    };
-}
 
 /**
- * Consecutive study days ending at `date`. If `date` itself hasn't reached the
- * threshold yet, the streak is counted up to the day before so it isn't
- * "broken" in the morning.
+ * Catfood a single study session is worth: one per full 30 minutes, capped.
+ * A Focus Room session is one sitting with its own timer, so it is "solid"
+ * time; minutes from separate sessions are never added together.
  */
-export function computeStudyStreak(qualityByDate: Record<string, number>, date: string): number {
-    const qualifies = (d: string) => (qualityByDate[d] ?? 0) >= STUDY_DAY_MIN_MINUTES;
-    let cursor = qualifies(date) ? date : shiftDate(date, -1);
-    let streak = 0;
-    while (qualifies(cursor) && streak < 365) {
-        streak++;
-        cursor = shiftDate(cursor, -1);
-    }
-    return streak;
-}
-
-/** Diminishing returns: 1h ≈ 20, 2h ≈ 28, 4h = 40, 8h ≈ 56. */
-export const catfoodForMinutes = (qualityMinutes: number): number =>
-    qualityMinutes <= 0 ? 0 : 20 * Math.sqrt(qualityMinutes / 60);
-
-export function scoreDay(inputs: DayInputs, qualityByDate: Record<string, number> = {}): DayScore {
-    const { date } = inputs;
-    const quality = computeDayQuality(date, inputs.activities, inputs.focusSessions);
-    const tracked = quality.productiveMinutes + quality.distractionMinutes;
-    const focusPurity = tracked > 0 ? quality.productiveMinutes / tracked : 1;
-
-    const streakDays = computeStudyStreak({ ...qualityByDate, [date]: quality.qualityMinutes }, date);
-    const streakMultiplier = 1 + STREAK_BONUS_PER_DAY * Math.min(streakDays, MAX_STREAK_BONUS_DAYS);
-
-    // Only tasks created and completed on this day, so old backlogs can't be cashed in at once.
-    const tasksCompleted = (inputs.tasks || []).filter(
-        (t) => t?.completed && Number(t.created) > 0 && utcDateStr(Number(t.created)) === date,
-    ).length;
-    // Task bonus needs some real work behind it, otherwise ticking boxes would be free food.
-    const taskBonus = quality.qualityMinutes >= MIN_ACTIVITY_MINUTES
-        ? TASK_BONUS * Math.min(tasksCompleted, MAX_TASK_BONUS_TASKS)
-        : 0;
-
-    const base = catfoodForMinutes(quality.qualityMinutes) * (0.6 + 0.4 * focusPurity);
-    const total = Math.min(DAILY_CATFOOD_CAP, Math.floor((base + taskBonus) * streakMultiplier));
-
-    return {
-        date,
-        ...quality,
-        focusPurity,
-        streakDays,
-        streakMultiplier,
-        tasksCompleted,
-        base,
-        taskBonus,
-        total,
-    };
+export function catfoodForSession(durationSeconds: number): number {
+    const minutes = Math.min(Math.max(0, Number(durationSeconds) || 0) / 60, MAX_SESSION_MINUTES);
+    return Math.floor(minutes / SESSION_BLOCK_MINUTES);
 }
 
 // ─── Ledger ────────────────────────────────────────────────────────────────
@@ -206,59 +55,105 @@ export interface CatfoodSpend {
     kind: 'feed';
 }
 
+export interface SessionAward {
+    amount: number;
+    /** Local date of the session start, for the daily cap and "today" totals. */
+    date: string;
+}
+
 export interface CatfoodLedger {
-    version: 1;
-    /** `${deviceId}|${date}` → catfood earned that day on that device (monotonic). */
-    earned: Record<string, number>;
+    version: 2;
+    /** Focus session id → catfood awarded for it. */
+    sessions: Record<string, SessionAward>;
+    /** One-time grants by name (e.g. the starter food) → amount. */
+    grants: Record<string, number>;
     spends: CatfoodSpend[];
-    /** `${deviceId}|${localDate}` → times the cat was petted (tapped) that day on that device. */
+    /** `${deviceId}|${localDate}` → times Jogu was petted (tapped) that day on that device. */
     pets: Record<string, number>;
 }
 
-export const emptyLedger = (): CatfoodLedger => ({ version: 1, earned: {}, spends: [], pets: {} });
+export const emptyLedger = (): CatfoodLedger => ({ version: 2, sessions: {}, grants: {}, spends: [], pets: {} });
+
+const positiveInts = (raw: any, max = Infinity): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(raw || {})) {
+        const n = Math.floor(Number(v));
+        if (n > 0) out[k] = Math.min(n, max);
+    }
+    return out;
+};
 
 export function normalizeLedger(raw: any): CatfoodLedger {
     if (!raw || typeof raw !== 'object') return emptyLedger();
-    const earned: Record<string, number> = {};
-    for (const [k, v] of Object.entries(raw.earned || {})) {
-        const n = Math.floor(Number(v));
-        if (n > 0) earned[k] = Math.min(n, DAILY_CATFOOD_CAP);
+    const sessions: Record<string, SessionAward> = {};
+    for (const [id, v] of Object.entries<any>(raw.sessions || {})) {
+        const amount = Math.floor(Number(v?.amount));
+        if (amount > 0 && typeof v?.date === 'string') {
+            sessions[id] = { amount: Math.min(amount, catfoodForSession(MAX_SESSION_MINUTES * 60)), date: v.date };
+        }
     }
     const spends = Array.isArray(raw.spends)
         ? raw.spends.filter((s: any) => s && typeof s.id === 'string' && Number(s.amount) > 0)
         : [];
-    const pets: Record<string, number> = {};
-    for (const [k, v] of Object.entries(raw.pets || {})) {
-        const n = Math.floor(Number(v));
-        if (n > 0) pets[k] = n;
-    }
-    return { version: 1, earned, spends, pets };
+    return {
+        version: 2,
+        sessions,
+        grants: positiveInts(raw.grants, STARTER_CATFOOD),
+        spends,
+        pets: positiveInts(raw.pets),
+    };
 }
 
-export const totalEarned = (l: CatfoodLedger) => Object.values(l.earned).reduce((a, b) => a + b, 0);
+export const totalEarned = (l: CatfoodLedger) =>
+    Object.values(l.sessions).reduce((a, s) => a + s.amount, 0) +
+    Object.values(l.grants).reduce((a, b) => a + b, 0);
 export const totalSpent = (l: CatfoodLedger) => l.spends.reduce((a, s) => a + s.amount, 0);
 export const balanceOf = (l: CatfoodLedger) => Math.max(0, totalEarned(l) - totalSpent(l));
 
-export const earnedOn = (l: CatfoodLedger, date: string) =>
-    Object.entries(l.earned).reduce((sum, [k, v]) => (k.endsWith(`|${date}`) ? sum + v : sum), 0);
+export const earnedOn = (l: CatfoodLedger, localDate: string) =>
+    Object.values(l.sessions).reduce((sum, s) => (s.date === localDate ? sum + s.amount : sum), 0);
+
+export const sessionsOn = (l: CatfoodLedger, localDate: string) =>
+    Object.values(l.sessions).filter((s) => s.date === localDate).length;
 
 export const lastFedAt = (l: CatfoodLedger) => l.spends.reduce((max, s) => Math.max(max, s.at), 0);
 
 /**
- * Records a day's (re)computed total. Returns how much is newly awarded —
- * never negative, so recomputing a day can't take catfood away or award twice.
+ * Awards catfood for study sessions not seen before. Each session id is
+ * awarded at most once, and each day stops at DAILY_CATFOOD_CAP.
  */
-export function applyDayTotal(
+export function awardSessions(
     ledger: CatfoodLedger,
-    deviceId: string,
-    date: string,
-    dayTotal: number,
-): { ledger: CatfoodLedger; awarded: number } {
-    const key = `${deviceId}|${date}`;
-    const prev = ledger.earned[key] ?? 0;
-    const next = Math.min(DAILY_CATFOOD_CAP, Math.floor(dayTotal));
-    if (next <= prev) return { ledger, awarded: 0 };
-    return { ledger: { ...ledger, earned: { ...ledger.earned, [key]: next } }, awarded: next - prev };
+    focusSessions: FocusSession[],
+): { ledger: CatfoodLedger; awarded: number; sessionsAwarded: number } {
+    const fresh = (focusSessions || [])
+        .filter((s) => s?.id && s.startedAt && !ledger.sessions[s.id] && catfoodForSession(s.durationSeconds) > 0)
+        .sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+    if (fresh.length === 0) return { ledger, awarded: 0, sessionsAwarded: 0 };
+
+    const sessions = { ...ledger.sessions };
+    let awarded = 0;
+    let sessionsAwarded = 0;
+    for (const s of fresh) {
+        const date = localDateStr(s.startedAt);
+        const room = DAILY_CATFOOD_CAP - earnedOn({ ...ledger, sessions }, date);
+        const amount = Math.min(catfoodForSession(s.durationSeconds), room);
+        if (amount <= 0) continue;
+        sessions[s.id] = { amount, date };
+        awarded += amount;
+        sessionsAwarded++;
+    }
+    return { ledger: { ...ledger, sessions }, awarded, sessionsAwarded };
+}
+
+/**
+ * Grants the starter catfood once. The grant is keyed in the ledger (which is
+ * stored in db.json and synced), so later launches and two devices granting it
+ * still add up to a single +3.
+ */
+export function grantStarter(ledger: CatfoodLedger): { ledger: CatfoodLedger; granted: boolean } {
+    if (ledger.grants[STARTER_GRANT_ID]) return { ledger, granted: false };
+    return { ledger: { ...ledger, grants: { ...ledger.grants, [STARTER_GRANT_ID]: STARTER_CATFOOD } }, granted: true };
 }
 
 /** Spends catfood, or returns null when the balance is too low. */
@@ -267,24 +162,24 @@ export function spendCatfood(ledger: CatfoodLedger, amount: number, id: string, 
     return { ...ledger, spends: [...ledger.spends, { id, at, amount, kind: 'feed' }] };
 }
 
-/** Merges ledgers from two devices: per-day max of earnings, union of spends by id. */
+const maxMerge = (a: Record<string, number>, b: Record<string, number>) => {
+    const out = { ...a };
+    for (const [k, v] of Object.entries(b)) out[k] = Math.max(out[k] ?? 0, v);
+    return out;
+};
+
+/** Merges ledgers from two devices; every entry is keyed, so merging is idempotent. */
 export function mergeLedgers(a: CatfoodLedger, b: CatfoodLedger): CatfoodLedger {
-    const earned = { ...a.earned };
-    for (const [k, v] of Object.entries(b.earned)) earned[k] = Math.max(earned[k] ?? 0, v);
-    const pets = { ...a.pets };
-    for (const [k, v] of Object.entries(b.pets)) pets[k] = Math.max(pets[k] ?? 0, v);
+    const sessions = { ...a.sessions };
+    for (const [id, s] of Object.entries(b.sessions)) {
+        if (!sessions[id] || s.amount > sessions[id].amount) sessions[id] = s;
+    }
     const seen = new Set(a.spends.map((s) => s.id));
     const spends = [...a.spends, ...b.spends.filter((s) => !seen.has(s.id))].sort((x, y) => x.at - y.at);
-    return { version: 1, earned, spends, pets };
+    return { version: 2, sessions, grants: maxMerge(a.grants, b.grants), spends, pets: maxMerge(a.pets, b.pets) };
 }
 
 // ─── Pets ──────────────────────────────────────────────────────────────────
-
-/** Local calendar date (what the user sees as "that day"), e.g. for heatmap tooltips. */
-export const localDateStr = (ts: number | Date): string => {
-    const d = new Date(ts);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
 
 export function recordPet(ledger: CatfoodLedger, deviceId: string, localDate: string): CatfoodLedger {
     const key = `${deviceId}|${localDate}`;
@@ -308,7 +203,7 @@ export function petsByDate(l: CatfoodLedger): Record<string, number> {
 export type HungerLevel = 'full' | 'content' | 'hungry' | 'weak';
 
 /**
- * How hungry the cat is. `since` is when the cat was first seen, used as the
+ * How hungry Jogu is. `since` is when Jogu was first seen, used as the
  * reference until it has been fed for the first time.
  */
 export function hungerLevel(lastFed: number, now: number, since = 0): HungerLevel {

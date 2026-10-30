@@ -70,7 +70,7 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                         <button
                             onClick={toggleCat}
                             className="flex items-center gap-2 transition-all duration-200 ml-4 group h-9 px-3 rounded-lg min-w-[140px] justify-center"
-                            title={isCatEnabled ? "Disable the cat" : "Bring back the cat"}
+                            title={isCatEnabled ? "Hide Jogu the cat" : "Bring back Jogu the cat"}
                             style={{ 
                                 color: 'var(--text-muted)',
                                 background: 'transparent',
@@ -90,12 +90,12 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                                      <div className="w-6 h-6 opacity-50 grayscale group-hover:grayscale-0 transition-all duration-300">
                                          <Lottie animationData={catAnimation} loop={false} />
                                      </div>
-                                     <span className="text-xs italic group-hover:text-accent transition-colors whitespace-nowrap">Missing the cat?</span>
+                                     <span className="text-xs italic group-hover:text-accent transition-colors whitespace-nowrap">Missing Jogu?</span>
                                 </div>
                             ) : (
                                 <div className="flex items-center gap-2 w-full justify-center">
                                      <Ghost size={14} className="opacity-50 group-hover:opacity-100 transition-opacity" />
-                                     <span className="text-xs opacity-50 group-hover:opacity-100 transition-opacity whitespace-nowrap">Hide Cat</span>
+                                     <span className="text-xs opacity-50 group-hover:opacity-100 transition-opacity whitespace-nowrap">Hide Jogu</span>
                                 </div>
                             )}
                         </button>

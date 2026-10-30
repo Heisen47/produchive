@@ -196,6 +196,17 @@
   pointer-events: none;
   animation: pc-label-in 0.3s ease-out 1;
 }
+.pc-name {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #facc15;
+  color: #111318;
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
 @keyframes pc-label-in {
   from { opacity: 0; transform: scale(0.8); }
   to { opacity: 1; transform: scale(1); }

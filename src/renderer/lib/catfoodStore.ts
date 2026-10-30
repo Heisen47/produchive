@@ -1,16 +1,15 @@
 import { create } from 'zustand';
 import { toast } from 'sonner';
-import type { Activity } from '../global';
-import { useStore } from './store';
+import type { FocusSession } from '../global';
 import { getDeviceId } from './syncDataEngine';
 import {
-    applyDayTotal,
+    awardSessions,
     balanceOf,
     CatfoodLedger,
-    computeDayQuality,
-    DayScore,
+    earnedOn,
     emptyLedger,
     FEED_COST,
+    grantStarter,
     HungerLevel,
     hungerLevel,
     lastFedAt,
@@ -18,40 +17,37 @@ import {
     mergeLedgers,
     normalizeLedger,
     recordPet,
-    scoreDay,
-    shiftDate,
+    sessionsOn,
     spendCatfood,
-    utcDateStr,
+    STARTER_CATFOOD,
 } from './catfood';
 
 /** Key in db.json `settings`, which is already part of the encrypted sync payload. */
 export const CATFOOD_SETTING_KEY = 'catfood';
 
-/** Days recomputed on startup (in case the app was closed before a day was scored). */
-const BACKFILL_DAYS = 7;
-/** Extra history read only to compute the study streak. */
-const STREAK_LOOKBACK_DAYS = 14;
-const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+/** Cheap (one IPC read of saved focus sessions), and only runs while the window is visible. */
+const REFRESH_INTERVAL_MS = 2 * 60 * 1000;
 
 interface CatfoodState {
     ledger: CatfoodLedger;
     loaded: boolean;
     balance: number;
-    today: DayScore | null;
+    /** Catfood earned and sessions rewarded today (local date). */
+    today: { earned: number; sessions: number };
     lastFedAt: number;
-    /** Increments on every successful feeding; the cat watches it to play the eating animation. */
+    /** Increments on every successful feeding; Jogu watches it to play the eating animation. */
     feedCount: number;
     load: () => Promise<void>;
-    refresh: (opts?: { backfill?: boolean }) => Promise<void>;
+    refresh: () => Promise<void>;
     feed: () => boolean;
-    /** Counts a tap on the cat. */
+    /** Counts a tap on Jogu. */
     pet: () => void;
     replaceLedger: (ledger: CatfoodLedger) => void;
 }
 
 const CAT_SINCE_KEY = 'produchive_cat_since';
 
-/** When this device first met the cat; the hunger clock starts here until the first meal. */
+/** When this device first met Jogu; the hunger clock starts here until the first meal. */
 const catSince = (() => {
     try {
         const saved = Number(localStorage.getItem(CAT_SINCE_KEY));
@@ -67,9 +63,6 @@ const catSince = (() => {
 export const getCatHunger = (now = Date.now()): HungerLevel =>
     hungerLevel(useCatfoodStore.getState().lastFedAt, now, catSince);
 
-// Quality minutes of finished days never change, so they are cached for the streak.
-const pastQuality: Record<string, number> = {};
-
 const persist = (ledger: CatfoodLedger) => {
     window.electronAPI?.setSetting?.(CATFOOD_SETTING_KEY, ledger)?.catch?.((e: unknown) =>
         console.error('[catfood] Failed to persist ledger:', e),
@@ -82,83 +75,83 @@ const persistSoon = () => {
     if (pendingPersist) clearTimeout(pendingPersist);
     pendingPersist = setTimeout(() => {
         pendingPersist = null;
-        persist(useCatfoodStore.getState().ledger);
+        // Never write before db.json was read: a half-empty in-memory ledger would overwrite saved data.
+        const { loaded, load } = useCatfoodStore.getState();
+        (loaded ? Promise.resolve() : load()).then(() => persist(useCatfoodStore.getState().ledger));
     }, 1500);
 };
 
+let loadPromise: Promise<void> | null = null;
+
 export const useCatfoodStore = create<CatfoodState>((set, get) => {
-    const commit = (ledger: CatfoodLedger) =>
-        set({ ledger, balance: balanceOf(ledger), lastFedAt: lastFedAt(ledger) });
+    const commit = (ledger: CatfoodLedger) => {
+        const today = localDateStr(Date.now());
+        set({
+            ledger,
+            balance: balanceOf(ledger),
+            lastFedAt: lastFedAt(ledger),
+            today: { earned: earnedOn(ledger, today), sessions: sessionsOn(ledger, today) },
+        });
+    };
 
     return {
         ledger: emptyLedger(),
         loaded: false,
         balance: 0,
-        today: null,
+        today: { earned: 0, sessions: 0 },
         lastFedAt: 0,
         feedCount: 0,
 
-        load: async () => {
+        // Single-flight: React StrictMode (dev) and remounts start the engine more than once, and two
+        // overlapping loads used to let a stale read overwrite the starter grant made by the first one.
+        load: () => (loadPromise ??= (async () => {
+            let fromDisk = emptyLedger();
             try {
                 const settings = await window.electronAPI?.getSettings?.();
-                commit(normalizeLedger(settings?.[CATFOOD_SETTING_KEY]));
+                fromDisk = normalizeLedger(settings?.[CATFOOD_SETTING_KEY]);
             } catch (e) {
                 console.error('[catfood] Failed to load ledger:', e);
-            }
-            set({ loaded: true });
-        },
-
-        refresh: async ({ backfill = false } = {}) => {
-            const api = window.electronAPI;
-            if (!api?.getActivityDataRange || !get().loaded) return;
-
-            const today = utcDateStr(Date.now());
-            const scoreFrom = shiftDate(today, backfill ? -(BACKFILL_DAYS - 1) : -1);
-            const readFrom = backfill ? shiftDate(scoreFrom, -STREAK_LOOKBACK_DAYS) : scoreFrom;
-
-            let range: Record<string, { activities: Activity[] }> = {};
-            let focusSessions: any[] = [];
-            try {
-                [range, focusSessions] = await Promise.all([
-                    api.getActivityDataRange(readFrom, today),
-                    api.getFocusSessions?.() ?? Promise.resolve([]),
-                ]);
-            } catch (e) {
-                console.error('[catfood] Failed to read activity data:', e);
+                set({ loaded: true });
                 return;
             }
-            const tasks = useStore.getState().tasks || [];
-
-            for (const [date, day] of Object.entries(range)) {
-                if (date < scoreFrom && date !== today) {
-                    pastQuality[date] = computeDayQuality(date, day.activities, focusSessions).qualityMinutes;
-                }
+            // Merge rather than replace, so nothing already in memory (a grant, a pet) can be lost.
+            let ledger = mergeLedgers(get().ledger, fromDisk);
+            // First launch after installing or upgrading: a few catfood to meet Jogu with.
+            const starter = grantStarter(ledger);
+            ledger = starter.ledger;
+            commit(ledger);
+            set({ loaded: true });
+            if (starter.granted) {
+                persist(ledger);
+                toast.success(`Meet Jogu! Here's ${STARTER_CATFOOD} catfood`, {
+                    description: 'Feed Jogu from the 🐟 button in the footer. Earn more with 30-minute study sessions.',
+                    duration: 7000,
+                });
             }
+        })()),
 
-            const deviceId = getDeviceId();
-            let ledger = get().ledger;
-            let awarded = 0;
-            let todayScore: DayScore | null = null;
-            for (let date = scoreFrom; date <= today; date = shiftDate(date, 1)) {
-                const score = scoreDay(
-                    { date, activities: range[date]?.activities || [], focusSessions, tasks },
-                    pastQuality,
-                );
-                if (date !== today) pastQuality[date] = score.qualityMinutes;
-                else todayScore = score;
-                const r = applyDayTotal(ledger, deviceId, date, score.total);
-                ledger = r.ledger;
-                awarded += r.awarded;
+        refresh: async () => {
+            const api = window.electronAPI;
+            if (!api?.getFocusSessions || !get().loaded) return;
+            let focusSessions: FocusSession[] = [];
+            try {
+                focusSessions = (await api.getFocusSessions()) || [];
+            } catch (e) {
+                console.error('[catfood] Failed to read focus sessions:', e);
+                return;
             }
-
-            set({ today: todayScore });
+            const { ledger, awarded, sessionsAwarded } = awardSessions(get().ledger, focusSessions);
             if (awarded > 0) {
                 commit(ledger);
                 persist(ledger);
-                toast.success(`+${awarded} catfood`, {
-                    description: 'Earned from your focused time. The cat is watching hopefully.',
+                toast.success(`+${awarded} catfood for Jogu`, {
+                    description: sessionsAwarded === 1
+                        ? 'Earned from your study session. Jogu is watching hopefully.'
+                        : `Earned from ${sessionsAwarded} study sessions. Jogu is watching hopefully.`,
                     duration: 4000,
                 });
+            } else {
+                commit(ledger); // refresh "today" after midnight
             }
         },
 
@@ -186,8 +179,9 @@ export const mergeIncomingCatfood = (remote: unknown): CatfoodLedger =>
     mergeLedgers(useCatfoodStore.getState().ledger, normalizeLedger(remote));
 
 /**
- * Loads the ledger and awards catfood while the window is visible: once on
- * start (with backfill), on becoming visible, and every few minutes. No timers
+ * Loads the ledger (granting the starter food once) and awards catfood for new
+ * study sessions while the window is visible: on start, on becoming visible,
+ * and every few minutes. No timers
  * run while the window is hidden. Returns a cleanup function.
  */
 export function startCatfoodEngine(): () => void {
@@ -210,7 +204,7 @@ export function startCatfoodEngine(): () => void {
     };
 
     load()
-        .then(() => refresh({ backfill: true }))
+        .then(() => refresh())
         .finally(schedule);
     document.addEventListener('visibilitychange', onVisibility);
 

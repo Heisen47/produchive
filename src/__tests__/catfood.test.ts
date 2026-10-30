@@ -1,43 +1,33 @@
 import { describe, it, expect } from 'vitest';
-import type { Activity, FocusSession, Task } from '../renderer/global';
+import type { FocusSession } from '../renderer/global';
 import {
-    applyDayTotal,
+    awardSessions,
     balanceOf,
-    catfoodForMinutes,
-    computeDayQuality,
-    computeStudyStreak,
+    catfoodForSession,
     DAILY_CATFOOD_CAP,
-    DAILY_QUALITY_CAP_MINUTES,
     earnedOn,
     emptyLedger,
     FEED_COST,
     FULL_FOR_MS,
+    grantStarter,
     HUNGRY_AFTER_MS,
     hungerLevel,
-    WEAK_AFTER_MS,
+    localDateStr,
     mergeLedgers,
     normalizeLedger,
     petsByDate,
     recordPet,
-    totalPets,
-    scoreDay,
-    shiftDate,
+    sessionsOn,
     spendCatfood,
-    STUDY_DAY_MIN_MINUTES,
+    STARTER_CATFOOD,
+    totalPets,
+    WEAK_AFTER_MS,
 } from '../renderer/lib/catfood';
 
 const DAY = '2026-10-20';
-const MIN = 60_000;
 
-const act = (app: string, title: string, minutes: number): Activity => ({
-    title,
-    owner: { name: app, path: `/Applications/${app}.app` },
-    timestamp: Date.parse(`${DAY}T10:00:00Z`),
-    duration: minutes * MIN,
-});
-
-const session = (minutes: number, startedAt = `${DAY}T09:00:00Z`): FocusSession => ({
-    id: `s-${minutes}-${startedAt}`,
+const session = (id: string, minutes: number, startedAt = `${DAY}T09:00:00`): FocusSession => ({
+    id,
     scene: 'library',
     durationSeconds: minutes * 60,
     startedAt,
@@ -46,190 +36,140 @@ const session = (minutes: number, startedAt = `${DAY}T09:00:00Z`): FocusSession 
     endedAtReadable: '',
 });
 
-const task = (id: string, completed: boolean, created = Date.parse(`${DAY}T08:00:00Z`)): Task => ({
-    id,
-    text: id,
-    completed,
-    created,
-});
-
-describe('catfood: day quality', () => {
-    it('weights categories and ignores activities shorter than the minimum', () => {
-        const q = computeDayQuality(DAY, [
-            act('Code', 'store.ts - produchive - Visual Studio Code', 60), // development ×1
-            act('Google Chrome', 'MDN Web Docs - Google Chrome', 30), // research ×0.7
-            act('Code', 'tiny.ts - Visual Studio Code', 4), // too short
-        ], []);
-        expect(q.qualityMinutes).toBeCloseTo(60 + 21);
-        expect(q.productiveMinutes).toBeCloseTo(90);
+describe('catfood: 30-minute study sessions', () => {
+    it('gives one catfood per full 30 minutes of a single session', () => {
+        expect(catfoodForSession(29 * 60)).toBe(0);
+        expect(catfoodForSession(30 * 60)).toBe(1);
+        expect(catfoodForSession(59 * 60)).toBe(1);
+        expect(catfoodForSession(60 * 60)).toBe(2);
+        expect(catfoodForSession(65 * 60)).toBe(2);
+        expect(catfoodForSession(0)).toBe(0);
+        expect(catfoodForSession(NaN)).toBe(0);
     });
 
-    it('counts entertainment as distraction, not quality time', () => {
-        const q = computeDayQuality(DAY, [act('Google Chrome', 'YouTube - Google Chrome', 90)], []);
-        expect(q.qualityMinutes).toBe(0);
-        expect(q.distractionMinutes).toBe(90);
+    it('caps one session, so a timer left running cannot farm food', () => {
+        expect(catfoodForSession(10 * 60 * 60)).toBe(4);
     });
 
-    it('ignores Produchive itself and system apps', () => {
-        const q = computeDayQuality(DAY, [act('Produchive', 'Produchive', 120), act('Finder', 'idle', 60)], []);
-        expect(q.qualityMinutes).toBe(0);
+    it('awards each session once, keyed by id', () => {
+        const sessions = [session('a', 29), session('b', 30), session('c', 65)];
+        const first = awardSessions(emptyLedger(), sessions);
+        expect(first.awarded).toBe(3);
+        expect(first.sessionsAwarded).toBe(2);
+        expect(Object.keys(first.ledger.sessions).sort()).toEqual(['b', 'c']);
+
+        // Same sessions again (re-render, re-sync, duplicated list): nothing new
+        const again = awardSessions(first.ledger, [...sessions, session('b', 30)]);
+        expect(again.awarded).toBe(0);
+        expect(again.ledger).toBe(first.ledger);
+        expect(balanceOf(again.ledger)).toBe(3);
     });
 
-    it('caps a single window left open all day', () => {
-        const q = computeDayQuality(DAY, [act('Code', 'main.ts - Visual Studio Code', 600)], []);
-        expect(q.qualityMinutes).toBe(120);
+    it('does not add up separate short sessions', () => {
+        const r = awardSessions(emptyLedger(), [session('a', 20), session('b', 20), session('c', 20)]);
+        expect(r.awarded).toBe(0);
     });
 
-    it('caps total quality minutes per day', () => {
-        const acts = Array.from({ length: 8 }, (_, i) => act('Code', `file${i}.ts - Visual Studio Code`, 120));
-        expect(computeDayQuality(DAY, acts, []).qualityMinutes).toBe(DAILY_QUALITY_CAP_MINUTES);
+    it('stops at the daily cap and keeps awarding on later days', () => {
+        const many = Array.from({ length: 6 }, (_, i) => session(`s${i}`, 120, `${DAY}T0${i + 1}:00:00`));
+        const r = awardSessions(emptyLedger(), [...many, session('next-day', 60, '2026-10-21T09:00:00')]);
+        expect(earnedOn(r.ledger, DAY)).toBe(DAILY_CATFOOD_CAP);
+        expect(earnedOn(r.ledger, '2026-10-21')).toBe(2);
+        expect(sessionsOn(r.ledger, DAY)).toBe(4);
     });
 
-    it('rewards Focus Room sessions of real length on that day only', () => {
-        const q = computeDayQuality(DAY, [], [
-            session(50),
-            session(5), // too short
-            session(60, '2026-10-19T09:00:00Z'), // other day
-        ]);
-        expect(q.focusRoomMinutes).toBe(50);
-        expect(q.qualityMinutes).toBeCloseTo(60); // 50 × 1.2
+    it('buckets sessions by local date', () => {
+        const r = awardSessions(emptyLedger(), [session('a', 30, `${DAY}T23:30:00`)]);
+        expect(r.ledger.sessions.a.date).toBe(localDateStr(`${DAY}T23:30:00`));
     });
 });
 
-describe('catfood: streak', () => {
-    const q = (days: Record<string, number>) => days;
+describe('catfood: starter grant', () => {
+    it('grants the starter catfood once', () => {
+        const first = grantStarter(emptyLedger());
+        expect(first.granted).toBe(true);
+        expect(balanceOf(first.ledger)).toBe(STARTER_CATFOOD);
 
-    it('counts consecutive qualifying days', () => {
-        const byDate = q({
-            [DAY]: 45,
-            [shiftDate(DAY, -1)]: 60,
-            [shiftDate(DAY, -2)]: STUDY_DAY_MIN_MINUTES,
-            [shiftDate(DAY, -3)]: 10, // breaks the streak
-            [shiftDate(DAY, -4)]: 90,
-        });
-        expect(computeStudyStreak(byDate, DAY)).toBe(3);
+        // Second launch: already in the ledger
+        const second = grantStarter(first.ledger);
+        expect(second.granted).toBe(false);
+        expect(balanceOf(second.ledger)).toBe(STARTER_CATFOOD);
     });
 
-    it('does not break the streak before today qualifies', () => {
-        const byDate = q({ [DAY]: 5, [shiftDate(DAY, -1)]: 60, [shiftDate(DAY, -2)]: 60 });
-        expect(computeStudyStreak(byDate, DAY)).toBe(2);
+    it('also goes to existing users who already have catfood', () => {
+        const earned = awardSessions(emptyLedger(), [session('a', 60)]).ledger;
+        expect(balanceOf(grantStarter(earned).ledger)).toBe(2 + STARTER_CATFOOD);
     });
 
-    it('shiftDate crosses month boundaries in UTC', () => {
-        expect(shiftDate('2026-03-01', -1)).toBe('2026-02-28');
-        expect(shiftDate('2026-12-31', 1)).toBe('2027-01-01');
-    });
-});
-
-describe('catfood: scoring', () => {
-    it('has diminishing returns', () => {
-        expect(catfoodForMinutes(0)).toBe(0);
-        expect(catfoodForMinutes(60)).toBeCloseTo(20);
-        expect(catfoodForMinutes(240)).toBeCloseTo(40);
-        expect(catfoodForMinutes(240)).toBeLessThan(catfoodForMinutes(60) * 4);
-    });
-
-    it('is deterministic', () => {
-        const inputs = { date: DAY, activities: [act('Code', 'a.ts - Visual Studio Code', 90)], focusSessions: [session(30)], tasks: [] as Task[] };
-        expect(scoreDay(inputs)).toEqual(scoreDay(inputs));
-    });
-
-    it('gives nothing for raw screen time spent on entertainment', () => {
-        const s = scoreDay({ date: DAY, activities: [act('Google Chrome', 'Netflix - Google Chrome', 300)], focusSessions: [] as FocusSession[], tasks: [] as Task[] });
-        expect(s.total).toBe(0);
-    });
-
-    it('lowers the reward when focus is mixed with distraction', () => {
-        const work = act('Code', 'a.ts - Visual Studio Code', 120);
-        const pure = scoreDay({ date: DAY, activities: [work], focusSessions: [] as FocusSession[], tasks: [] as Task[] });
-        const mixed = scoreDay({ date: DAY, activities: [work, act('Google Chrome', 'Reddit - Google Chrome', 120)], focusSessions: [] as FocusSession[], tasks: [] as Task[] });
-        expect(mixed.focusPurity).toBeCloseTo(0.5);
-        expect(mixed.total).toBeLessThan(pure.total);
-        expect(mixed.total).toBeGreaterThan(0);
-    });
-
-    it('applies a capped streak multiplier', () => {
-        const inputs = { date: DAY, activities: [act('Code', 'a.ts - Visual Studio Code', 120)], focusSessions: [] as FocusSession[], tasks: [] as Task[] };
-        const history: Record<string, number> = {};
-        for (let i = 1; i <= 30; i++) history[shiftDate(DAY, -i)] = 60;
-        const noStreak = scoreDay(inputs);
-        const longStreak = scoreDay(inputs, history);
-        expect(noStreak.streakDays).toBe(1);
-        expect(longStreak.streakDays).toBe(31);
-        expect(longStreak.streakMultiplier).toBeCloseTo(1.5);
-        expect(longStreak.total).toBeGreaterThan(noStreak.total);
-    });
-
-    it('gives a small capped task bonus only with real work and only for that day', () => {
-        const tasks = [
-            task('a', true), task('b', true), task('c', true), task('d', true), task('e', true),
-            task('f', false),
-            task('old', true, Date.parse('2026-10-01T08:00:00Z')),
-        ];
-        const idle = scoreDay({ date: DAY, activities: [], focusSessions: [] as FocusSession[], tasks });
-        expect(idle.tasksCompleted).toBe(5);
-        expect(idle.total).toBe(0);
-
-        const worked = scoreDay({ date: DAY, activities: [act('Code', 'a.ts - Visual Studio Code', 60)], focusSessions: [] as FocusSession[], tasks });
-        expect(worked.taskBonus).toBe(6);
-    });
-
-    it('never exceeds the daily cap', () => {
-        const acts = Array.from({ length: 10 }, (_, i) => act('Code', `f${i}.ts - Visual Studio Code`, 120));
-        const history: Record<string, number> = {};
-        for (let i = 1; i <= 30; i++) history[shiftDate(DAY, -i)] = 480;
-        const s = scoreDay({ date: DAY, activities: acts, focusSessions: [session(120)], tasks: [task('a', true), task('b', true), task('c', true)] }, history);
-        expect(s.total).toBeLessThanOrEqual(DAILY_CATFOOD_CAP);
-        expect(s.total).toBeGreaterThan(50);
+    it('is not doubled when two devices each grant it and then sync', () => {
+        const mac = grantStarter(emptyLedger()).ledger;
+        const pc = grantStarter(awardSessions(emptyLedger(), [session('pc-1', 30)]).ledger).ledger;
+        const merged = mergeLedgers(mac, pc);
+        expect(balanceOf(merged)).toBe(STARTER_CATFOOD + 1);
+        // A synced ledger that already has it doesn't get it again
+        expect(grantStarter(merged).granted).toBe(false);
     });
 });
 
 describe('catfood: ledger', () => {
-    it('awards incrementally and never twice', () => {
-        let l = emptyLedger();
-        let r = applyDayTotal(l, 'dev1', DAY, 12);
-        expect(r.awarded).toBe(12);
-        l = r.ledger;
-        r = applyDayTotal(l, 'dev1', DAY, 20);
-        expect(r.awarded).toBe(8);
-        l = r.ledger;
-        r = applyDayTotal(l, 'dev1', DAY, 20);
-        expect(r.awarded).toBe(0);
-        r = applyDayTotal(l, 'dev1', DAY, 5); // recompute lower: keeps what was earned
-        expect(r.awarded).toBe(0);
-        expect(balanceOf(r.ledger)).toBe(20);
-        expect(earnedOn(r.ledger, DAY)).toBe(20);
-    });
-
     it('spends only what is available', () => {
-        let l = applyDayTotal(emptyLedger(), 'dev1', DAY, FEED_COST + 3).ledger;
-        const fed = spendCatfood(l, FEED_COST, 'feed-1', 1000);
-        expect(fed).not.toBeNull();
-        l = fed!;
-        expect(balanceOf(l)).toBe(3);
-        expect(spendCatfood(l, FEED_COST, 'feed-2', 2000)).toBeNull();
+        let l = grantStarter(emptyLedger()).ledger;
+        for (let i = 0; i < STARTER_CATFOOD; i++) {
+            const next = spendCatfood(l, FEED_COST, `feed-${i}`, i);
+            expect(next).not.toBeNull();
+            l = next!;
+        }
+        expect(balanceOf(l)).toBe(0);
+        expect(spendCatfood(l, FEED_COST, 'feed-x', 99)).toBeNull();
     });
 
-    it('merges devices without double counting', () => {
-        const a = { ...applyDayTotal(emptyLedger(), 'mac', DAY, 30).ledger };
-        const aSpent = spendCatfood(a, 10, 'feed-a', 1)!;
-        const b = applyDayTotal(applyDayTotal(emptyLedger(), 'mac', DAY, 25).ledger, 'pc', DAY, 15).ledger;
-        const bSpent = spendCatfood(b, 10, 'feed-b', 2)!;
-
-        const merged = mergeLedgers(aSpent, bSpent);
-        expect(merged.earned).toEqual({ [`mac|${DAY}`]: 30, [`pc|${DAY}`]: 15 });
-        expect(merged.pets).toEqual({});
+    it('merges devices without double counting, idempotently', () => {
+        const a = spendCatfood(awardSessions(emptyLedger(), [session('s1', 60)]).ledger, 1, 'feed-a', 1)!;
+        const b = spendCatfood(awardSessions(emptyLedger(), [session('s1', 60), session('s2', 30)]).ledger, 1, 'feed-b', 2)!;
+        const merged = mergeLedgers(a, b);
+        expect(Object.keys(merged.sessions).sort()).toEqual(['s1', 's2']);
         expect(merged.spends.map((s) => s.id)).toEqual(['feed-a', 'feed-b']);
-        expect(balanceOf(merged)).toBe(25);
-        // Merging is idempotent
-        expect(mergeLedgers(merged, bSpent)).toEqual(merged);
+        expect(balanceOf(merged)).toBe(1);
+        expect(mergeLedgers(merged, b)).toEqual(merged);
     });
 
-    it('normalizes junk from storage', () => {
+    it('normalizes junk and old-format data from storage', () => {
         expect(normalizeLedger(undefined)).toEqual(emptyLedger());
-        const l = normalizeLedger({ earned: { 'x|2026-01-01': 5000, 'y|2026-01-01': -3 }, spends: [{ id: 1 }, { id: 'ok', amount: 2, at: 1 }] });
-        expect(l.earned).toEqual({ 'x|2026-01-01': DAILY_CATFOOD_CAP });
+        const l = normalizeLedger({
+            earned: { 'x|2026-01-01': 50 }, // old format, ignored
+            sessions: { ok: { amount: 2, date: DAY }, huge: { amount: 999, date: DAY }, bad: { amount: 1 } },
+            grants: { starter: 50 },
+            spends: [{ id: 1 }, { id: 'ok', amount: 1, at: 1 }],
+        });
+        expect(l.sessions).toEqual({ ok: { amount: 2, date: DAY }, huge: { amount: 4, date: DAY } });
+        expect(l.grants).toEqual({ starter: STARTER_CATFOOD });
         expect(l.spends).toHaveLength(1);
+    });
+});
+
+describe('catfood: pets', () => {
+    it('counts pets per device and day, and sums them per day', () => {
+        let l = emptyLedger();
+        l = recordPet(l, 'mac', DAY);
+        l = recordPet(l, 'mac', DAY);
+        l = recordPet(l, 'pc', DAY);
+        l = recordPet(l, 'mac', '2026-10-21');
+        expect(totalPets(l)).toBe(4);
+        expect(petsByDate(l)).toEqual({ [DAY]: 3, '2026-10-21': 1 });
+    });
+
+    it('merges pet counts across devices without double counting', () => {
+        const mac = recordPet(recordPet(emptyLedger(), 'mac', DAY), 'mac', DAY);
+        const pc = recordPet(recordPet(emptyLedger(), 'mac', DAY), 'pc', DAY);
+        const merged = mergeLedgers(mac, pc);
+        expect(merged.pets).toEqual({ [`mac|${DAY}`]: 2, [`pc|${DAY}`]: 1 });
+        expect(mergeLedgers(merged, merged)).toEqual(merged);
+    });
+
+    it('keeps pets through normalization and drops junk', () => {
+        const l = normalizeLedger({ pets: { [`mac|${DAY}`]: 5, bad: 'x' } });
+        expect(l.pets).toEqual({ [`mac|${DAY}`]: 5 });
+        expect(normalizeLedger({}).pets).toEqual({});
     });
 });
 
@@ -251,32 +191,5 @@ describe('catfood: hunger', () => {
 
     it('a recent meal wins over an old first-seen time', () => {
         expect(hungerLevel(now - 1000, now, now - WEAK_AFTER_MS * 2)).toBe('full');
-    });
-});
-
-describe('catfood: pets', () => {
-    it('counts pets per device and day, and sums them per day', () => {
-        let l = emptyLedger();
-        l = recordPet(l, 'mac', DAY);
-        l = recordPet(l, 'mac', DAY);
-        l = recordPet(l, 'pc', DAY);
-        l = recordPet(l, 'mac', '2026-10-21');
-        expect(totalPets(l)).toBe(4);
-        expect(petsByDate(l)).toEqual({ [DAY]: 3, '2026-10-21': 1 });
-    });
-
-    it('merges pet counts across devices without double counting', () => {
-        const mac = recordPet(recordPet(emptyLedger(), 'mac', DAY), 'mac', DAY);
-        const macOld = recordPet(emptyLedger(), 'mac', DAY);
-        const pc = recordPet(macOld, 'pc', DAY);
-        const merged = mergeLedgers(mac, pc);
-        expect(merged.pets).toEqual({ [`mac|${DAY}`]: 2, [`pc|${DAY}`]: 1 });
-        expect(mergeLedgers(merged, merged)).toEqual(merged);
-    });
-
-    it('keeps pets through normalization and drops junk', () => {
-        const l = normalizeLedger({ pets: { [`mac|${DAY}`]: 5, bad: 'x' } });
-        expect(l.pets).toEqual({ [`mac|${DAY}`]: 5 });
-        expect(normalizeLedger({}).pets).toEqual({});
     });
 });

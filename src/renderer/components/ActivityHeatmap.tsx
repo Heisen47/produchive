@@ -291,8 +291,8 @@ export const ActivityHeatmap: React.FC<ActivityHeatmapProps> = () => {
                                                     {(() => {
                                                         const pets = petsPerDay[localDateStr(cell.date)] ?? 0;
                                                         return pets > 0
-                                                            ? <>🐾 Cat petted <span style={{ color: '#f472b6' }}>{pets} {pets === 1 ? 'time' : 'times'}</span></>
-                                                            : '🐾 Cat not petted';
+                                                            ? <>🐾 Jogu petted <span style={{ color: '#f472b6' }}>{pets} {pets === 1 ? 'time' : 'times'}</span></>
+                                                            : '🐾 Jogu not petted';
                                                     })()}
                                                 </div>
                                             </div>

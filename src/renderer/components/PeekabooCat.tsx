@@ -238,7 +238,7 @@ export const PeekabooCat: React.FC<PeekabooCatProps> = ({ isSidebarOpen }) => {
         const level = getCatHunger();
         setHunger(level);
         popUp({ side: pickSide(), offset: 20 + Math.random() * 60 }, 'peek');
-        setLabel(level === 'weak' ? 'so hungry… 🥺' : level === 'hungry' ? 'feed me? 🐟' : null);
+        setLabel(level === 'weak' ? 'Jogu feels weak… 🥺' : level === 'hungry' ? 'Jogu is hungry 🐟' : null);
         later(hide, PEEK_MS);
     };
 
@@ -334,8 +334,8 @@ export const PeekabooCat: React.FC<PeekabooCatProps> = ({ isSidebarOpen }) => {
                             className={`pc-body ${rolling ? 'is-rolling' : ''} ${mood === 'angry' ? 'is-angry' : ''}`}
                             role="button"
                             tabIndex={-1}
-                            aria-label="Pet the cat"
-                            title="Pet the cat"
+                            aria-label="Pet Jogu"
+                            title="Pet Jogu"
                             onClick={handleClick}
                             onAnimationEnd={(e) => {
                                 if (e.target === e.currentTarget) setRolling(false);
@@ -349,7 +349,11 @@ export const PeekabooCat: React.FC<PeekabooCatProps> = ({ isSidebarOpen }) => {
             </div>
             {label && isUp && (
                 <div className="pc-label-pos" style={labelStyle(side)}>
-                    <span className="pc-label">{label}</span>
+                    <span className="pc-label">
+                        {/* Name tag whenever Jogu reacts (tapped, eating), so people learn its name */}
+                        {mood !== 'peek' && <span className="pc-name">Jogu</span>}
+                        {label}
+                    </span>
                 </div>
             )}
         </div>,

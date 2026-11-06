@@ -71,6 +71,7 @@ import {
 
 // ─── Types ───
 import type { PlannedRoutineItem, ActivityGuess } from '../types/routine';
+import { withoutGoogleDataFor } from '../lib/googleDataPolicy';
 export type { PlannedRoutineItem, ActivityGuess };
 
 // ─── Categories & Styling with Proper Contrast for Light & Dark Mode ───
@@ -861,8 +862,9 @@ export const Routine = ({
 
         const taskMap = new Map<string, { title: string; category?: PlannedRoutineItem['category']; priority?: PlannedRoutineItem['priority']; count: number }>();
 
-        // 1. From allRoutines (past schedules user has worked on or applied)
-        for (const r of allRoutines) {
+        // 1. From allRoutines (past schedules user has worked on or applied).
+        // Picked suggestions are sent to the AI, so Google Calendar events only qualify for on-device models.
+        for (const r of withoutGoogleDataFor(allRoutines, engine)) {
             const low = r.title.trim().toLowerCase();
             if (!low || routineIgnore.has(low) || r.category === 'meal' || r.category === 'sleep') continue;
             const key = low;
@@ -909,7 +911,7 @@ export const Routine = ({
             .filter((t) => !existingTitles.has(t.title.toLowerCase()))
             .sort((a, b) => b.count - a.count)
             .slice(0, 5);
-    }, [allRoutines, tasks, makerTasks]);
+    }, [allRoutines, tasks, makerTasks, engine]);
 
     // When opening Plan Your Day modal for today, automatically default startHourInput to current future hour
     useEffect(() => {

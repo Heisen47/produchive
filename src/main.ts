@@ -20,6 +20,7 @@ import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execSync, exec } from "node:child_process";
 import { getAutoUpdater } from "./lib/autoUpdater";
+import { runMsixStartupTask } from "./lib/msixStartupTask";
 import { registerExternalAIHandlers } from "./externalAI";
 import { markStartup, logStartupSummary, startPerfMetrics, stopPerfMetrics } from "./lib/perfStats";
 
@@ -37,12 +38,15 @@ if (started) {
 }
 
 // Register custom protocol client for deep linking (produchive://)
-if (process.defaultApp) {
-  if (process.argv.length >= 2) {
-    app.setAsDefaultProtocolClient('produchive', process.execPath, [path.resolve(process.argv[1])]);
+// Store builds declare the protocol in the MSIX manifest instead.
+if (!process.windowsStore) {
+  if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+      app.setAsDefaultProtocolClient('produchive', process.execPath, [path.resolve(process.argv[1])]);
+    }
+  } else {
+    app.setAsDefaultProtocolClient('produchive');
   }
-} else {
-  app.setAsDefaultProtocolClient('produchive');
 }
 
 // Enforce single instance — if another instance launches, focus the existing window
@@ -1110,7 +1114,8 @@ function registerIpcHandlers() {
 
   // Google OAuth Interactive Login Launcher
   ipcMain.handle("google-oauth-login", async (_event, loginHint?: string) => {
-    const apiBase = process.env.API_BASE_URL || 'http://localhost:4000';
+    // Packaged builds have no API_BASE_URL in their environment, so fall back to production like the renderer does
+    const apiBase = process.env.API_BASE_URL || import.meta.env.VITE_API_URL || (app.isPackaged ? 'https://api.produchive.com' : 'http://localhost:4000');
     const hint = loginHint ? `&login_hint=${encodeURIComponent(loginHint)}` : '';
     const authUrl = `${apiBase}/auth/google?from=app${hint}`;
     await shell.openExternal(authUrl);
@@ -1690,11 +1695,29 @@ function registerIpcHandlers() {
   });
 
   // Auto-launch (startup) handlers
-  ipcMain.handle("get-auto-launch", () => {
+  ipcMain.handle("get-auto-launch", async () => {
+    if (process.windowsStore) {
+      try {
+        return await runMsixStartupTask("get");
+      } catch (err) {
+        logger.error("Failed to read the MSIX startup task:", err);
+        return false;
+      }
+    }
     return app.getLoginItemSettings().openAtLogin;
   });
 
-  ipcMain.handle("set-auto-launch", (_event, enabled: boolean) => {
+  ipcMain.handle("set-auto-launch", async (_event, enabled: boolean) => {
+    if (process.windowsStore) {
+      try {
+        const isEnabled = await runMsixStartupTask(enabled ? "enable" : "disable");
+        logger.info(`Auto-launch requested: ${enabled}, now: ${isEnabled}`);
+        return isEnabled;
+      } catch (err) {
+        logger.error("Failed to change the MSIX startup task:", err);
+        return !enabled;
+      }
+    }
     app.setLoginItemSettings({ openAtLogin: enabled });
     logger.info(`Auto-launch set to: ${enabled}`);
     return enabled;
@@ -2003,7 +2026,7 @@ app.on("ready", async () => {
               await shell.openExternal('https://github.com/Heisen47/produchive');
             }
           },
-          ...(!isMac ? [
+          ...(!isMac && !process.windowsStore ? [
             { type: 'separator' },
             { label: 'Check for Updates...', click: () => { getAutoUpdater().checkForUpdate(); } }
           ] : [])

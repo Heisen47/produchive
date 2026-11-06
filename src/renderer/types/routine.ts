@@ -20,6 +20,8 @@ export interface PlannedRoutineItem {
     detectionFeedback?: 'accurate' | 'inaccurate' | null;
     detectionFeedbackComment?: string;
     feedbackAt?: number;
+    /** 'google_calendar' for events imported via the Google Calendar API (see googleDataPolicy) */
+    source?: 'google_calendar';
 }
 
 export interface ActivityGuess {

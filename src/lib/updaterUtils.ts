@@ -95,3 +95,10 @@ export function formatBytes(bytes: number): string {
 export function calcPercent(transferred: number, total: number): number {
   return total > 0 ? Math.round((transferred / total) * 100) : 0;
 }
+
+/** True when the Microsoft Store owns updates, so the app must not update itself. */
+export function isStoreManagedInstall(
+  proc: { windowsStore?: boolean } = process,
+): boolean {
+  return proc.windowsStore === true;
+}

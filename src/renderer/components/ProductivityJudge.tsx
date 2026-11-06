@@ -29,6 +29,7 @@ import { InsightsDayPicker } from './InsightsDayPicker';
 import { CategoryLists, TimeSplitBar } from './InsightsTimeBreakdown';
 import { TrackedActivitiesModal } from './TrackedActivitiesModal';
 import confetti from 'canvas-confetti';
+import { withoutGoogleDataFor } from '../lib/googleDataPolicy';
 
 interface ProductivityJudgeProps {
     engine: any;
@@ -106,6 +107,9 @@ export const ProductivityJudge = ({ engine, modelLabel, onNavigate }: Productivi
     const plannedTitles = plannedItems.map((r) => r.title.trim()).filter(Boolean);
     // Legacy goals only ever describe today
     const effectiveGoals = plannedTitles.length > 0 ? plannedTitles : rangeIncludes(range, todayStr) ? goals : [];
+    // Goals sent to the AI: Google Calendar titles only reach on-device models (Limited Use)
+    const aiPlannedTitles = withoutGoogleDataFor(plannedItems, engine).map((r) => r.title.trim()).filter(Boolean);
+    const aiGoals = aiPlannedTitles.length > 0 ? aiPlannedTitles : rangeIncludes(range, todayStr) ? goals : [];
 
     const rangeFocusSessions = focusSessionsInRange(focusSessions, range);
     const rangeFocusSeconds = rangeFocusSessions.reduce((s: number, f: any) => s + (f.durationSeconds || 0), 0);
@@ -151,7 +155,7 @@ export const ProductivityJudge = ({ engine, modelLabel, onNavigate }: Productivi
             const result = await generateProductivityAnalysis({
                 activities: rangeActivities,
                 routines,
-                goals: effectiveGoals,
+                goals: aiGoals,
                 selectedRole,
                 customPrompt,
                 focusSessions: rangeFocusSessions,

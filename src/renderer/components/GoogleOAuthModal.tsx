@@ -161,6 +161,10 @@ export const GoogleOAuthModal: React.FC<GoogleOAuthModalProps> = ({
                 </div>
 
                 <div className="space-y-4">
+                    <p className="text-[12px] leading-snug" style={{ color: 'var(--text-muted)' }}>
+                        Your Google Calendar events stay on this device. Only the on-device AI model can read them; they are never sent to cloud AI providers or used to train AI models.
+                    </p>
+
                     {/* Logged-In State */}
                     {isLoggedIn ? (
                         <div className="space-y-4">

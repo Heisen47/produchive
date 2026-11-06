@@ -1,5 +1,6 @@
 import { PlannedRoutineItem } from '../components/Routine';
 import { useStore } from './store';
+import { GOOGLE_CALENDAR_SOURCE } from './googleDataPolicy';
 
 // ─── Cookie Helpers ───
 export const setCookie = (name: string, value: string, days = 60) => {
@@ -428,6 +429,7 @@ export const fetchGoogleCalendarViaAPI = async (
                 startMinute: startDate.getMinutes(),
                 durationMinutes,
                 completed: false,
+                source: GOOGLE_CALENDAR_SOURCE,
             });
         });
 
@@ -584,6 +586,9 @@ export const performGoogleCalendarSync = async (
         if (!existingKey) {
             routineMap.set(remote.id, remote);
             pulledCount++;
+        } else if (existingKey.id === remote.id && remote.source && !existingKey.source) {
+            // Backfill the tag on events imported before sources were recorded
+            routineMap.set(existingKey.id, { ...existingKey, source: remote.source });
         }
     });
 

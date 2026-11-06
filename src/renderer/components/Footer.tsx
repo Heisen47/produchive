@@ -30,7 +30,8 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
     const toggleAutoLaunch = async () => {
         const newValue = !autoLaunch;
         setAutoLaunch(newValue);
-        await (window as any).electronAPI.setAutoLaunch(newValue);
+        const actualValue = await (window as any).electronAPI.setAutoLaunch(newValue);
+        setAutoLaunch(actualValue);
     };
 
     return (

@@ -30,7 +30,6 @@ class MakerNsis extends MakerBase {
 let MakerWix, MakerDMG;
 try { ({ MakerWix } = require('@electron-forge/maker-wix')); } catch {}
 try { ({ MakerDMG } = require('@electron-forge/maker-dmg')); } catch {}
-// const { MakerMSIX } = require('@electron-forge/maker-msix');
 const { MakerZIP } = require('@electron-forge/maker-zip');
 const { MakerDeb } = require('@electron-forge/maker-deb');
 const { MakerRpm } = require('@electron-forge/maker-rpm');
@@ -47,6 +46,60 @@ const localWixPath = path.join(__dirname, '.wix');
 if (fs.existsSync(localWixPath)) {
     process.env.PATH = `${localWixPath};${process.env.PATH}`;
 }
+
+// Finds the newest installed Windows SDK. With a custom manifest, the MSIX tooling otherwise
+// looks for an SDK matching the manifest's MinVersion, which is rarely installed.
+const findWindowsKitVersion = () => {
+    const kitBin = 'C:\\Program Files (x86)\\Windows Kits\\10\\bin';
+    if (!fs.existsSync(kitBin)) return undefined;
+    return fs.readdirSync(kitBin)
+        .filter((name) => /^10\.\d+\.\d+\.\d+$/.test(name))
+        .filter((name) => fs.existsSync(path.join(kitBin, name, 'x64', 'makeappx.exe')))
+        .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+        .pop();
+};
+
+const escapeXml = (value) => String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+// Store builds stay unsigned because Microsoft signs them after certification.
+// Sideload builds (MSIX_SIDELOAD=1) get a dev certificate so they can be installed locally.
+const createMsixMaker = () => {
+    const { MakerMSIX } = require('@electron-forge/maker-msix');
+    const identity = require('./msix/identity.json');
+    const { version, description } = require('./package.json');
+    const sideload = process.env.MSIX_SIDELOAD === '1';
+
+    if (!sideload && identity.identityName.startsWith('REPLACE-WITH')) {
+        throw new Error('Add your Partner Center values to msix/identity.json before building for the Store.');
+    }
+
+    const values = {
+        IdentityName: identity.identityName,
+        Publisher: identity.publisher,
+        PublisherDisplayName: identity.publisherDisplayName,
+        DisplayName: identity.displayName,
+        Description: description,
+        Version: `${version}.0`, // The Store requires the fourth part to be 0
+    };
+    const manifest = fs.readFileSync(path.join(__dirname, 'msix', 'AppxManifest.xml.in'), 'utf8')
+        .replace(/{{(\w+)}}/g, (_, key) => escapeXml(values[key]));
+
+    const buildDir = path.join(__dirname, '.msix-build');
+    fs.mkdirSync(buildDir, { recursive: true });
+    const appManifest = path.join(buildDir, 'AppxManifest.xml');
+    fs.writeFileSync(appManifest, manifest);
+
+    return new MakerMSIX({
+        appManifest,
+        packageAssets: path.join(__dirname, 'msix', 'assets'),
+        windowsKitVersion: findWindowsKitVersion(),
+        sign: sideload,
+    });
+};
 
 const config = {
     packagerConfig: {
@@ -195,23 +248,8 @@ const config = {
                 chooseDirectory: true,
             },
         })] : []),
-        // ─── Microsoft Store / MSIX ───────────────────────────────────────────
-        // Before submitting to the Store:
-        //   1. Create a free Microsoft Partner Center account at https://partner.microsoft.com
-        //   2. Reserve your app name → copy the Identity Name + Publisher CN shown there
-        //   3. Replace the two placeholder values below with your real Partner Center values
-        //   4. Remove the windowsSignOptions block (Microsoft re-signs the package for free)
-        //   5. Run: npm run make -- --targets @electron-forge/maker-msix
-        // new MakerMSIX({
-        //     manifestVariables: {
-        //         identityName: 'PLACEHOLDER.Produchive', // ← replace with Partner Center Identity Name
-        //         publisher: 'CN=Rishi',                  // ← replace with Partner Center Publisher CN
-        //         publisherDisplayName: 'Rishi',
-        //     },
-        //     // electron-windows-msix fails to read windowsSignOptions from the Forge config directly
-        //     // due to a bug, so we pass sign: true and use environment variables instead.
-        //     sign: !process.env.CI,
-        // }),
+        // ─── Microsoft Store / MSIX ── only with `npm run make:store` (see docs/microsoft-store-submission.md)
+        ...(process.env.MSIX_BUILD === '1' ? [createMsixMaker()] : []),
         // ─── macOS: DMG (.dmg) ────────────────────────────────────────────────
         ...(MakerDMG ? [new MakerDMG({
             icon: './resources/icon.icns',

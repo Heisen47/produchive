@@ -22,7 +22,7 @@ import https from "node:https";
 import http from "node:http";
 import { execSync, spawn } from "node:child_process";
 import { createLogger } from "./logger";
-import { compareSemver, findAssetForPlatform } from "./updaterUtils";
+import { compareSemver, findAssetForPlatform, isStoreManagedInstall } from "./updaterUtils";
 
 // Re-export pure utils so external code can import from either module
 export { compareSemver, findAssetForPlatform } from "./updaterUtils";
@@ -119,6 +119,8 @@ export class GitHubAutoUpdater {
 
   /** Start periodic update checks (call once on app ready) */
   startPeriodicChecks() {
+    if (isStoreManagedInstall()) return;
+
     // Check immediately on start (after a short delay for the window to load)
     setTimeout(() => this.checkForUpdate(), 10_000);
 
@@ -140,6 +142,16 @@ export class GitHubAutoUpdater {
   /** Manually trigger an update check — returns the info */
   async checkForUpdate(): Promise<UpdateInfo> {
     const currentVersion = app.getVersion();
+
+    // Store installs are read-only and updated by the Store.
+    if (isStoreManagedInstall()) {
+      return {
+        currentVersion,
+        latestVersion: currentVersion,
+        updateAvailable: false,
+      };
+    }
+
     this.sendStatus({ status: "checking" });
 
     try {

@@ -1,4 +1,5 @@
 import { inferActivityDetails } from './activityAutoTracker';
+import { withoutGoogleDataFor } from './googleDataPolicy';
 import { buildSystemPrompt } from './ai';
 
 export interface ProductivityAnalysis {
@@ -24,6 +25,7 @@ export interface AnalysisInput {
         duration?: number;
     }>;
     routines?: Array<{
+        source?: string;
         dateStr: string;
         title: string;
         category: string;
@@ -567,13 +569,14 @@ const formatDuration = (ms: number) => {
 export async function generateProductivityAnalysis(input: AnalysisInput): Promise<ProductivityAnalysis> {
     const {
         activities = [],
-        routines = [],
         goals = [],
         selectedRole = 'General Student',
         customPrompt = '',
         focusSessions = [],
         engine,
     } = input;
+    // Google Calendar events may only reach on-device models (Limited Use)
+    const routines = withoutGoogleDataFor(input.routines || [], engine);
 
     if (!activities || activities.length === 0) {
         throw new Error('No activities recorded to analyze.');

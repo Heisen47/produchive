@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  IgnorableNamespaces="uap rescap desktop">
+  <Identity Name="{{IdentityName}}"
+            ProcessorArchitecture="x64"
+            Version="{{Version}}"
+            Publisher="{{Publisher}}" />
+  <Properties>
+    <DisplayName>{{DisplayName}}</DisplayName>
+    <PublisherDisplayName>{{PublisherDisplayName}}</PublisherDisplayName>
+    <Logo>assets\icon.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-US" />
+  </Resources>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <Capability Name="internetClient" />
+  </Capabilities>
+  <Applications>
+    <Application Id="App" Executable="app\produchive.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+          DisplayName="{{DisplayName}}"
+          Description="{{Description}}"
+          Square44x44Logo="assets\Square44x44Logo.png"
+          Square150x150Logo="assets\Square150x150Logo.png"
+          BackgroundColor="transparent">
+        <uap:DefaultTile Wide310x150Logo="assets\Wide310x150Logo.png" />
+        <uap:SplashScreen Image="assets\SplashScreen.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- produchive:// deep links. Replaces app.setAsDefaultProtocolClient in packaged builds. -->
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="produchive">
+            <uap:DisplayName>{{DisplayName}}</uap:DisplayName>
+          </uap:Protocol>
+        </uap:Extension>
+        <!-- Launch at login. Off until the user turns it on. TaskId must match src/lib/msixStartupTask.ts. -->
+        <desktop:Extension Category="windows.startupTask" Executable="app\produchive.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="ProduchiveStartup" Enabled="false" DisplayName="{{DisplayName}}" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

@@ -1,0 +1,32 @@
+name: Microsoft Store MSIX
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build MSIX
+        run: npm run make:store
+
+      - name: Upload MSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: produchive-store-msix
+          path: out/make/msix/**/*.msix
+          if-no-files-found: error

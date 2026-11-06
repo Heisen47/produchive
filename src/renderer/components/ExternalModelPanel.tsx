@@ -248,7 +248,7 @@ export const ExternalModelPanel = ({ config, active, onConfigChange, onUse, onCl
                 <p className="text-[12px] leading-snug" style={{ color: 'var(--text-muted)' }}>
                     {isLocalProvider(provider)
                         ? 'Runs on your own computer. Nothing leaves this device.'
-                        : 'Your goals and activity summaries are sent to this provider when the AI runs. The key is stored encrypted in your system keychain.'}
+                        : 'Your goals and activity summaries are sent to this provider when the AI runs. Google Calendar events are never sent. The key is stored encrypted in your system keychain.'}
                 </p>
 
                 {error && (

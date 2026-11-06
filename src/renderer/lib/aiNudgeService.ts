@@ -1,4 +1,5 @@
 import { toast } from 'sonner';
+import { engineKeepsDataOnDevice, isGoogleSourced } from './googleDataPolicy';
 import { Activity } from '../global';
 import { useStore } from './store';
 import { hasAnyDownloadedModel } from './ai';
@@ -97,6 +98,8 @@ class AINudgeService {
         // Check if there is an active routine block right now
         const activeRoutine = (store.routines || []).find((r) => {
             if (r.dateStr !== todayStr || r.isAutoDetected) return false;
+            // Google Calendar titles may only be judged by an on-device model (Limited Use)
+            if (isGoogleSourced(r) && !engineKeepsDataOnDevice(this.engine)) return false;
             const start = r.startHour * 60 + r.startMinute;
             const end = start + r.durationMinutes;
             return nowMinutes >= start && nowMinutes < end;

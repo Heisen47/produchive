@@ -5,10 +5,10 @@ import { useStore } from '../lib/store';
 import { apiClient } from '../lib/api';
 import {
     Users, Plus, ArrowRight, X, Crown, Target, BookOpen, GraduationCap, Coffee,
-    ArrowLeft, Loader2, Check, Copy, Telescope, Shield, Shirt
+    ArrowLeft, Loader2, Check, Copy, Telescope, Shield
 } from 'lucide-react';
 import { CommunityLobby } from './CommunityLobby';
-import { Wardrobe } from './Wardrobe';
+import { WardrobeCard, WardrobeButton } from './WardrobePrompt';
 import {
     roomStateToOccupants, applyCommunityFrame, emptyCommunityState, communityOccupants, nearbyOccupants,
 } from '../lib/communityRooms';
@@ -39,7 +39,6 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
     const [communityTick, setCommunityTick] = useState(0);
     const [joinConflict, setJoinConflict] = useState<CommunityJoinConflict | null>(null);
     const [lobbyNotice, setLobbyNotice] = useState<string | null>(null);
-    const [showWardrobe, setShowWardrobe] = useState(false);
     const [socket, setSocket] = useState<WebSocket | null>(null);
     const socketRef = useRef<WebSocket | null>(null);
 
@@ -521,6 +520,8 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
                         )}
                     </div>
 
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <WardrobeButton base={base} isDark={isDark} />
                     {activeRoom.kind === 'community' ? (
                         <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: base.sub }}>
                             <Shield size={13} />
@@ -556,6 +557,7 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
                         {copiedActive ? 'Copied!' : 'Copy Code'}
                     </button>
                     )}
+                    </div>
                 </div>
                 <div style={{ flex: 1, position: 'relative' }}>
                     <FocusRoom
@@ -590,6 +592,8 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
                     </button>
                     <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#a855f7', boxShadow: '0 0 10px #a855f7' }} />
                     <span style={{ fontSize: 16, fontWeight: 700, color: base.text }}>Solo Focus Room</span>
+                    <div style={{ flex: 1 }} />
+                    <WardrobeButton base={base} isDark={isDark} />
                 </div>
                 <div style={{ flex: 1, position: 'relative' }}>
                     <FocusRoom onNavigate={onNavigate} />
@@ -687,18 +691,7 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
                     ? 'Decide how you want to study today. Focus alone, invite friends to a private room, or join strangers in a community room.'
                     : 'Decide how you want to study today. You can focus alone or invite friends to a private multiplayer room.'}
             </p>
-            <button
-                onClick={() => setShowWardrobe(true)}
-                style={{
-                    margin: '-24px auto 40px', display: 'inline-flex', alignItems: 'center', gap: 8,
-                    minHeight: 44, padding: '0 18px', borderRadius: 12, fontSize: 14, fontWeight: 700,
-                    background: base.card, color: base.text, border: `1px solid ${base.cardBorder}`, cursor: 'pointer',
-                }}
-            >
-                <Shirt size={16} aria-hidden="true" />
-                Customize character
-            </button>
-            {showWardrobe && <Wardrobe onClose={() => setShowWardrobe(false)} />}
+            <WardrobeCard base={base} isDark={isDark} style={{ maxWidth: 640, margin: '8px auto 40px' }} />
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 24 }}>
                 <button

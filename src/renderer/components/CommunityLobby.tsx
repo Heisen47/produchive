@@ -3,6 +3,7 @@ import { ArrowLeft, Loader2, RefreshCw, Shield, Users, X } from 'lucide-react';
 import { apiClient } from '../lib/api';
 import type { CommunityJoinConflict, CommunityRoom } from '../lib/api-contract';
 import { SCENE_META, isCommunityScene } from './focus-room/Shared3D';
+import { WardrobeCard } from './WardrobePrompt';
 
 const REFRESH_MS = 20000;
 const BRAND = '#fbbf24';
@@ -87,6 +88,8 @@ export const CommunityLobby = ({ base, isDark, isSignedIn, onBack, onJoin, confl
                         Pick a place and take a seat. Up to 100 people share each room; you'll see the people at your table and the tables beside you.
                         Everyone appears under a random alias. Nobody sees your name or email.
                     </p>
+
+                    {isSignedIn && <WardrobeCard base={base} isDark={isDark} style={{ margin: '36px 0 20px' }} />}
 
                     {banner && (
                         <div role="status" style={{

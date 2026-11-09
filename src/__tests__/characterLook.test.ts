@@ -31,7 +31,8 @@ describe('character looks', () => {
 
     it('free members show only skin, hair and a palette hair colour', () => {
         const shown = effectiveLook({ ...outfit, hairColor: '#ff00ff' }, false);
-        expect(shown).toEqual({ ...DEFAULT_LOOK, skin: 's4', hair: 'bun' });
+        // A palette colour is free, so the (hidden) hat keeps its colour; the premium items fall back.
+        expect(shown).toEqual({ ...DEFAULT_LOOK, skin: 's4', hair: 'bun', headwearColor: '#1f2937' });
         expect(effectiveLook(outfit, true)).toEqual(outfit);
     });
 
@@ -68,5 +69,49 @@ describe('character looks', () => {
         expect(skinColor('s1')).toBe('#fde3cf');
         expect(shade('#808080', 0.5)).toBe('#c0c0c0');
         expect(shade('#808080', -0.5)).toBe('#404040');
+    });
+});
+
+describe('gender', () => {
+    it('defaults to neutral and rejects unknown values', () => {
+        expect(normalizeLook({}).gender).toBe('neutral');
+        expect(normalizeLook({ gender: 'feminine' }).gender).toBe('feminine');
+        expect(normalizeLook({ gender: 'robot' }).gender).toBe('neutral');
+    });
+
+    it('is free: kept for non-premium members and never a locked change', () => {
+        const look = { ...DEFAULT_LOOK, gender: 'masculine' as const };
+        expect(effectiveLook(look, false).gender).toBe('masculine');
+        expect(lockedChanges(look, DEFAULT_LOOK)).toEqual([]);
+    });
+});
+
+describe('accessories and companions', () => {
+    it('accepts the new items and drops unknown ones', () => {
+        const look = normalizeLook({ outfit: 'tutu', hair: 'pigtails', headwear: 'crown', accessory: 'wings', pet: 'frog', petColor: '#86EFAC' });
+        expect(look).toMatchObject({ outfit: 'tutu', hair: 'pigtails', headwear: 'crown', accessory: 'wings', pet: 'frog', petColor: '#86efac' });
+        expect(normalizeLook({ accessory: 'jetpack', pet: 'dragon' })).toMatchObject({ accessory: 'none', pet: 'none' });
+    });
+
+    it('are premium: hidden for free members and locked when tried on', () => {
+        const look = { ...DEFAULT_LOOK, accessory: 'backpack' as const, pet: 'cat' as const };
+        expect(effectiveLook(look, false)).toMatchObject({ accessory: 'none', pet: 'none' });
+        expect(lockedChanges(look, DEFAULT_LOOK).sort()).toEqual(['accessory', 'pet']);
+    });
+});
+
+describe('free basics', () => {
+    const free = { ...DEFAULT_LOOK, outfit: 'hoodie' as const, outfitColor: '#ec4899', headwear: 'cap' as const, headwearColor: '#10b981', accessory: 'scarf' as const, accessoryColor: '#f59e0b' };
+
+    it('lets free members wear the basics in palette colours', () => {
+        expect(lockedChanges(free, DEFAULT_LOOK)).toEqual([]);
+        expect(effectiveLook(free, false)).toEqual(free);
+    });
+
+    it('still locks custom colours and premium items for free members', () => {
+        const draft = { ...free, outfitColor: '#123456', headwear: 'crown' as const, pattern: 'hearts' as const, pet: 'panda' as const };
+        expect(lockedChanges(draft, DEFAULT_LOOK).sort()).toEqual(['headwear', 'outfitColor', 'pattern', 'pet']);
+        expect(effectiveLook(draft, false)).toMatchObject({ outfit: 'hoodie', outfitColor: DEFAULT_LOOK.outfitColor, headwear: 'none', pattern: 'none', pet: 'none', accessory: 'scarf' });
+        expect(withoutLockedChanges(draft, DEFAULT_LOOK)).toEqual({ ...free, outfitColor: DEFAULT_LOOK.outfitColor, headwear: 'none' });
     });
 });

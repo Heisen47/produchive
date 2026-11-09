@@ -27,15 +27,20 @@ export interface Room {
 
 /** How a user's character looks in focus rooms. Skin and hair are free; the rest is premium. */
 export interface CharacterLook {
+  gender: 'neutral' | 'feminine' | 'masculine';
   skin: 's1' | 's2' | 's3' | 's4' | 's5' | 's6';
-  hair: 'none' | 'short' | 'bob' | 'long' | 'bun' | 'curly';
+  hair: 'none' | 'short' | 'bob' | 'long' | 'bun' | 'curly' | 'pigtails' | 'ponytail';
   hairColor: string;
-  outfit: 'classic' | 'hoodie' | 'dress' | 'kimono' | 'overalls' | 'cardigan';
+  outfit: 'classic' | 'hoodie' | 'dress' | 'kimono' | 'overalls' | 'cardigan' | 'sailor' | 'pinafore' | 'tutu' | 'puffer' | 'sweater';
   outfitColor: string;
-  pattern: 'none' | 'stripes' | 'dots' | 'stars' | 'checks';
+  pattern: 'none' | 'stripes' | 'dots' | 'stars' | 'checks' | 'hearts' | 'flowers';
   patternColor: string;
-  headwear: 'none' | 'beanie' | 'cap' | 'flower-crown' | 'cat-ears' | 'headphones' | 'witch-hat' | 'glasses';
+  headwear: 'none' | 'beanie' | 'cap' | 'flower-crown' | 'cat-ears' | 'headphones' | 'witch-hat' | 'glasses' | 'bow' | 'bunny-ears' | 'bear-ears' | 'beret' | 'crown' | 'halo' | 'party-hat' | 'frog-hat' | 'star-clips';
   headwearColor: string;
+  accessory: 'none' | 'scarf' | 'bow-tie' | 'necklace' | 'backpack' | 'wings' | 'balloon' | 'cape';
+  accessoryColor: string;
+  pet: 'none' | 'cat' | 'bunny' | 'chick' | 'frog' | 'puppy' | 'panda';
+  petColor: string;
 }
 
 /** Scenery of a fixed community room. */

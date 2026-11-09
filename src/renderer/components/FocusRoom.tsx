@@ -3,6 +3,7 @@ import { ArrowLeft, Maximize2, Minimize2, Lock, Unlock, Pause, Play, Eye, Users,
 import { useTheme } from './ThemeProvider';
 import { useStore } from '../lib/store';
 import { useCharacterLook } from '../lib/characterLook';
+import { WardrobeCard } from './WardrobePrompt';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Environment, ContactShadows } from '@react-three/drei';
 import { SceneId, Occupant, SCENE_META, SCENE_STYLE, PICKER_SCENES, isCommunityScene, fmtHMS, GhibliMaterial, NPC_NAMES } from './focus-room/Shared3D';
@@ -602,6 +603,9 @@ export const ScenePicker = ({
             : "Immersive 3D environments built for deep work. Study alongside Alex, Priya, Jordan, Sam, Mia, Yuki, Dani, Leo, Zoe — always free."}
         </p>
       </div>
+
+      {/* Your character, with a way into the wardrobe before joining */}
+      <WardrobeCard base={base} isDark={isDark} style={{ width: '100%', maxWidth: 692, boxSizing: 'border-box' }} />
 
       {/* Scene cards */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 760 }}>

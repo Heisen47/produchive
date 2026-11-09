@@ -7,7 +7,14 @@ import cafeBg from '../../assets/rooms/cafe.png';
 import libraryBg from '../../assets/rooms/library.png'
 import type { CharacterLook } from '../../lib/api-contract';
 import { skinColor } from '../../lib/characterLook';
-import { OutfitBody, Hair, Headwear } from './CharacterParts';
+import { OutfitBody, Hair, Headwear, Accessory, Pet, shade } from './CharacterParts';
+
+/** Torso proportions per gender: slightly narrower or broader than neutral. */
+const BODY_SCALE: Record<CharacterLook['gender'], [number, number, number]> = {
+  neutral: [1, 1, 1],
+  feminine: [0.92, 1, 0.94],
+  masculine: [1.12, 1, 1.06],
+};
 
 
 export type CommunitySceneId = 'observatory' | 'waterfall-cafe' | 'greenhouse' | 'lakeside' | 'tea-garden' | 'mountain-lodge';
@@ -443,8 +450,18 @@ export const Desk = ({ position, rotation = 0, variant = 'square', themeColor = 
   );
 };
 
-export const CharacterFace = () => (
+/** Face. Feminine adds eyelashes, masculine adds eyebrows (in the hair colour). */
+export const CharacterFace = ({ gender = 'neutral', browColor = '#3f2a1d' }: { gender?: CharacterLook['gender']; browColor?: string }) => (
   <group>
+    {gender === 'feminine' && [-1, 1].map(side => (
+      <group key={side}>
+        <mesh position={[side * 0.1, 0.05, 0.268]}><torusGeometry args={[0.034, 0.008, 6, 16, Math.PI]} /><meshBasicMaterial color="#0f172a" /></mesh>
+        <mesh position={[side * 0.14, 0.066, 0.256]} rotation={[0, side * 0.4, side * 0.6]}><boxGeometry args={[0.028, 0.009, 0.01]} /><meshBasicMaterial color="#0f172a" /></mesh>
+      </group>
+    ))}
+    {gender === 'masculine' && [-1, 1].map(side => (
+      <mesh key={side} position={[side * 0.1, 0.112, 0.258]} rotation={[0, 0, side * -0.12]}><boxGeometry args={[0.07, 0.016, 0.012]} /><meshBasicMaterial color={browColor} /></mesh>
+    ))}
     {/* Eyes */}
     <mesh position={[-0.1, 0.05, 0.27]}><sphereGeometry args={[0.03, 8, 8]} /><meshBasicMaterial color="#0f172a" /></mesh>
     <mesh position={[0.1, 0.05, 0.27]}><sphereGeometry args={[0.03, 8, 8]} /><meshBasicMaterial color="#0f172a" /></mesh>
@@ -541,7 +558,10 @@ export const Character = ({ occ, position, rotation = 0, accent, isDarkEnv = fal
     >
       {/* Body (children[0]); a customized look dresses it in the chosen outfit */}
       {occ.look ? (
-        <OutfitBody look={occ.look} />
+        <group scale={BODY_SCALE[occ.look.gender] ?? BODY_SCALE.neutral}>
+          <OutfitBody look={occ.look} />
+          <Accessory look={occ.look} />
+        </group>
       ) : (
         <mesh position={[0, 0.8, 0]} castShadow>
           <capsuleGeometry args={[0.25, 0.5, 4, 16]} />
@@ -557,7 +577,7 @@ export const Character = ({ occ, position, rotation = 0, accent, isDarkEnv = fal
           <GhibliMaterial color={occ.look ? skinColor(occ.look.skin) : occ.isUser ? '#fef08a' : '#f8fafc'} />
           <Outlines thickness={0.015} color="#292524" />
         </mesh>
-        <CharacterFace />
+        <CharacterFace gender={occ.look?.gender} browColor={occ.look ? shade(occ.look.hairColor, -0.15) : undefined} />
         {occ.look ? (
           <>
             <Hair look={occ.look} />
@@ -568,6 +588,11 @@ export const Character = ({ occ, position, rotation = 0, accent, isDarkEnv = fal
         )}
       </group>
       
+      {/* Companion sits beside the character (on the platform in the wardrobe preview) */}
+      {occ.look?.pet && occ.look.pet !== 'none' && (
+        <Pet look={occ.look} position={preview ? [0.58, 0, 0.22] : [0.5, 0, 0.12]} rotation={[0, -0.45, 0]} />
+      )}
+
       {!preview && (<>
       <mesh position={[0, 0.75, 0.4]} rotation={[0, Math.PI, 0]} castShadow>
         <boxGeometry args={[0.6, 0.04, 0.4]} />

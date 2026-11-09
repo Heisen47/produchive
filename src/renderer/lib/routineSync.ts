@@ -99,6 +99,12 @@ export const syncFocusSessionToRoutineCalendar = (
             classroom: 'Classroom',
             cafe: 'Café',
             library: 'Library',
+            observatory: 'Rooftop Observatory',
+            'waterfall-cafe': 'Waterfall Café',
+            greenhouse: 'Rainy Greenhouse',
+            lakeside: 'Misty Lakeside Dock',
+            'tea-garden': 'Zen Tea Garden',
+            'mountain-lodge': 'Snowy Mountain Lodge',
         };
         const label = sceneLabels[scene.toLowerCase()] || scene;
 

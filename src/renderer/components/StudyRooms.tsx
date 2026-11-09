@@ -1,20 +1,26 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { FocusRoom, ScenePicker } from './FocusRoom';
-import { SceneId, Occupant } from './focus-room/Shared3D';
+import { SceneId, Occupant, SCENE_META, isCommunityScene } from './focus-room/Shared3D';
 import { useStore } from '../lib/store';
 import { apiClient } from '../lib/api';
 import {
     Users, Plus, ArrowRight, X, Crown, Target, BookOpen, GraduationCap, Coffee,
-    ArrowLeft, Loader2, Check, Copy
+    ArrowLeft, Loader2, Check, Copy, Telescope, Shield, Shirt
 } from 'lucide-react';
+import { CommunityLobby } from './CommunityLobby';
+import { Wardrobe } from './Wardrobe';
+import {
+    roomStateToOccupants, applyCommunityFrame, emptyCommunityState, communityOccupants, nearbyOccupants,
+} from '../lib/communityRooms';
+import type { CommunityRoom, CommunityJoinConflict } from '../lib/api-contract';
 import { PremiumPaywall } from './PremiumPaywall';
 import { useTheme } from './ThemeProvider';
 import { openServerPage, requireServer } from '../lib/urls';
-import { WS_BASE_URL } from '../lib/config';
+import { WS_BASE_URL, COMMUNITY_ROOMS_ENABLED } from '../lib/config';
 
 export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: string) => void; onRoomChange?: (inRoom: boolean) => void }) => {
     const { isDark } = useTheme();
-    const [mode, setMode] = useState<'lobby' | 'solo' | 'multiplayer'>('lobby');
+    const [mode, setMode] = useState<'lobby' | 'solo' | 'multiplayer' | 'community'>('lobby');
 
     useEffect(() => {
         onRoomChange?.(mode !== 'lobby');
@@ -25,9 +31,15 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
 
     const [loading, setLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('');
-    const [activeRoom, setActiveRoom] = useState<{ id: string; joinCode: string; scene: SceneId; environment: string } | null>(null);
+    const [activeRoom, setActiveRoom] = useState<{ id: string; joinCode: string; scene: SceneId; environment: string; kind?: 'friends' | 'community'; name?: string } | null>(null);
     const activeRoomRef = useRef(activeRoom);
     const [activeRoomOccupants, setActiveRoomOccupants] = useState<Occupant[]>([]);
+    // Community rooms: state built from snapshots + deltas; timers are counted locally.
+    const communityStateRef = useRef(emptyCommunityState());
+    const [communityTick, setCommunityTick] = useState(0);
+    const [joinConflict, setJoinConflict] = useState<CommunityJoinConflict | null>(null);
+    const [lobbyNotice, setLobbyNotice] = useState<string | null>(null);
+    const [showWardrobe, setShowWardrobe] = useState(false);
     const [socket, setSocket] = useState<WebSocket | null>(null);
     const socketRef = useRef<WebSocket | null>(null);
 
@@ -87,27 +99,40 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
             }));
         };
 
+        const isCommunity = isCommunityScene(targetScene);
+
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                if (data.type === 'room:state') {
+                if (isCommunity && (data.type === 'room:welcome' || data.type === 'room:state' || data.type === 'room:delta')) {
+                    communityStateRef.current = applyCommunityFrame(communityStateRef.current, data, Date.now());
+                    setCommunityTick(t => t + 1);
+                    if (data.type === 'room:state') setLoading(false);
+                } else if (data.type === 'room:evicted') {
+                    // Left this room from another device.
+                    activeRoomRef.current = null;
+                    communityStateRef.current = emptyCommunityState();
+                    setActiveRoom(null);
+                    setMode(isCommunity ? 'community' : 'lobby');
+                    setLobbyNotice('You left that room from another device.');
+                    ws.close();
+                } else if (data.type === 'room:state') {
                     const currentUserId = useStore.getState().user?.id;
-                    const occupants = data.participants.map((p: any) => ({
-                        id: p.userId,
-                        name: p.userId === currentUserId ? 'You' : p.displayName,
-                        isUser: p.userId === currentUserId,
-                        elapsedSeconds: p.studySeconds,
-                        seatIdx: p.seatIdx,
-                        isPaused: p.isPaused,
-                    }));
-                    setActiveRoomOccupants(occupants);
+                    setActiveRoomOccupants(roomStateToOccupants(data, currentUserId));
                     setLoading(false);
                 } else if (data.type === 'error') {
                     console.error('WS Error:', data.message);
-                    alert(`Room connection error: ${data.message}`);
+                    if (isCommunity) {
+                        setLobbyNotice(data.message);
+                    } else {
+                        alert(`Room connection error: ${data.message}`);
+                    }
+                    const wasCommunity = isCommunity;
+                    // Clear the ref first so onclose doesn't try to reconnect.
+                    activeRoomRef.current = null;
                     setLoading(false);
                     setActiveRoom(null);
-                    setMode('lobby');
+                    setMode(wasCommunity ? 'community' : 'lobby');
                     ws.close();
                 }
             } catch (err) {
@@ -222,7 +247,53 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
         }
     };
 
+    const handleJoinCommunity = async (room: Pick<CommunityRoom, 'joinCode' | 'environment' | 'name'>) => {
+        if (!(await requireServer())) return;
+        setJoinConflict(null);
+        setLobbyNotice(null);
+        setLoading(true);
+        setLoadingMessage(`Finding you a seat in ${room.name}...`);
+        try {
+            const res = await apiClient.joinCommunityRoom(room.joinCode);
+            const scene = res.room.environment as SceneId;
+            communityStateRef.current = emptyCommunityState();
+            setActiveRoom({
+                id: res.room.id,
+                joinCode: res.room.joinCode,
+                scene,
+                environment: res.room.environment,
+                kind: 'community',
+                name: res.room.name,
+            });
+            setLoadingMessage('Connecting to real-time server...');
+            connectToRoomWS(res.room.joinCode, scene);
+        } catch (err: any) {
+            setLoading(false);
+            const data = err.response?.data;
+            if (err.response?.status === 409 && data?.code) {
+                setJoinConflict(data as CommunityJoinConflict);
+                return;
+            }
+            console.error('Failed to join community room:', err);
+            setLobbyNotice(`Could not join: ${data?.error || err.message || 'Unknown error'}`);
+        }
+    };
+
+    /** Free the seat this user still holds in another community room (e.g. on another device). */
+    const handleLeaveOtherRoom = async (joinCode: string) => {
+        try {
+            await apiClient.leaveCommunityRoom(joinCode);
+            setJoinConflict(null);
+            setLobbyNotice('Done. You can join a room now.');
+        } catch (err: any) {
+            setLobbyNotice(`Could not leave that room: ${err.response?.data?.error || err.message}`);
+        }
+    };
+
     const handleLeaveRoom = async () => {
+        const leaving = activeRoom;
+        // Clear the ref first so the socket's onclose doesn't schedule a reconnect.
+        activeRoomRef.current = null;
         if (socketRef.current) {
             try {
                 if (socketRef.current.readyState === WebSocket.OPEN) {
@@ -236,17 +307,22 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
             setSocket(null);
         }
 
-        if (activeRoom) {
+        if (leaving) {
             try {
-                await apiClient.leaveRoom(activeRoom.joinCode);
+                if (leaving.kind === 'community') {
+                    await apiClient.leaveCommunityRoom(leaving.joinCode);
+                } else {
+                    await apiClient.leaveRoom(leaving.joinCode);
+                }
             } catch (err) {
-                console.error('Failed to call leaveRoom API:', err);
+                console.error('Failed to call leave room API:', err);
             }
         }
 
         setActiveRoom(null);
         setActiveRoomOccupants([]);
-        setMode('lobby');
+        communityStateRef.current = emptyCommunityState();
+        setMode(leaving?.kind === 'community' ? 'community' : 'lobby');
     };
 
     const joinRoomModal = showJoinModal && (
@@ -370,6 +446,23 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
         </div>
     );
 
+    const isCommunityRoom = activeRoom?.kind === 'community';
+
+    // Community timers run locally: re-render once a second while in a community room.
+    useEffect(() => {
+        if (!isCommunityRoom) return;
+        const id = setInterval(() => setCommunityTick(t => t + 1), 1000);
+        return () => clearInterval(id);
+    }, [isCommunityRoom]);
+
+    const community = useMemo(() => {
+        if (!isCommunityRoom || !activeRoom) return null;
+        const everyone = communityOccupants(communityStateRef.current, Date.now());
+        return { everyone, ...nearbyOccupants(everyone, SCENE_META[activeRoom.scene].maxSeats) };
+        // communityTick drives re-computation (state lives in a ref).
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isCommunityRoom, activeRoom, communityTick]);
+
     if (loading) {
         return (
             <div style={{
@@ -413,11 +506,27 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
                             <ArrowLeft size={16} />
                         </button>
                         <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 10px #4ade80' }} />
-                        <span style={{ fontSize: 16, fontWeight: 700, color: base.text }}>
-                            Room: <span style={{ fontFamily: 'monospace', background: 'rgba(0,0,0,0.15)', padding: '2px 8px', borderRadius: 6, marginLeft: 4, letterSpacing: '0.05em' }}>{activeRoom.joinCode}</span>
-                        </span>
+                        {activeRoom.kind === 'community' ? (
+                            <span style={{ fontSize: 16, fontWeight: 700, color: base.text }}>
+                                {activeRoom.name || SCENE_META[activeRoom.scene].label}
+                                <span style={{ fontSize: 12, fontWeight: 500, color: base.sub, marginLeft: 8 }}>
+                                    {community?.everyone.length ?? 0} / {SCENE_META[activeRoom.scene].maxSeats} studying
+                                    {community && community.othersCount > 0 ? ` · showing your table and the two beside it` : ''}
+                                </span>
+                            </span>
+                        ) : (
+                            <span style={{ fontSize: 16, fontWeight: 700, color: base.text }}>
+                                Room: <span style={{ fontFamily: 'monospace', background: 'rgba(0,0,0,0.15)', padding: '2px 8px', borderRadius: 6, marginLeft: 4, letterSpacing: '0.05em' }}>{activeRoom.joinCode}</span>
+                            </span>
+                        )}
                     </div>
 
+                    {activeRoom.kind === 'community' ? (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: base.sub }}>
+                            <Shield size={13} />
+                            You're anonymous: others see an alias, not your name
+                        </span>
+                    ) : (
                     <button
                         onClick={async () => {
                             try {
@@ -446,11 +555,13 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
                         {copiedActive ? <Check size={14} /> : <Copy size={14} />}
                         {copiedActive ? 'Copied!' : 'Copy Code'}
                     </button>
+                    )}
                 </div>
                 <div style={{ flex: 1, position: 'relative' }}>
                     <FocusRoom
                         onNavigate={onNavigate}
-                        overrideOccupants={activeRoomOccupants}
+                        overrideOccupants={community ? community.nearby : activeRoomOccupants}
+                        presentCount={community?.everyone.length}
                         forcedScene={activeRoom.scene}
                         onLeave={handleLeaveRoom}
                         onTogglePause={(paused) => {
@@ -484,6 +595,41 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
                     <FocusRoom onNavigate={onNavigate} />
                 </div>
             </div>
+        );
+    }
+
+    if (mode === 'community') {
+        if (!isPremium) {
+            return (
+                <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: base.card, borderBottom: `1px solid ${base.cardBorder}` }}>
+                        <span style={{ fontSize: 16, fontWeight: 700, color: base.text }}>Community Room</span>
+                        <button
+                            onClick={() => setMode('lobby')}
+                            style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(255,255,255,0.1)', color: base.text, border: 'none', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                            Back
+                        </button>
+                    </div>
+                    <div style={{ flex: 1, position: 'relative' }}>
+                        <PremiumPaywall />
+                    </div>
+                </div>
+            );
+        }
+
+        return (
+            <CommunityLobby
+                base={base}
+                isDark={isDark}
+                isSignedIn={!!user}
+                onBack={() => setMode('lobby')}
+                onJoin={handleJoinCommunity}
+                conflict={joinConflict}
+                notice={lobbyNotice}
+                onLeaveOther={handleLeaveOtherRoom}
+                onDismiss={() => { setJoinConflict(null); setLobbyNotice(null); }}
+            />
         );
     }
 
@@ -534,13 +680,27 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
     }
 
     return (
-        <div style={{ padding: '60px 24px', maxWidth: 800, margin: '0 auto', textAlign: 'center' }}>
+        <div style={{ padding: '60px 24px', maxWidth: 1080, margin: '0 auto', textAlign: 'center' }}>
             <h2 style={{ fontSize: 32, fontWeight: 800, margin: '0 0 16px', color: base.text }}>Choose your Focus Mode</h2>
             <p style={{ fontSize: 16, color: base.sub, marginBottom: 48, maxWidth: 500, margin: '0 auto 48px' }}>
-                Decide how you want to study today. You can focus alone or invite friends to a private multiplayer room.
+                {COMMUNITY_ROOMS_ENABLED
+                    ? 'Decide how you want to study today. Focus alone, invite friends to a private room, or join strangers in a community room.'
+                    : 'Decide how you want to study today. You can focus alone or invite friends to a private multiplayer room.'}
             </p>
+            <button
+                onClick={() => setShowWardrobe(true)}
+                style={{
+                    margin: '-24px auto 40px', display: 'inline-flex', alignItems: 'center', gap: 8,
+                    minHeight: 44, padding: '0 18px', borderRadius: 12, fontSize: 14, fontWeight: 700,
+                    background: base.card, color: base.text, border: `1px solid ${base.cardBorder}`, cursor: 'pointer',
+                }}
+            >
+                <Shirt size={16} aria-hidden="true" />
+                Customize character
+            </button>
+            {showWardrobe && <Wardrobe onClose={() => setShowWardrobe(false)} />}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 24 }}>
                 <button
                     onClick={() => setMode('solo')}
                     style={{
@@ -608,6 +768,47 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
                         <p style={{ margin: 0, color: base.sub, fontSize: 14, lineHeight: 1.5 }}>Create real-time multiplayer rooms, sync study times, and focus together.</p>
                     </div>
                 </button>
+
+                {COMMUNITY_ROOMS_ENABLED && (
+                <button
+                    onClick={async () => {
+                        if (!isPremium) {
+                            openServerPage('/premium');
+                        } else if (await requireServer()) {
+                            setMode('community');
+                        }
+                    }}
+                    style={{
+                        background: base.card,
+                        border: `1px solid ${base.cardBorder}`,
+                        borderRadius: 24, padding: 40,
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20,
+                        cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s',
+                        color: base.text, textAlign: 'center',
+                        position: 'relative', overflow: 'hidden',
+                        boxShadow: '0 8px 30px rgba(0,0,0,0.05)'
+                    }}
+                    onMouseEnter={e => {
+                        e.currentTarget.style.transform = 'translateY(-4px)';
+                        e.currentTarget.style.boxShadow = '0 20px 40px rgba(0,0,0,0.1)';
+                    }}
+                    onMouseLeave={e => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 8px 30px rgba(0,0,0,0.05)';
+                    }}
+                >
+                    <div style={{ position: 'absolute', top: 16, right: 16, background: 'linear-gradient(135deg, #f59e0b, #fb923c)', color: '#fff', padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <Crown size={12} /> PREMIUM
+                    </div>
+                    <div style={{ width: 80, height: 80, borderRadius: 20, background: 'linear-gradient(160deg, #0b1026, #312e81)', color: '#fbbf24', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Telescope size={40} />
+                    </div>
+                    <div>
+                        <h3 style={{ fontSize: 22, fontWeight: 800, margin: '0 0 8px' }}>Community Room</h3>
+                        <p style={{ margin: 0, color: base.sub, fontSize: 14, lineHeight: 1.5 }}>Study alongside strangers in six calm places, from a starlit rooftop to a snowy lodge. Anonymous, no chat, just focus.</p>
+                    </div>
+                </button>
+                )}
             </div>
             {joinRoomModal}
             {createSuccessModal}

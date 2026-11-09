@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Mail, Lock, LogIn, Loader2, User, Sparkles, LogOut, ShieldCheck, ExternalLink, Settings, Crown, Calendar, Fingerprint, ChevronRight } from 'lucide-react';
+import { X, Mail, Lock, LogIn, Loader2, User, Sparkles, LogOut, ShieldCheck, ExternalLink, Settings, Crown, Calendar, Fingerprint, ChevronRight, Shirt } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { useStore } from '../lib/store';
 import { apiClient } from '../lib/api';
@@ -7,9 +7,11 @@ import { openWebPage, openServerPage, requireServer } from '../lib/urls';
 
 interface LoginModalProps {
     onClose: () => void;
+    /** Opens the wardrobe (character customization). */
+    onOpenWardrobe?: () => void;
 }
 
-export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
+export const LoginModal: React.FC<LoginModalProps> = ({ onClose, onOpenWardrobe }) => {
     const { isDark } = useTheme();
     const { user, setUser } = useStore();
     const [showManualInput, setShowManualInput] = useState(false);
@@ -277,6 +279,23 @@ export const LoginModal: React.FC<LoginModalProps> = ({ onClose }) => {
                                 {checkingSettings ? 'Verifying...' : 'Account Settings'}
                                 {!checkingSettings && <ChevronRight size={14} style={{ opacity: 0.5 }} />}
                             </button>
+
+                            {onOpenWardrobe && (
+                                <button
+                                    onClick={onOpenWardrobe}
+                                    style={{
+                                        width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                                        padding: '11px 0', borderRadius: 12, fontSize: 13, fontWeight: 700,
+                                        background: 'transparent',
+                                        border: `1px solid ${isDark ? 'rgba(148,163,184,0.25)' : 'rgba(120,113,108,0.3)'}`,
+                                        color: textPrimary,
+                                        cursor: 'pointer', transition: 'all 0.2s',
+                                    }}
+                                >
+                                    <Shirt size={15} />
+                                    Customize character
+                                </button>
+                            )}
 
                             {!user.isPremium && (
                                 <button

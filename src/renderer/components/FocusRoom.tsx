@@ -1,18 +1,26 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { ArrowLeft, Maximize2, Minimize2, Lock, Unlock, Pause, Play, Eye, Users, Zap, BookOpen, Coffee, GraduationCap, ChevronDown, Plus, Sparkles as SparklesIcon } from 'lucide-react';
+import { ArrowLeft, Maximize2, Minimize2, Lock, Unlock, Pause, Play, Eye, Users, Zap, BookOpen, Coffee, GraduationCap, Telescope, Waves, Leaf, Sailboat, Flower2, MountainSnow, ChevronDown, Plus, Sparkles as SparklesIcon } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { useStore } from '../lib/store';
+import { useCharacterLook } from '../lib/characterLook';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Environment, ContactShadows } from '@react-three/drei';
-import { SceneId, Occupant, SCENE_META, fmtHMS, GhibliMaterial, NPC_NAMES } from './focus-room/Shared3D';
+import { SceneId, Occupant, SCENE_META, SCENE_STYLE, PICKER_SCENES, isCommunityScene, fmtHMS, GhibliMaterial, NPC_NAMES } from './focus-room/Shared3D';
 import { ClassroomEnv } from './focus-room/ClassroomEnv';
 import { CafeEnv } from './focus-room/CafeEnv';
 import { LibraryEnv } from './focus-room/LibraryEnv';
+import { CommunityEnv } from './focus-room/community';
 import { syncFocusSessionToRoutineCalendar } from '../lib/routineSync';
 import { studyAssistantService } from '../lib/studyAssistantService';
 
 // ─── Scene preview SVGs (inline, no external assets needed) ──────────────────
 const SCENE_PREVIEWS: Record<SceneId, string> = {
+  observatory: SCENE_META.observatory.bgImage,
+  'waterfall-cafe': SCENE_META['waterfall-cafe'].bgImage,
+  greenhouse: SCENE_META.greenhouse.bgImage,
+  lakeside: SCENE_META.lakeside.bgImage,
+  'tea-garden': SCENE_META['tea-garden'].bgImage,
+  'mountain-lodge': SCENE_META['mountain-lodge'].bgImage,
   classroom: `data:image/svg+xml,${encodeURIComponent(`
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 140">
   <rect width="220" height="140" fill="#0d9488"/>
@@ -138,8 +146,7 @@ const SCENE_PREVIEWS: Record<SceneId, string> = {
 };
 
 const Scene3D = ({ occupants, scene, accent }: { occupants: Occupant[], scene: SceneId, accent: string }) => {
-  const fogColor = scene === 'classroom' ? '#14b8a6' : scene === 'library' ? '#e8c99a' : '#451a03';
-  const floorColor = scene === 'classroom' ? '#0f766e' : scene === 'library' ? '#c8956c' : '#291811';
+  const { fog: fogColor, floor: floorColor } = SCENE_STYLE[scene];
 
   let minAz = 0;
   let maxAz = 0;
@@ -149,7 +156,7 @@ const Scene3D = ({ occupants, scene, accent }: { occupants: Occupant[], scene: S
   } else if (scene === 'cafe') {
     minAz = 0.1;
     maxAz = Math.PI / 2 - 0.1;
-  } else if (scene === 'library') {
+  } else if (scene === 'library' || isCommunityScene(scene)) {
     minAz = 0.1;
     maxAz = Math.PI / 2 - 0.1;
   }
@@ -171,6 +178,7 @@ const Scene3D = ({ occupants, scene, accent }: { occupants: Occupant[], scene: S
       {scene === 'classroom' && <ClassroomEnv occupants={occupants} accent={accent} />}
       {scene === 'cafe' && <CafeEnv occupants={occupants} accent={accent} />}
       {scene === 'library' && <LibraryEnv occupants={occupants} accent={accent} />}
+      {isCommunityScene(scene) && <CommunityEnv scene={scene} occupants={occupants} accent={accent} />}
 
       <OrbitControls 
         makeDefault 
@@ -188,9 +196,11 @@ const Scene3D = ({ occupants, scene, accent }: { occupants: Occupant[], scene: S
 };
 
 // ─── Room View (3D Canvas Based) ──────────────────────────────────────────────
-const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent, isPaused, togglePause, mode }: {
+const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent, isPaused, togglePause, mode, presentCount }: {
   occupants: Occupant[]; sessionSeconds: number; onLeave: () => void; scene: SceneId; accent: string;
   isPaused: boolean; togglePause: () => void; mode: RoomMode;
+  /** Headcount for the whole room when only nearby people are drawn. */
+  presentCount?: number;
 }) => {
   const meta = SCENE_META[scene];
   const containerRef = useRef<HTMLDivElement>(null);
@@ -301,8 +311,8 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent, isPaused,
           style={{
             position: 'absolute', top: 20, left: '50%', transform: 'translateX(-50%)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            background: scene === 'classroom' ? '#064e3b' : scene === 'library' ? '#78350f' : '#451a03',
-            border: `3px solid ${isPaused ? accent : scene === 'classroom' ? '#78350f' : scene === 'library' ? '#451a03' : '#291811'}`,
+            background: SCENE_STYLE[scene].bannerBg,
+            border: `3px solid ${isPaused ? accent : SCENE_STYLE[scene].bannerBorder}`,
             borderRadius: 8, padding: '8px 32px',
             boxShadow: isPaused
               ? `0 8px 24px rgba(0,0,0,0.5), inset 0 0 10px rgba(0,0,0,0.4), 0 0 0 2px ${accent}44`
@@ -352,8 +362,8 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent, isPaused,
           style={{
             position: 'absolute', top: 20, left: '50%', transform: 'translateX(-50%)',
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            background: scene === 'classroom' ? '#064e3b' : scene === 'library' ? '#78350f' : '#451a03',
-            border: `3px solid ${scene === 'classroom' ? '#78350f' : scene === 'library' ? '#451a03' : '#291811'}`,
+            background: SCENE_STYLE[scene].bannerBg,
+            border: `3px solid ${SCENE_STYLE[scene].bannerBorder}`,
             borderRadius: 8, padding: '8px 32px',
             boxShadow: `0 8px 24px rgba(0,0,0,0.5), inset 0 0 10px rgba(0,0,0,0.4)`,
             zIndex: 5, pointerEvents: 'none',
@@ -418,7 +428,7 @@ const RoomView = ({ occupants, sessionSeconds, onLeave, scene, accent, isPaused,
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 20px', borderRadius: 20, background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.15)', color: '#fef3c7', fontSize: 13, fontWeight: 700, backdropFilter: 'blur(8px)', boxShadow: `0 4px 12px rgba(0,0,0,0.2)` }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: accent, display: 'inline-block', boxShadow: `0 0 10px ${accent}`, animation: 'glowRingPulse 1.6s ease-in-out infinite' }} />
-            {mode === 'study' ? `${occupants.length} Studying` : 'Viewing'}
+            {mode === 'study' ? `${presentCount ?? occupants.length} Studying` : 'Viewing'}
           </div>
 
           {/* Lock button — only shown in fullscreen */}
@@ -536,10 +546,16 @@ const SCENE_ICONS: Record<SceneId, React.ReactNode> = {
   classroom: <GraduationCap size={18} strokeWidth={1.8} />,
   cafe:      <Coffee size={18} strokeWidth={1.8} />,
   library:   <BookOpen size={18} strokeWidth={1.8} />,
+  observatory: <Telescope size={18} strokeWidth={1.8} />,
+  'waterfall-cafe': <Waves size={18} strokeWidth={1.8} />,
+  greenhouse: <Leaf size={18} strokeWidth={1.8} />,
+  lakeside: <Sailboat size={18} strokeWidth={1.8} />,
+  'tea-garden': <Flower2 size={18} strokeWidth={1.8} />,
+  'mountain-lodge': <MountainSnow size={18} strokeWidth={1.8} />,
 };
 
-const SCENE_LABEL: Record<string, string> = { classroom: 'Classroom', cafe: 'Café', library: 'Library' };
-const SCENE_EMOJI: Record<string, string> = { classroom: '🎓', cafe: '☕', library: '📚' };
+const SCENE_LABEL: Record<string, string> = Object.fromEntries(Object.entries(SCENE_META).map(([id, m]) => [id, m.label]));
+const SCENE_EMOJI: Record<string, string> = { ...Object.fromEntries(Object.entries(SCENE_META).map(([id, m]) => [id, m.emoji])), classroom: '🎓' };
 
 export const ScenePicker = ({ 
   onPick, 
@@ -589,7 +605,7 @@ export const ScenePicker = ({
 
       {/* Scene cards */}
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 760 }}>
-        {(Object.entries(SCENE_META) as [SceneId, typeof SCENE_META[SceneId]][]).map(([id, m]) => {
+        {PICKER_SCENES.map(id => [id, SCENE_META[id]] as const).map(([id, m]) => {
           const isOpen = expanded === id;
           return (
             <div key={id} style={{
@@ -882,12 +898,14 @@ export const ScenePicker = ({
 };
 
 // ─── Main Export ──────────────────────────────────────────────────────────────
-export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave, onTogglePause }: { 
+export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave, onTogglePause, presentCount }: { 
   onNavigate?: (view: string) => void, 
   overrideOccupants?: Occupant[],
   forcedScene?: SceneId,
   onLeave?: () => void,
-  onTogglePause?: (paused: boolean) => void
+  onTogglePause?: (paused: boolean) => void,
+  /** Whole-room headcount when `overrideOccupants` only holds the people drawn nearby. */
+  presentCount?: number
 }) => {
   const { isDark } = useTheme();
   const [scene, setScene] = useState<SceneId | null>(forcedScene || null);
@@ -896,6 +914,7 @@ export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave,
   const sessionStartRef = useRef(Date.now());
   const sessionStartedAt = useRef<string>(new Date().toISOString());
   const [isPaused, setIsPaused] = useState(false);
+  const myLook = useCharacterLook(s => s.effective);
   const [pausedAt, setPausedAt] = useState<number>(0);
 
   useEffect(() => {
@@ -952,7 +971,7 @@ export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave,
     occupants = overrideOccupants;
   } else if (scene) {
     occupants = mode === 'study' ? [
-      { id: 'user', name: 'You', isUser: true, elapsedSeconds: sessionSeconds, seatIdx: 0 },
+      { id: 'user', name: 'You', isUser: true, elapsedSeconds: sessionSeconds, seatIdx: 0, look: myLook },
       ...npcs.slice(0, SCENE_META[scene].maxSeats - 1).map(n => ({ ...n, elapsedSeconds: n.elapsedSeconds + tick })),
     ] : [
       ...npcs.slice(0, SCENE_META[scene].maxSeats).map(n => ({ ...n, elapsedSeconds: n.elapsedSeconds + tick })),
@@ -1007,6 +1026,7 @@ export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave,
           isPaused={displayPaused}
           togglePause={togglePause}
           mode={mode}
+          presentCount={presentCount}
         />
       </div>
     </div>

@@ -12,6 +12,9 @@ import { DebugPanel } from './components/DebugPanel';
 import { Toaster, toast } from 'sonner';
 import { ErrorModal } from './components/ErrorModal';
 import { LoginModal } from './components/LoginModal';
+import { AccountBadge } from './components/AccountBadge';
+import { Wardrobe } from './components/Wardrobe';
+import { useCharacterLook } from './lib/characterLook';
 import { Navbar } from './components/Navbar';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import { initEngine, parseAIErrorMessage, AVAILABLE_MODELS, hasModelInCache, getPersistedDownloadedModels, requestPersistentStorage, MODELS_CHANGED_EVENT, AIModel } from './lib/ai';
@@ -35,8 +38,6 @@ import {
     Brain,
     Users2,
     Coffee,
-    UserCircle,
-    Crown,
     Settings,
     FolderSync
 } from 'lucide-react';
@@ -81,6 +82,12 @@ const AppContent = () => {
     const [isSidebarOpen, setSidebarOpen] = useState(false);
     const [showWelcome, setShowWelcome] = useState(false); // Loaded from DB
     const [showLoginModal, setShowLoginModal] = useState(false);
+    const [showWardrobe, setShowWardrobe] = useState(false);
+
+    // Load the user's character look whenever they sign in or their membership changes.
+    useEffect(() => {
+        useCharacterLook.getState().load(!!isPremium);
+    }, [user?.id, isPremium]);
     const [showDriveSyncModal, setShowDriveSyncModal] = useState(false);
     const [isDataLoaded, setDataLoaded] = useState(false);
     const [viewKey, setViewKey] = useState(0);
@@ -469,7 +476,13 @@ const AppContent = () => {
                     },
                 }}
             />
-            {showLoginModal && <LoginModal onClose={() => setShowLoginModal(false)} />}
+            {showLoginModal && (
+                <LoginModal
+                    onClose={() => setShowLoginModal(false)}
+                    onOpenWardrobe={() => { setShowLoginModal(false); setShowWardrobe(true); }}
+                />
+            )}
+            {showWardrobe && <Wardrobe onClose={() => setShowWardrobe(false)} />}
             {showDriveSyncModal && <GoogleDriveSyncModal isOpen={showDriveSyncModal} onClose={() => setShowDriveSyncModal(false)} />}
             {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
             {showPromptEditor && <PromptEditorModal onClose={() => setShowPromptEditor(false)} />}
@@ -630,43 +643,11 @@ const AppContent = () => {
                             <FolderSync size={18} style={{ color: 'var(--accent)' }} />
                         </button>
 
-                        <button
+                        <AccountBadge
+                            user={user}
+                            isPremium={isPremium}
                             onClick={() => setShowLoginModal(true)}
-                            className="p-2 rounded-full transition-all flex items-center justify-center relative group hover:scale-105"
-                            style={isPremium ? {
-                                background: 'linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(218, 165, 32, 0.1) 100%)', 
-                                border: '1px solid rgba(255, 215, 0, 0.5)',
-                                boxShadow: '0 0 15px rgba(255, 215, 0, 0.2), inset 0 0 10px rgba(218, 165, 32, 0.1)'
-                            } : { 
-                                background: 'var(--bg-elevated)', 
-                                border: '1px solid var(--border-primary)',
-                                boxShadow: 'none'
-                            }}
-                            title={user ? `Logged in as ${user.email}${isPremium ? ' (Premium)' : ''}` : "Login"}
-                        >
-                            {isPremium ? (
-                                <Crown 
-                                    size={20} 
-                                    style={{ 
-                                        color: '#FFD700',
-                                        filter: 'drop-shadow(0 0 4px rgba(255,215,0,0.4))'
-                                    }} 
-                                />
-                            ) : (
-                                <UserCircle 
-                                    size={20} 
-                                    style={{ 
-                                        color: user ? 'var(--accent)' : 'var(--text-secondary)' 
-                                    }} 
-                                />
-                            )}
-                            {user && !isPremium && (
-                                <div 
-                                    className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[var(--bg-primary)]"
-                                    style={{ backgroundColor: '#22c55e' }}
-                                />
-                            )}
-                        </button>
+                        />
                     </div>
                 </header>
 

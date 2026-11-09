@@ -28,6 +28,23 @@ export const WEB_BASE_URL: string =
 export const WS_BASE_URL: string = API_BASE_URL.replace(/^http/, 'ws');
 
 /**
+ * Uploading window-activity events (titles, app names, file paths) to the
+ * backend's /activity endpoints. Off unless built with
+ * VITE_ENABLE_ACTIVITY_UPLOAD=true: the backend doesn't implement those
+ * endpoints yet, so uploads only failed and piled up in localStorage.
+ */
+export const ACTIVITY_UPLOAD_ENABLED: boolean = import.meta.env.VITE_ENABLE_ACTIVITY_UPLOAD === 'true';
+
+/**
+ * Community rooms (study with strangers). Shown in dev builds; hidden in
+ * release builds unless built with VITE_ENABLE_COMMUNITY_ROOMS=true.
+ * The backend has its own flag (COMMUNITY_ROOMS_ENABLED).
+ */
+export const COMMUNITY_ROOMS_ENABLED: boolean =
+  import.meta.env.VITE_ENABLE_COMMUNITY_ROOMS === 'true'
+  || (import.meta.env.DEV && import.meta.env.VITE_ENABLE_COMMUNITY_ROOMS !== 'false');
+
+/**
  * Google Form URL for user feedback on auto-detected calendar activity accuracy and functionalities.
  */
 export const FEEDBACK_GOOGLE_FORM_URL: string =

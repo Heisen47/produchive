@@ -47,6 +47,7 @@
 /* Light Theme (beige) */
 .theme-light {
   --bg-primary: #f5f0e8;
+  --premium-gold: #C8961E; /* deeper gold so the premium ring reads on cream */
   --bg-secondary: #ede8df;
   --bg-tertiary: #e5dfd5;
   --bg-card: rgba(255, 255, 255, 0.8);

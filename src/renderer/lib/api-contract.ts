@@ -25,6 +25,50 @@ export interface Room {
   updatedAt: string;
 }
 
+/** How a user's character looks in focus rooms. Skin and hair are free; the rest is premium. */
+export interface CharacterLook {
+  skin: 's1' | 's2' | 's3' | 's4' | 's5' | 's6';
+  hair: 'none' | 'short' | 'bob' | 'long' | 'bun' | 'curly';
+  hairColor: string;
+  outfit: 'classic' | 'hoodie' | 'dress' | 'kimono' | 'overalls' | 'cardigan';
+  outfitColor: string;
+  pattern: 'none' | 'stripes' | 'dots' | 'stars' | 'checks';
+  patternColor: string;
+  headwear: 'none' | 'beanie' | 'cap' | 'flower-crown' | 'cat-ears' | 'headphones' | 'witch-hat' | 'glasses';
+  headwearColor: string;
+}
+
+/** Scenery of a fixed community room. */
+export type CommunityEnvironment =
+  | 'observatory'
+  | 'waterfall-cafe'
+  | 'greenhouse'
+  | 'lakeside'
+  | 'tea-garden'
+  | 'mountain-lodge';
+
+/** Public community room (study with strangers). Never includes host or participant user ids. */
+export interface CommunityRoom {
+  id: string;
+  joinCode: string;
+  name: string;
+  environment: CommunityEnvironment;
+  maxLimit: number;
+  /** Real users plus ambient studiers. */
+  occupantCount: number;
+  isFull: boolean;
+  createdAt: string;
+  /** Only on GET /community/rooms: the caller is sitting in this room. */
+  isMine?: boolean;
+}
+
+/** 409 body from POST /community/rooms/:code/join. */
+export interface CommunityJoinConflict {
+  error: string;
+  code: 'already_in_room' | 'room_full';
+  currentRoom?: { joinCode: string; name: string; environment: CommunityEnvironment };
+}
+
 export interface RoomParticipant {
   id: string;
   roomId: string;
@@ -158,6 +202,39 @@ export interface APIContract {
     };
   };
   '/rooms/:code/leave': {
+    POST: {
+      req: null;
+      res: { message: string };
+    };
+  };
+
+  // Character look (wardrobe)
+  '/character/me': {
+    GET: {
+      req: null;
+      /** look = what is saved; effective = what others see right now. */
+      res: { look: CharacterLook; effective: CharacterLook; isPremium: boolean };
+    };
+    PUT: {
+      req: { look: CharacterLook };
+      res: { look: CharacterLook; effective: CharacterLook; isPremium: boolean };
+    };
+  };
+
+  // Community Rooms (fixed set seeded by the server; public, anonymous, premium only)
+  '/community/rooms': {
+    GET: {
+      req: null;
+      res: CommunityRoom[];
+    };
+  };
+  '/community/rooms/:code/join': {
+    POST: {
+      req: null;
+      res: { message: string; room: CommunityRoom; seatIdx: number };
+    };
+  };
+  '/community/rooms/:code/leave': {
     POST: {
       req: null;
       res: { message: string };

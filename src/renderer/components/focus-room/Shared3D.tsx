@@ -5,12 +5,46 @@ import * as THREE from 'three';
 import classroomBg from '../../assets/rooms/classroom.png';
 import cafeBg from '../../assets/rooms/cafe.png';
 import libraryBg from '../../assets/rooms/library.png'
+import type { CharacterLook } from '../../lib/api-contract';
+import { skinColor } from '../../lib/characterLook';
+import { OutfitBody, Hair, Headwear } from './CharacterParts';
 
 
-export type SceneId = 'classroom' | 'cafe' | 'library';
-export interface Occupant { id: string; name: string; isUser: boolean; elapsedSeconds: number; seatIdx: number; isPremium?: boolean; isPaused?: boolean; }
+export type CommunitySceneId = 'observatory' | 'waterfall-cafe' | 'greenhouse' | 'lakeside' | 'tea-garden' | 'mountain-lodge';
+export type SceneId = 'classroom' | 'cafe' | 'library' | CommunitySceneId;
+
+export interface Occupant { id: string; name: string; isUser: boolean; elapsedSeconds: number; seatIdx: number; isPremium?: boolean; isPaused?: boolean; /** Customized look; without it the classic default character is drawn. */ look?: CharacterLook; }
 
 export const NPC_NAMES = ['Alex', 'Priya', 'Jordan', 'Sam', 'Mia', 'Yuki', 'Dani', 'Leo', 'Zoe'];
+
+/** Scenes offered in the solo / friends scene picker. Community sceneries are reserved for the public rooms. */
+export const PICKER_SCENES: SceneId[] = ['classroom', 'cafe', 'library'];
+/** Community room sceneries, in the order the server lists the rooms. */
+export const COMMUNITY_SCENES: CommunitySceneId[] = ['observatory', 'waterfall-cafe', 'greenhouse', 'lakeside', 'tea-garden', 'mountain-lodge'];
+
+export function isCommunityScene(scene: string | null | undefined): scene is CommunitySceneId {
+  return !!scene && (COMMUNITY_SCENES as string[]).includes(scene);
+}
+
+/** Small inline card art for a scene (no external assets). */
+const card = (sky: string, ground: string, extra: string) => `data:image/svg+xml,${encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 140"><rect width="220" height="140" fill="${sky}"/>${extra}<rect y="105" width="220" height="35" fill="${ground}"/></svg>`
+)}`;
+
+const CARD_ART: Record<CommunitySceneId, string> = {
+  observatory: card('#0b1026', '#1e1b4b',
+    '<circle cx="40" cy="20" r="1" fill="#fff"/><circle cx="90" cy="35" r="1.2" fill="#fff"/><circle cx="130" cy="14" r="1" fill="#fff"/><circle cx="180" cy="30" r="12" fill="#fde68a"/><path d="M20 105 v-25 a18 18 0 0 1 36 0 v25z" fill="#cbd5e1"/>'),
+  'waterfall-cafe': card('#a7d7c5', '#7c5c3b',
+    '<path d="M0 30 L60 10 L90 105 L0 105z" fill="#4b6358"/><path d="M220 20 L150 15 L130 105 L220 105z" fill="#4b6358"/><rect x="92" y="12" width="36" height="93" fill="#e0f2fe"/><rect x="100" y="12" width="6" height="93" fill="#bae6fd"/><rect x="114" y="12" width="5" height="93" fill="#bae6fd"/><ellipse cx="110" cy="104" rx="40" ry="6" fill="#ffffff" opacity="0.8"/>'),
+  greenhouse: card('#cfe3d4', '#8a9a7b',
+    '<path d="M30 105 V50 L110 18 L190 50 V105z" fill="#e8f5ec" stroke="#2f5d46" stroke-width="3"/><path d="M110 18 V105 M70 34 V105 M150 34 V105" stroke="#2f5d46" stroke-width="2"/><g stroke="#94a3b8" stroke-width="1.2"><path d="M20 10 l-4 10"/><path d="M60 5 l-4 10"/><path d="M200 12 l-4 10"/><path d="M170 2 l-4 10"/></g><circle cx="55" cy="92" r="12" fill="#3f7d4f"/><circle cx="165" cy="90" r="14" fill="#3f7d4f"/>'),
+  lakeside: card('#f5d0c5', '#5b8fb0',
+    '<circle cx="160" cy="70" r="16" fill="#fde68a" opacity="0.9"/><path d="M0 105 L40 60 L80 105z" fill="#4d6a5b"/><path d="M50 105 L100 50 L150 105z" fill="#3f5a4c"/><path d="M130 105 L180 70 L220 105z" fill="#4d6a5b"/><rect y="80" width="220" height="25" fill="#ffffff" opacity="0.35"/><rect x="20" y="108" width="80" height="6" fill="#8b5e3c"/>'),
+  'tea-garden': card('#f3e4e1', '#d9c9a3',
+    '<rect x="20" y="40" width="4" height="65" fill="#5b3a29"/><circle cx="22" cy="40" r="22" fill="#f9a8d4"/><circle cx="40" cy="50" r="16" fill="#fbcfe8"/><path d="M120 60 L200 60 L190 48 L130 48z" fill="#7f1d1d"/><rect x="132" y="60" width="4" height="45" fill="#5b3a29"/><rect x="184" y="60" width="4" height="45" fill="#5b3a29"/><ellipse cx="80" cy="112" rx="34" ry="6" fill="#60a5fa"/><circle cx="72" cy="112" r="2.5" fill="#fb923c"/>'),
+  'mountain-lodge': card('#1e293b', '#6b4a33',
+    '<path d="M10 105 L70 30 L130 105z" fill="#94a3b8"/><path d="M52 52 L70 30 L88 52 L78 48 L70 54 L62 48z" fill="#f8fafc"/><path d="M100 105 L160 45 L220 105z" fill="#64748b"/><path d="M146 59 L160 45 L174 59 L166 56 L160 62 L154 56z" fill="#f8fafc"/><g fill="#fff"><circle cx="30" cy="20" r="1.5"/><circle cx="110" cy="30" r="1.5"/><circle cx="190" cy="15" r="1.5"/><circle cx="150" cy="25" r="1.5"/></g><rect x="180" y="80" width="30" height="25" fill="#78716c"/><path d="M188 104 q7 -18 14 0z" fill="#f97316"/>'),
+};
 
 export const SCENE_META: Record<SceneId, {
   label: string; emoji: string; tagline: string; accent: string;
@@ -29,6 +63,43 @@ export const SCENE_META: Record<SceneId, {
     label: 'Library', emoji: '📚', tagline: 'Quiet stacks, deep focus', accent: '#a78bfa',
     bgImage: libraryBg, maxSeats: 6
   },
+  observatory: {
+    label: 'Rooftop Observatory', emoji: '🔭', tagline: 'Strangers under the same stars', accent: '#fbbf24',
+    bgImage: CARD_ART.observatory, maxSeats: 100
+  },
+  'waterfall-cafe': {
+    label: 'Waterfall Café', emoji: '🌊', tagline: 'Coffee beside falling water', accent: '#2dd4bf',
+    bgImage: CARD_ART['waterfall-cafe'], maxSeats: 100
+  },
+  greenhouse: {
+    label: 'Rainy Greenhouse', emoji: '🌿', tagline: 'Rain on glass, plants all around', accent: '#86efac',
+    bgImage: CARD_ART.greenhouse, maxSeats: 100
+  },
+  lakeside: {
+    label: 'Misty Lakeside Dock', emoji: '🛶', tagline: 'Still water at first light', accent: '#93c5fd',
+    bgImage: CARD_ART.lakeside, maxSeats: 100
+  },
+  'tea-garden': {
+    label: 'Zen Tea Garden', emoji: '🍵', tagline: 'Blossoms, koi and quiet tea', accent: '#f9a8d4',
+    bgImage: CARD_ART['tea-garden'], maxSeats: 100
+  },
+  'mountain-lodge': {
+    label: 'Snowy Mountain Lodge', emoji: '🏔️', tagline: 'Fireside focus, snow outside', accent: '#fb923c',
+    bgImage: CARD_ART['mountain-lodge'], maxSeats: 100
+  },
+};
+
+/** Per-scene colours for the 3D background, the floor and the timer banner. */
+export const SCENE_STYLE: Record<SceneId, { fog: string; floor: string; bannerBg: string; bannerBorder: string }> = {
+  classroom: { fog: '#14b8a6', floor: '#0f766e', bannerBg: '#064e3b', bannerBorder: '#78350f' },
+  cafe: { fog: '#451a03', floor: '#291811', bannerBg: '#451a03', bannerBorder: '#291811' },
+  library: { fog: '#e8c99a', floor: '#c8956c', bannerBg: '#78350f', bannerBorder: '#451a03' },
+  observatory: { fog: '#0b1026', floor: '#1e1b4b', bannerBg: '#1e1b4b', bannerBorder: '#4338ca' },
+  'waterfall-cafe': { fog: '#a7d7c5', floor: '#6b4f33', bannerBg: '#134e4a', bannerBorder: '#5eead4' },
+  greenhouse: { fog: '#c9dccf', floor: '#7d8b70', bannerBg: '#14532d', bannerBorder: '#86efac' },
+  lakeside: { fog: '#dfe7ef', floor: '#4f86a8', bannerBg: '#1e3a5f', bannerBorder: '#93c5fd' },
+  'tea-garden': { fog: '#f3e4e1', floor: '#cdbb92', bannerBg: '#7f1d1d', bannerBorder: '#f9a8d4' },
+  'mountain-lodge': { fog: '#2a211d', floor: '#5b3d29', bannerBg: '#431407', bannerBorder: '#fb923c' },
 };
 
 export function fmtHMS(s: number): string {
@@ -468,22 +539,33 @@ export const Character = ({ occ, position, rotation = 0, accent, isDarkEnv = fal
       onPointerOver={(e) => { e.stopPropagation(); setHovered(true); document.body.style.cursor = 'pointer'; }}
       onPointerOut={() => { setHovered(false); document.body.style.cursor = 'auto'; }}
     >
-      {/* Body */}
-      <mesh position={[0, 0.8, 0]} castShadow>
-        <capsuleGeometry args={[0.25, 0.5, 4, 16]} />
-        <GhibliMaterial color={color} />
-        <Outlines thickness={0.015} color="#292524" />
-      </mesh>
+      {/* Body (children[0]); a customized look dresses it in the chosen outfit */}
+      {occ.look ? (
+        <OutfitBody look={occ.look} />
+      ) : (
+        <mesh position={[0, 0.8, 0]} castShadow>
+          <capsuleGeometry args={[0.25, 0.5, 4, 16]} />
+          <GhibliMaterial color={color} />
+          <Outlines thickness={0.015} color="#292524" />
+        </mesh>
+      )}
 
-      {/* Head Group (Head, Face, Accessories) */}
+      {/* Head Group (children[1]: Head, Face, Hair, Accessories) */}
       <group position={[0, 1.45, 0]}>
         <mesh castShadow>
           <sphereGeometry args={[0.3, 16, 16]} />
-          <GhibliMaterial color={occ.isUser ? '#fef08a' : '#f8fafc'} />
+          <GhibliMaterial color={occ.look ? skinColor(occ.look.skin) : occ.isUser ? '#fef08a' : '#f8fafc'} />
           <Outlines thickness={0.015} color="#292524" />
         </mesh>
         <CharacterFace />
-        <CharacterAccessory seed={occ.seatIdx} isUser={occ.isUser} accent={accent} />
+        {occ.look ? (
+          <>
+            <Hair look={occ.look} />
+            <Headwear look={occ.look} />
+          </>
+        ) : (
+          <CharacterAccessory seed={occ.seatIdx} isUser={occ.isUser} accent={accent} />
+        )}
       </group>
       
       <mesh position={[0, 0.75, 0.4]} rotation={[0, Math.PI, 0]} castShadow>

@@ -72,6 +72,30 @@ export const apiClient = {
     return res.data;
   },
 
+  // Character look (wardrobe)
+  getCharacterLook: async () => {
+    const res = await api.get<APIContract['/character/me']['GET']['res']>('/character/me');
+    return res.data;
+  },
+  saveCharacterLook: async (look: APIContract['/character/me']['PUT']['req']['look']) => {
+    const res = await api.put<APIContract['/character/me']['PUT']['res']>('/character/me', { look });
+    return res.data;
+  },
+
+  // Community Rooms (public, anonymous)
+  getCommunityRooms: async () => {
+    const res = await api.get<APIContract['/community/rooms']['GET']['res']>('/community/rooms');
+    return res.data;
+  },
+  joinCommunityRoom: async (code: string) => {
+    const res = await api.post<APIContract['/community/rooms/:code/join']['POST']['res']>(`/community/rooms/${code}/join`);
+    return res.data;
+  },
+  leaveCommunityRoom: async (code: string) => {
+    const res = await api.post<APIContract['/community/rooms/:code/leave']['POST']['res']>(`/community/rooms/${code}/leave`);
+    return res.data;
+  },
+
   // Personal Rooms
   getPersonalRooms: async () => {
     const res = await api.get<APIContract['/personal-rooms']['GET']['res']>('/personal-rooms');

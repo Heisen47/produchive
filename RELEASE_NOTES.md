@@ -2,6 +2,38 @@
 
 ---
 
+## Produchive v3.3.0
+
+Major feature release introducing 3D focus environments with ambient weather effects, character avatar customization and wardrobe system, Microsoft Store MSIX packaging support, Google Data Policy compliance, and community lobby integration.
+
+### 3D Focus Rooms & Ambient Environments
+- **Immersive 3D Study Spaces**: Six new three-dimensional focus rooms built with Three.js and React Three Fiber: Greenhouse, Lakeside, Mountain Lodge, Observatory, Tea Garden, and Waterfall Cafe.
+- **Dynamic Weather System**: Added real-time atmospheric particle and precipitation effects (rain, snow, ambient particles) to study environments.
+- **Community Lobby & Study Spaces**: Live room presence, active participant counters, shared study timers, and room selection interface.
+
+### Character Customization & Wardrobe
+- **3D Modular Avatar Engine**: Customizable 3D character avatars with swappable components including skin tones, hair styles, hair colors, outfits, and accessories.
+- **Interactive Wardrobe Modal**: Real-time 3D avatar preview with instant customization controls and state persistence.
+- **Account Badge Component**: Accessible user profile badge with initial/avatar display, screen-reader support, and Premium membership indicators.
+
+### Microsoft Store (MSIX) Packaging
+- **Native MSIX Builds**: Added `@electron-forge/maker-msix` integration with automated build scripts (`make:store`, `make:store:sideload`) and high-DPI Store assets.
+- **Windows Startup Task**: Native UWP startup task integration for toggleable launch-on-boot without registry modification.
+- **Store-Aware Auto-Updater**: Automatic updater suppression on Microsoft Store builds to delegate update lifecycle to the Windows Store.
+- **Custom Protocol Handling**: Registered `produchive://` URI scheme within the MSIX package manifest.
+- **CI/CD Pipeline**: GitHub Actions workflow for automated Microsoft Store artifact generation.
+
+### Google Data Policy & Verification Compliance
+- **Calendar Event Source Tagging**: Explicit source classification for synced Google Calendar entries to preserve data provenance.
+- **Privacy & Isolation Controls**: Client-side enforcement ensuring Google user data remains isolated locally and never leaks into third-party AI prompts without user consent.
+- **OAuth Documentation**: Complete compliance documentation and verification verification guides for Google OAuth review.
+
+### Architecture & Test Coverage
+- **API Contracts & Sync**: Extended centralized API contracts (`src/renderer/lib/api-contract.ts`) with character look and community room definitions.
+- **Expanded Test Suite**: Added comprehensive test suites across 26 test files (334 passing tests) covering character appearance, community rooms, sync engine, account badges, Google data policy, and MSIX store integration.
+
+---
+
 ## Produchive v3.2.1
 
 Patch release that keeps the app friendly while the sign-in server is offline.

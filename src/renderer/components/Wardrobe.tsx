@@ -141,19 +141,19 @@ export const Wardrobe = ({ onClose }: { onClose: () => void }) => {
                 </header>
 
                 <div style={{ display: 'flex', flexWrap: 'wrap', minHeight: 0, flex: 1, overflow: 'auto' }}>
-                    <div style={{ flex: '1 1 300px', minHeight: 360, background: base.bg, position: 'relative' }}>
-                        <Canvas camera={{ position: [0, 1.5, 3.4], fov: 35 }} style={{ position: 'absolute', inset: 0 }}>
+                    <div style={{ flex: '1 1 300px', height: 'min(460px, 62vh)', minHeight: 320, alignSelf: 'flex-start', position: 'sticky', top: 0, background: base.bg }}>
+                        <Canvas camera={{ position: [0, 1.4, 4.8], fov: 32 }} style={{ position: 'absolute', inset: 0 }}>
                             <ambientLight intensity={1.1} />
                             <directionalLight position={[3, 5, 4]} intensity={1.2} />
                             <group position={[0, -0.05, 0]}>
-                                <Character occ={preview} position={[0, 0, 0]} rotation={0} accent="#3b82f6" />
+                                <Character occ={preview} position={[0, 0, 0]} rotation={0} accent="#3b82f6" preview />
                                 <mesh position={[0, -0.03, 0]}>
                                     <cylinderGeometry args={[0.7, 0.75, 0.06, 40]} />
                                     <meshToonMaterial color={isDark ? '#1e293b' : '#e7e0d5'} />
                                 </mesh>
                             </group>
                             <ContactShadows position={[0, -0.07, 0]} opacity={0.4} scale={4} blur={2.5} far={2} />
-                            <OrbitControls target={[0, 1.05, 0]} enablePan={false} minDistance={2.2} maxDistance={5} minPolarAngle={Math.PI / 4} maxPolarAngle={Math.PI / 1.9} />
+                            <OrbitControls target={[0, 1.0, 0]} enablePan={false} minDistance={3} maxDistance={6.5} minPolarAngle={Math.PI / 4} maxPolarAngle={Math.PI / 1.9} />
                         </Canvas>
                         <span style={{ position: 'absolute', left: 12, bottom: 10, fontSize: 11, color: base.sub }}>Drag to turn</span>
                     </div>

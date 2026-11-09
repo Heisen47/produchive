@@ -511,7 +511,7 @@ export const CharacterAccessory = ({ seed, isUser, accent }: { seed: number, isU
   return null;
 };
 
-export const Character = ({ occ, position, rotation = 0, accent, isDarkEnv = false }: { occ: Occupant, position: [number, number, number], rotation?: number, accent: string, isDarkEnv?: boolean }) => {
+export const Character = ({ occ, position, rotation = 0, accent, isDarkEnv = false, preview = false }: { occ: Occupant, position: [number, number, number], rotation?: number, accent: string, isDarkEnv?: boolean, /** Wardrobe preview: no laptop, light or name tag, and no turning on hover. */ preview?: boolean }) => {
   const group = useRef<THREE.Group>(null);
   const [hovered, setHovered] = useState(false);
   const color = occ.isUser ? accent : '#94a3b8';
@@ -525,7 +525,7 @@ export const Character = ({ occ, position, rotation = 0, accent, isDarkEnv = fal
     group.current.children[1].rotation.x = Math.sin(t * 0.3) * 0.05;
     
     // Rotate to face camera when hovered
-    const targetRot = hovered ? rotation + Math.PI : rotation + Math.sin(t * 0.2) * 0.05;
+    const targetRot = hovered && !preview ? rotation + Math.PI : rotation + Math.sin(t * 0.2) * 0.05;
     group.current.rotation.y += (targetRot - group.current.rotation.y) * 0.1;
   });
 
@@ -568,6 +568,7 @@ export const Character = ({ occ, position, rotation = 0, accent, isDarkEnv = fal
         )}
       </group>
       
+      {!preview && (<>
       <mesh position={[0, 0.75, 0.4]} rotation={[0, Math.PI, 0]} castShadow>
         <boxGeometry args={[0.6, 0.04, 0.4]} />
         <GhibliMaterial color="#1e293b" />
@@ -613,6 +614,7 @@ export const Character = ({ occ, position, rotation = 0, accent, isDarkEnv = fal
           </div>
         </div>
       </Html>
+      </>)}
     </group>
   );
 };

@@ -2,6 +2,48 @@
 
 ---
 
+## Produchive v3.3.1
+
+Wardrobe expansion and polish release: fixed fabric patterns, rebuilt outfits with arms and sleeves, a gender option, 30+ new wardrobe items including accessories and pet companions, free character basics for everyone, a redesigned Wardrobe, and new ways to find it from the focus-room flow.
+
+> **Requires the matching `produchive-backend` update.** The server validates character looks; older servers reject the new items and the free basics. Deploy the backend before releasing this build.
+
+### Wardrobe Fixes
+- **Fabric Patterns Now Render**: Stripes, dots, stars and checks showed as a plain white outfit, because materials weren't rebuilt when a pattern texture was added. Patterns now appear on every outfit, with sharper prints that keep the same size on the body, skirts and sleeves.
+- **Clean Dress Rendering**: Removed the dark speckles that showed through the dress skirt, and prints on skirts now face the right way up.
+
+### Redesigned Outfits & Characters
+- **Arms & Sleeves**: Characters now have stubby arms with mitten hands, dressed in short, puff, long or wide kimono sleeves to match the outfit.
+- **Rebuilt Outfits**: Every original outfit has a distinct shape. Classic (tee and trousers), Hoodie (hood, front pocket, drawstrings), Dress (bell skirt, lace hem, bow, round collar), Kimono (crossed collar, obi with bow), Overalls (bib, straps, gold buttons) and Cardigan (open front, button bands).
+- **Gender Option**: New free choice of Feminine, Masculine or Neutral, adding eyelashes or eyebrows and slightly different proportions. Neutral is the default, so existing characters don't change, and every item stays available to everyone.
+
+### New Wardrobe Items
+- **Outfits**: Sailor, Pinafore, Tutu, Puffer and Sweater.
+- **Headwear**: Bow, Bunny ears, Bear ears, Beret, Crown, Halo, Party hat, Frog hat and Star clips.
+- **Hairstyles**: Pigtails and Ponytail.
+- **Patterns**: Hearts and Flowers.
+- **Accessories (new category)**: Scarf, Bow tie, Necklace, Backpack, Fairy wings (they flutter), Heart balloon and Cape.
+- **Companions (new category)**: A little Cat, Bunny, Chick, Frog, Puppy or Panda that sits beside your character in every room and on the Wardrobe preview, in any colour.
+
+### Free Character Basics
+- **Customise Without Premium**: Free members can now wear the Hoodie, Beanie, Cap, Glasses and Scarf, and pick any palette colour for outfits, hats and accessories. Other items, patterns, companions and custom colours stay Premium.
+- **One Shared Rule**: The app and the server decide what's free with the same check (`isFreeChoice`), so the Wardrobe, saving and what others see in rooms always agree.
+
+### Redesigned Wardrobe
+- **Tabbed Layout**: Body, Outfit, Hats & extras and Companion tabs replace the long single scroll, with a gold dot on any tab where you're trying on Premium items.
+- **Picture Tiles**: Items show as tiles with a gold lock only on Premium items; patterns preview as fabric swatches in your current colours.
+- **Character Stage**: Your character on a lit platform with a **Surprise me** button for a random look. Escape closes the Wardrobe, and keyboard focus is visible throughout.
+
+### Finding the Wardrobe
+- **"Make it yours" Card**: The focus-mode lobby, the room picker and the community lobby show your character standing on a card, with a button straight into the Wardrobe.
+- **In-Room Wardrobe Button**: Every room's top bar has a Wardrobe button, with a one-time hint the first time you're in a room.
+
+### Server & Tests
+- **Backend**: Validates the new fields (`gender`, `accessory`, `pet` and their colours) and gives ambient studiers in community rooms a mix of genders.
+- **Test Coverage**: 1194 passing tests across 84 test files, including new tests for the gender option, accessories, companions and free basics.
+
+---
+
 ## Produchive v3.3.0
 
 Major feature release introducing 3D focus environments with ambient weather effects, character avatar customization and wardrobe system, Microsoft Store MSIX packaging support, Google Data Policy compliance, and community lobby integration.

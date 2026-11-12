@@ -45,6 +45,7 @@ import { GoogleDriveSyncModal } from './components/GoogleDriveSyncModal';
 import { Footer } from './components/Footer';
 import { DownloadProgress } from './components/DownloadProgress';
 import { UpdateBanner } from './components/UpdateBanner';
+import { StoreReviewPrompt } from './components/StoreReviewPrompt';
 import { PeekabooCat } from './components/PeekabooCat';
 import { SakuraTree } from './components/SakuraTree';
 import { ModelManager } from './components/ModelManager';
@@ -55,6 +56,10 @@ import { Routine } from './components/Routine';
 import { FeedbackModal } from './components/FeedbackModal';
 import { trackUsageSeconds, shouldShowFeedbackPrompt } from './lib/feedbackManager';
 import { version as appVersion } from '../../package.json';
+import { TourOverlay } from './components/tour/TourOverlay';
+import { useTour, loadTourState } from './lib/tour/tourStore';
+import { resolveLaunchTour, type LaunchTour } from './lib/tour/tourLogic';
+import { MAIN_TOUR, ALL_TOURS } from './lib/tour/tourManifest';
 
 const viewIcons: Record<string, React.ComponentType<any>> = {
     dashboard: LayoutDashboard,
@@ -105,6 +110,38 @@ const AppContent = () => {
         setCurrentView(view);
         setViewKey(prev => prev + 1);
     };
+
+    // Guided tour: let it switch pages and open the sidebar, then decide what to show on launch.
+    const [launchTour, setLaunchTour] = useState<LaunchTour | null>(null);
+    useEffect(() => {
+        const tour = useTour.getState();
+        tour.setAppVersion(appVersion);
+        tour.setHost({ navigate: handleViewChange, setSidebarOpen });
+        setLaunchTour(resolveLaunchTour(loadTourState(), appVersion, MAIN_TOUR, ALL_TOURS));
+        return () => useTour.getState().setHost(null);
+        // handleViewChange only calls state setters, so the first one stays valid.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Start it once the workspace has loaded, the welcome screen (first install) is closed,
+    // and no prompt that needs the user first (marked data-tour-blocker) is open.
+    useEffect(() => {
+        if (!launchTour || launchTour.kind === 'none' || !isDataLoaded || showWelcome) return;
+        let quietSince = 0;
+        const timer = setInterval(() => {
+            if (useTour.getState().active) return;
+            if (document.querySelector('[data-tour-blocker], [role="dialog"][aria-modal="true"]')) {
+                quietSince = 0;
+                return;
+            }
+            quietSince ||= Date.now();
+            if (Date.now() - quietSince < 700) return;
+            clearInterval(timer);
+            useTour.getState().start(launchTour.tour, 'launch');
+            setLaunchTour(null);
+        }, 250);
+        return () => clearInterval(timer);
+    }, [launchTour, isDataLoaded, showWelcome]);
 
     // Forcibly clear any orphaned or stuck 'Logged to Calendar' toasts and purge SnippingTool events
     useEffect(() => {
@@ -488,6 +525,7 @@ const AppContent = () => {
             {showPromptEditor && <PromptEditorModal onClose={() => setShowPromptEditor(false)} />}
             
             {isCatEnabled && <PeekabooCat isSidebarOpen={isSidebarOpen} />}
+            <TourOverlay currentView={currentView} />
 
             {/* Sidebar */}
             <Navbar
@@ -501,6 +539,7 @@ const AppContent = () => {
             {/* Main Content */}
             <main className="flex-1 flex flex-col min-w-0 relative">
                 <UpdateBanner />
+                <StoreReviewPrompt />
 
                 {/* Header */}
                 <header
@@ -523,6 +562,7 @@ const AppContent = () => {
                     <div className="flex items-center gap-4">
                         {loading ? (
                             <button
+                                data-tour="ai-model"
                                 onClick={cancelEngine}
                                 className="text-sm px-4 py-2 rounded-xl font-medium transition-all duration-300 flex items-center gap-2 hover:scale-105"
                                 style={{
@@ -535,7 +575,7 @@ const AppContent = () => {
                                 Stop
                             </button>
                         ) : (
-                            <div className="relative flex items-center gap-1.5" ref={selectorRef}>
+                            <div className="relative flex items-center gap-1.5" ref={selectorRef} data-tour="ai-model">
                                 {engine ? (
                                     <button
                                         onClick={() => setShowModelSelector(!showModelSelector)}
@@ -631,6 +671,7 @@ const AppContent = () => {
                         )}
 
                         <button
+                            data-tour="device-sync"
                             onClick={() => setShowDriveSyncModal(true)}
                             className="p-2 rounded-xl transition-all flex items-center justify-center relative group hover:scale-105 cursor-pointer"
                             style={{
@@ -697,7 +738,7 @@ const AppContent = () => {
                         </div>
                     </div>
                 </div>
-                <Footer isCatEnabled={isCatEnabled} toggleCat={toggleCat} />
+                <Footer isCatEnabled={isCatEnabled} toggleCat={toggleCat} currentView={currentView} />
             </main>
         </div>
     );

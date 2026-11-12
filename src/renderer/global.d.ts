@@ -150,6 +150,10 @@ declare global {
       saveFocusSession: (session: { scene: string; durationSeconds: number; startedAt: string }) => Promise<FocusSession>;
       getFocusSessions: () => Promise<FocusSession[]>;
 
+      // Microsoft Store review prompt (Store installs only)
+      storeReviewCheck?: () => Promise<boolean>;
+      storeReviewRespond?: (action: 'rate' | 'later' | 'never') => Promise<boolean>;
+
       // External URLs & Safe Fetch
       openExternalUrl: (url: string) => Promise<void>;
       fetchUrl: (url: string, options?: any) => Promise<{

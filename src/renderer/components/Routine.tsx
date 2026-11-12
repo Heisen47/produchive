@@ -1529,6 +1529,7 @@ export const Routine = ({
                 <div className="flex items-center gap-2.5">
                     {/* Device & Google Drive Sync Button */}
                     <button
+                        data-tour="routine-sync"
                         onClick={() => window.dispatchEvent(new CustomEvent('produchive_open_sync_modal'))}
                         className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all border hover:scale-105 active:scale-95 cursor-pointer shadow-sm select-none"
                         style={{
@@ -1555,6 +1556,7 @@ export const Routine = ({
 
                     {/* Primary Button: + Your plans */}
                     <button
+                        data-tour="plan-your-day"
                         onClick={() => setIsMakerOpen(true)}
                         className="px-5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 text-white shadow-lg transition-all duration-200 hover:scale-105 active:scale-95"
                         style={{
@@ -1569,6 +1571,7 @@ export const Routine = ({
 
             {/* 2. Teams Sub-Header Toolbar (Date Nav & View Selector) */}
             <div
+                data-tour="routine-toolbar"
                 className="rounded-2xl px-5 py-3 flex flex-wrap items-center justify-between gap-4 transition-colors"
                 style={{
                     background: 'var(--bg-card-solid)',

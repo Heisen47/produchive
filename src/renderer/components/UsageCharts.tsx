@@ -397,7 +397,7 @@ export const UsageCharts = () => {
         : null;
 
     return (
-        <div className="space-y-8">
+        <div data-tour="analytics-charts" className="space-y-8">
             {/* Period Tabs */}
             <div className="flex items-center gap-2 animate-fade-in-up">
                 {(Object.keys(PERIOD_LABELS) as TimePeriod[]).map((p) => (

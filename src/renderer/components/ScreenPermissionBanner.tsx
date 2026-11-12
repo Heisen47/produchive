@@ -70,7 +70,8 @@ export const ScreenPermissionBanner: React.FC<ScreenPermissionBannerProps> = ({ 
     if (status === null || status === 'granted' || dismissed) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 animate-fade-in" style={{ backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)' }}>
+        // data-tour-blocker: the launch tour waits until this prompt is dealt with.
+        <div data-tour-blocker className="fixed inset-0 z-50 flex items-center justify-center p-6 animate-fade-in" style={{ backgroundColor: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)' }}>
             <div
                 className={`relative w-full max-w-lg rounded-2xl overflow-hidden transition-all duration-300 ${isExiting ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}`}
                 style={{

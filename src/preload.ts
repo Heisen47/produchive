@@ -63,6 +63,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   saveFocusSession: (session: any) => ipcRenderer.invoke("save-focus-session", session),
   getFocusSessions: () => ipcRenderer.invoke("get-focus-sessions"),
 
+  // Microsoft Store review prompt
+  storeReviewCheck: () => ipcRenderer.invoke("store-review:check"),
+  storeReviewRespond: (action: "rate" | "later" | "never") =>
+    ipcRenderer.invoke("store-review:respond", action),
+
   // External AI models (requests and API key stay in the main process)
   externalAIGetConfig: () => ipcRenderer.invoke("external-ai:get-config"),
   externalAISaveConfig: (config: { provider: string; model: string; baseUrl?: string; apiKey?: string | null }) =>

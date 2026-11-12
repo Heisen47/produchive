@@ -1,19 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { Github, Bug, BellRing, FileQuestionIcon, Ghost } from 'lucide-react';
+import { Github, BellRing, Ghost } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import Lottie from 'lottie-react';
 import catAnimation from '../assets/cat.json';
 import { version } from '../../../package.json';
 import { openUrl, WEB_BASE_URL } from '../lib/urls';
 import { CatfoodChip } from './CatfoodChip';
+import { HelpMenu } from './tour/HelpMenu';
 
 
 interface FooterProps {
     isCatEnabled?: boolean;
     toggleCat?: () => void;
+    /** Current page, so Help can offer a tour of it. */
+    currentView?: string;
 }
 
-export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }) => {
+export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat, currentView }) => {
     const repoUrl = 'https://github.com/Heisen47/produchive';
     const issuesUrl = `${WEB_BASE_URL}/faq`;
     const howToUseItUrl = `${repoUrl}/blob/master/docs/HOW_TO_USE_IT.md`;
@@ -69,6 +72,7 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                     {/* Cat Toggle */}
                     {toggleCat && (
                         <button
+                            data-tour="jogu-toggle"
                             onClick={toggleCat}
                             className="flex items-center gap-2 transition-all duration-200 ml-4 group h-9 px-3 rounded-lg min-w-[140px] justify-center"
                             title={isCatEnabled ? "Hide Jogu the cat" : "Bring back Jogu the cat"}
@@ -111,6 +115,7 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                     <CatfoodChip isCatEnabled={isCatEnabled} />
 
                     <button
+                        data-tour="notification-center"
                         type="button"
                         onClick={() => window.dispatchEvent(new CustomEvent('produchive_toggle_debug'))}
                         className="flex items-center gap-1.5 sm:gap-2 transition-all duration-200 cursor-pointer"
@@ -123,9 +128,10 @@ export const Footer: React.FC<FooterProps> = ({ isCatEnabled = true, toggleCat }
                         <span className="hidden xs:inline">Notification Center</span>
                     </button>
 
+                    <HelpMenu currentView={currentView} onOpenGuide={() => openUrl(howToUseItUrl)} />
+
                     {[
                         { href: repoUrl, icon: Github, label: 'GitHub'},
-                        { href: howToUseItUrl, icon: FileQuestionIcon, label: 'How to use it?'},
                     ].map((link, i) => (
                         <a
                             key={i}

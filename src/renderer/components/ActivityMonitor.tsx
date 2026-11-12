@@ -87,7 +87,7 @@ export const ActivityMonitor = () => {
 
     if (activities.length === 0) {
         return (
-            <div className="glass-card-static rounded-2xl p-8 text-center flex flex-col items-center justify-center animate-fade-in-up" style={{ minHeight: '200px' }}>
+            <div data-tour="app-blocker" className="glass-card-static rounded-2xl p-8 text-center flex flex-col items-center justify-center animate-fade-in-up" style={{ minHeight: '200px' }}>
                 <div className="p-3 rounded-full mb-3 animate-float" style={{ background: 'var(--bg-elevated)' }}>
                     <Activity size={24} style={{ color: 'var(--text-muted)' }} />
                 </div>
@@ -98,7 +98,7 @@ export const ActivityMonitor = () => {
     }
 
     return (
-        <div className="glass-card-static rounded-2xl p-5 animate-fade-in-up">
+        <div data-tour="app-blocker" className="glass-card-static rounded-2xl p-5 animate-fade-in-up">
             {/* Header */}
             <div className="flex items-center gap-2 mb-5">
                 <Activity size={20} style={{ color: '#2dd4bf' }} />

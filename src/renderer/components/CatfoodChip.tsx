@@ -40,7 +40,7 @@ export const CatfoodChip: React.FC<CatfoodChipProps> = ({ isCatEnabled }) => {
     const earnedToday = today.earned;
 
     return (
-        <div ref={rootRef} className="relative">
+        <div ref={rootRef} data-tour="catfood" className="relative">
             <button
                 type="button"
                 onClick={() => setOpen((o) => !o)}

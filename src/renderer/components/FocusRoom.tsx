@@ -4,6 +4,7 @@ import { useTheme } from './ThemeProvider';
 import { useStore } from '../lib/store';
 import { useCharacterLook } from '../lib/characterLook';
 import { WardrobeCard } from './WardrobePrompt';
+import { FOCUS_SESSION_SAVED_EVENT } from './StoreReviewPrompt';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Environment, ContactShadows } from '@react-three/drei';
 import { SceneId, Occupant, SCENE_META, SCENE_STYLE, PICKER_SCENES, isCommunityScene, fmtHMS, GhibliMaterial, NPC_NAMES } from './focus-room/Shared3D';
@@ -991,7 +992,9 @@ export const FocusRoom = ({ onNavigate, overrideOccupants, forcedScene, onLeave,
           scene,
           durationSeconds: sessionSeconds,
           startedAt: sessionStartedAt.current,
-        }).catch((e: any) => console.error(e));
+        })
+          .then(() => window.dispatchEvent(new Event(FOCUS_SESSION_SAVED_EVENT)))
+          .catch((e: any) => console.error(e));
       }
       // Unify with routine master calendar
       try {

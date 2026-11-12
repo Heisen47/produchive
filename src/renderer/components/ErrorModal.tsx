@@ -20,7 +20,7 @@ export const ErrorModal = () => {
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center animate-in fade-in" style={{ background: 'var(--bg-overlay)', backdropFilter: 'blur(12px)' }}>
+        <div data-tour-blocker className="fixed inset-0 z-50 flex items-center justify-center animate-in fade-in" style={{ background: 'var(--bg-overlay)', backdropFilter: 'blur(12px)' }}>
             <div
                 className="max-w-lg w-full mx-4 rounded-2xl overflow-hidden flex flex-col max-h-[90vh] animate-scale-in glass-card-static"
                 style={{

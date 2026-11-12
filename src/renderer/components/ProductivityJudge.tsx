@@ -193,6 +193,7 @@ export const ProductivityJudge = ({ engine, modelLabel, onNavigate }: Productivi
 
     const renderGenerateButton = (primary: boolean) => (
         <button
+            data-tour="insights-generate"
             type="button"
             onClick={generateReport}
             disabled={analyzing || !hasData}
@@ -215,7 +216,9 @@ export const ProductivityJudge = ({ engine, modelLabel, onNavigate }: Productivi
             className="mt-2 space-y-8"
             style={{ '--insights-link': isDark ? '#a5b4fc' : '#4338ca', '--insights-warn': isDark ? '#fde68a' : '#92400e' } as React.CSSProperties}
         >
-            <InsightsDayPicker days={days} scores={scores} weekScore={weekScore} range={range} onChange={setRange} />
+            <div data-tour="insights-day-picker">
+                <InsightsDayPicker days={days} scores={scores} weekScore={weekScore} range={range} onChange={setRange} />
+            </div>
 
             {/* Period header: what is being reviewed, how much data, which report */}
             <header className="flex flex-wrap items-end justify-between gap-4">
@@ -442,7 +445,9 @@ export const ProductivityJudge = ({ engine, modelLabel, onNavigate }: Productivi
                 )}
             </section>
 
-            <ActivityHeatmap />
+            <div data-tour="insights-heatmap">
+                <ActivityHeatmap />
+            </div>
         </div>
     );
 };

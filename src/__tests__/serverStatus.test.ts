@@ -23,7 +23,7 @@ beforeEach(() => {
     apiGet.mockReset();
     openExternalUrl.mockReset();
     vi.stubGlobal('window', { electronAPI: { openExternalUrl } });
-    vi.stubGlobal('sessionStorage', { getItem: () => null });
+    vi.stubGlobal('sessionStorage', { getItem: (): string | null => null });
 });
 
 afterEach(() => {

@@ -188,6 +188,7 @@ export const Navbar = ({
 
             {/* 3. Floating Sidebar Container */}
             <aside
+                data-tour="nav"
                 onMouseEnter={handleMouseEnter}
                 onMouseLeave={handleMouseLeave}
                 className="fixed top-[5vh] h-[90vh] z-[99] rounded-[2.25rem] flex flex-col justify-between p-3.5 transition-all duration-500 ease-out"

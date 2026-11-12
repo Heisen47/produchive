@@ -536,7 +536,7 @@ export const Dashboard = ({
                 </div>
 
                 {/* Streak Card */}
-                <div className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
+                <div data-tour="streak-card" className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
                     <StreakCard streak={userStats?.streak || 1} />
                 </div>
             </div>
@@ -545,7 +545,7 @@ export const Dashboard = ({
             <ScreenPermissionBanner />
 
             {/* Metrics Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div data-tour="dashboard-metrics" className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <MetricCard
                     title="Total Time Tracked"
                     value={formatDuration(usageStats.totalDuration)}
@@ -580,7 +580,7 @@ export const Dashboard = ({
             </div>
 
             {/* Today's Calendar & Routine Integration */}
-            <div className="glass-card-static rounded-2xl p-6 relative overflow-hidden animate-fade-in-up">
+            <div data-tour="dashboard-schedule" className="glass-card-static rounded-2xl p-6 relative overflow-hidden animate-fade-in-up">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
                     <div className="flex items-center gap-3">
                         <div
@@ -850,7 +850,7 @@ export const Dashboard = ({
             </div>
 
             {/* Activity Table */}
-            <div className="glass-card-static rounded-2xl overflow-hidden relative">
+            <div data-tour="dashboard-activity" className="glass-card-static rounded-2xl overflow-hidden relative">
                 <TotoroBusStopBg className="opacity-20 dark:opacity-20 translate-y-4" />
                 <div className="relative z-10 p-6 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-secondary)' }}>
                     <div>
@@ -859,6 +859,7 @@ export const Dashboard = ({
                     </div>
                     <div className="flex gap-3">
                         <button
+                            data-tour="analyze-ai"
                             type="button"
                             onClick={handleAnalyzeWithAI}
                             disabled={isAnalyzing}
@@ -882,6 +883,7 @@ export const Dashboard = ({
                             )}
                         </button>
                         <button
+                            data-tour="start-monitoring"
                             onClick={handleToggleMonitoring}
                             className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 active:scale-95 ${!isMonitoring && showHalo ? 'ring-4 ring-emerald-500/50 shadow-[0_0_30px_rgba(74,222,128,0.5)] animate-pulse' : ''
                                 }`}

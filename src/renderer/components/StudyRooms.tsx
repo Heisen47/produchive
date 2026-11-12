@@ -693,8 +693,9 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
             </p>
             <WardrobeCard base={base} isDark={isDark} style={{ maxWidth: 640, margin: '8px auto 40px' }} />
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 24 }}>
+            <div data-tour="focus-modes" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 24 }}>
                 <button
+                    data-tour="focus-solo"
                     onClick={() => setMode('solo')}
                     style={{
                         background: base.card,
@@ -724,6 +725,7 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
                 </button>
 
                 <button
+                    data-tour="focus-friends"
                     onClick={async () => {
                         if (!isPremium) {
                             openServerPage('/premium');
@@ -764,6 +766,7 @@ export const StudyRooms = ({ onNavigate, onRoomChange }: { onNavigate?: (view: s
 
                 {COMMUNITY_ROOMS_ENABLED && (
                 <button
+                    data-tour="focus-community"
                     onClick={async () => {
                         if (!isPremium) {
                             openServerPage('/premium');

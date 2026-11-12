@@ -1,0 +1,216 @@
+/* Guided tour: spotlight scrim, ring and Jogu's coachmark card. */
+
+.tour-root {
+    --tour-indigo: #6366f1;
+    --tour-indigo-soft: #a5b4fc;
+    --tour-ease: cubic-bezier(0.22, 1, 0.36, 1);
+    position: fixed;
+    inset: 0;
+    /* Above toasts and Jogu's peek-a-boo so nothing competes with the card. */
+    z-index: 2147483000;
+}
+
+.tour-scrim {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.tour-dim {
+    /* Light enough that the app stays readable behind it: the tour shows the product, it doesn't hide it. */
+    fill: rgba(4, 7, 16, 0.5);
+    transition: fill 240ms ease;
+}
+.tour-dim.is-solo {
+    fill: rgba(4, 7, 16, 0.6);
+}
+:root.theme-light .tour-dim { fill: rgba(26, 22, 18, 0.38); }
+:root.theme-light .tour-dim.is-solo { fill: rgba(26, 22, 18, 0.48); }
+
+.tour-hole,
+.tour-ring {
+    transition: all 320ms var(--tour-ease);
+}
+
+.tour-ring {
+    position: absolute;
+    border-radius: 14px;
+    pointer-events: none;
+    box-shadow:
+        0 0 0 2px var(--tour-indigo),
+        0 0 0 6px rgba(99, 102, 241, 0.18),
+        0 0 32px 4px rgba(99, 102, 241, 0.35);
+}
+
+.tour-card {
+    position: absolute;
+    box-sizing: border-box;
+    padding: 18px 18px 14px;
+    border-radius: 18px;
+    background: var(--bg-card-solid);
+    color: var(--text-primary);
+    border: 1px solid rgba(99, 102, 241, 0.32);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+    transition: top 320ms var(--tour-ease), left 320ms var(--tour-ease), opacity 180ms ease;
+    animation: tour-card-in 260ms var(--tour-ease);
+}
+:root.theme-light .tour-card { box-shadow: 0 24px 60px rgba(26, 22, 18, 0.22); }
+.tour-card.is-waiting { opacity: 0; }
+
+@keyframes tour-card-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+}
+
+/* Jogu sits on the card's top edge, as if he climbed up to point things out. */
+.tour-jogu {
+    position: absolute;
+    /* The animation is a cat peeking up from the bottom of a tall canvas: rest that bottom on the
+       card's top edge so Jogu peeks over the card. Only the top ~45px of head shows. */
+    bottom: calc(100% - 1px);
+    right: 24px;
+    width: 100px;
+    height: 178px;
+    pointer-events: none;
+    filter: drop-shadow(0 0 12px rgba(165, 180, 252, 0.45));
+}
+
+.tour-close {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 150ms ease, color 150ms ease;
+}
+.tour-close:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+
+/* Opening invitation: no progress chrome, bigger Jogu, roomier type. */
+.tour-card.is-hero { padding: 26px 26px 20px; }
+.tour-card.is-hero .tour-jogu { right: calc(50% - 80px); width: 160px; height: 285px; }
+.tour-card.is-hero .tour-title { font-size: 24px; margin-bottom: 8px; padding-right: 28px; }
+.tour-card.is-hero .tour-body { font-size: 14.5px; }
+.tour-card.is-hero .tour-actions { margin-top: 22px; }
+.tour-card.is-hero .tour-btn { height: 38px; padding: 0 18px; }
+
+.tour-meta {
+    padding-right: 30px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+}
+.tour-eyebrow {
+    font-weight: 600;
+    color: var(--tour-indigo-soft);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+:root.theme-light .tour-eyebrow { color: #4f46e5; }
+.tour-count { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.tour-progress {
+    display: flex;
+    gap: 3px;
+    margin: 8px 0 14px;
+}
+.tour-progress span {
+    flex: 1;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(148, 163, 184, 0.2);
+    transition: background 240ms ease;
+}
+.tour-progress span.is-done { background: rgba(99, 102, 241, 0.55); }
+.tour-progress span.is-current { background: var(--tour-indigo); }
+
+.tour-title {
+    margin: 0 0 6px;
+    font-family: 'Outfit', 'Inter', sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+}
+.tour-body {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+
+.tour-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 16px;
+}
+.tour-nav { display: flex; gap: 8px; }
+
+.tour-skip {
+    padding: 6px 2px;
+    font-size: 12.5px;
+    color: var(--text-muted);
+    background: none;
+    border: none;
+    cursor: pointer;
+    border-radius: 6px;
+}
+.tour-skip:hover { color: var(--text-primary); }
+
+.tour-btn {
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 150ms ease, transform 150ms ease;
+}
+.tour-btn:active { transform: scale(0.97); }
+.tour-btn-ghost {
+    color: var(--text-secondary);
+    background: transparent;
+    border: 1px solid var(--border-primary);
+}
+.tour-btn-ghost:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+.tour-btn-primary {
+    color: #fff;
+    background: var(--tour-indigo);
+    border: 1px solid transparent;
+    box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35);
+}
+.tour-btn-primary:hover { background: #575ae6; }
+
+.tour-root button:focus-visible {
+    outline: 2px solid var(--tour-indigo-soft);
+    outline-offset: 2px;
+}
+
+.tour-reduced .tour-hole,
+.tour-reduced .tour-ring,
+.tour-reduced .tour-card,
+.tour-reduced .tour-dim,
+.tour-reduced .tour-progress span {
+    transition: none;
+    animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+    .tour-hole, .tour-ring, .tour-card, .tour-dim, .tour-progress span {
+        transition: none !important;
+        animation: none !important;
+    }
+}

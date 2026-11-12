@@ -89,7 +89,7 @@ export const WardrobeCard = ({ base, isDark, style }: { base: Base; isDark: bool
     return (
         <>
             <style>{CARD_STYLES}</style>
-            <div className="wc" style={{
+            <div className="wc" data-tour="wardrobe" style={{
                 position: 'relative', padding: '16px 22px 16px 8px', minHeight: 112, borderRadius: 22, textAlign: 'left',
                 background: `radial-gradient(240px 160px at 72px 100%, ${glow}, transparent 70%), ${base.card}`,
                 border: `1px solid ${base.cardBorder}`, backdropFilter: 'blur(14px)',

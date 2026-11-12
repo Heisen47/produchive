@@ -21,6 +21,15 @@ import { existsSync } from "node:fs";
 import { execSync, exec } from "node:child_process";
 import { getAutoUpdater } from "./lib/autoUpdater";
 import { runMsixStartupTask } from "./lib/msixStartupTask";
+import {
+  STORE_PAGE_URL,
+  STORE_REVIEW_URI,
+  applyStoreReviewAction,
+  countQualifyingFocusSessions,
+  shouldShowStoreReviewPrompt,
+  type StoreReviewAction,
+  type StoreReviewState,
+} from "./lib/storeReview";
 import { registerExternalAIHandlers } from "./externalAI";
 import { markStartup, logStartupSummary, startPerfMetrics, stopPerfMetrics } from "./lib/perfStats";
 
@@ -1488,6 +1497,43 @@ function registerIpcHandlers() {
   ipcMain.handle("get-focus-sessions", async () => {
     // Return newest first
     return [...(db.data.focusSessions || [])].reverse();
+  });
+
+  // ─── Microsoft Store "Rate us" prompt ────────────────────────────────────
+  // State lives in db.data.storeReview (not settings) so it is never synced
+  // between devices. PRODUCHIVE_FORCE_REVIEW_PROMPT=1 shows it in dev builds.
+  const isReviewPromptInstall = () =>
+    process.windowsStore === true ||
+    (!app.isPackaged && process.env.PRODUCHIVE_FORCE_REVIEW_PROMPT === "1");
+
+  ipcMain.handle("store-review:check", async () => {
+    if (!isReviewPromptInstall()) return false;
+    const state: StoreReviewState = db.data.storeReview || {};
+    if (!state.firstSeenAt) {
+      db.data.storeReview = { ...state, firstSeenAt: new Date().toISOString(), status: state.status || "pending" };
+      await db.write();
+    }
+    return shouldShowStoreReviewPrompt({
+      state: db.data.storeReview,
+      qualifyingFocusSessions: countQualifyingFocusSessions(db.data.focusSessions),
+      isStoreInstall: true,
+    });
+  });
+
+  ipcMain.handle("store-review:respond", async (_event, action: StoreReviewAction) => {
+    if (!["rate", "later", "never"].includes(action)) return false;
+    db.data.storeReview = applyStoreReviewAction(db.data.storeReview || {}, action);
+    await db.write();
+    logger.info(`[store-review] User chose "${action}" -> ${db.data.storeReview.status}`);
+    if (action === "rate") {
+      try {
+        await shell.openExternal(STORE_REVIEW_URI);
+      } catch (e) {
+        logger.warn("[store-review] Store URI failed, opening web page instead", e);
+        await shell.openExternal(STORE_PAGE_URL);
+      }
+    }
+    return true;
   });
 
   // Debug and system info handlers

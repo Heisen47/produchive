@@ -44,7 +44,7 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in select-none">
+        <div data-tour-blocker className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-fade-in select-none">
             <div
                 className="w-full max-w-md rounded-3xl p-6 shadow-2xl relative border space-y-4 text-center animate-scale-in"
                 style={{

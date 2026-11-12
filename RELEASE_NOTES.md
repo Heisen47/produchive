@@ -2,6 +2,25 @@
 
 ---
 
+## Produchive v3.3.2
+
+Onboarding and feedback polish release: added a guided tour overlay for the app and page-level help, plus a store-review prompt that appears only after meaningful real-world use on Microsoft Store installs.
+
+### Guided Tour & Help
+- **App Tour Overlay**: A step-by-step onboarding flow now highlights the key parts of Produchive, including the sidebar, monitoring flow, routine planner, focus rooms, AI insights, and help menu.
+- **Page-Level Help**: The bottom-bar Help menu can replay a tour for the current page, so new and returning users can quickly re-learn the interface without leaving their workflow.
+- **Accessibility & Flow**: The overlay waits for targets to appear, adapts if a page changes, preserves focus, and gracefully skips missing UI elements while remaining keyboard-friendly.
+
+### Store Review Prompt
+- **Review Timing Guardrails**: Microsoft Store installs now surface a review request only after genuine focus use or a few days of active usage, with snooze and opt-out handling to avoid nagging.
+- **Quality Feedback Loop**: Users can rate the app or postpone the prompt without being re-triggered repeatedly, keeping the store experience respectful and low-friction.
+
+### Compatibility & Validation
+- **Tour Logic Coverage**: Added automated tests for tour progression and feature gating, ensuring the onboarding flow stays in sync with app versioning.
+- **Review Prompt Logic**: Added validation for the qualifying-use thresholds and snooze behavior so the prompt appears at the right time and never loops unnecessarily.
+
+---
+
 ## Produchive v3.3.1
 
 Wardrobe expansion and polish release: fixed fabric patterns, rebuilt outfits with arms and sleeves, a gender option, 30+ new wardrobe items including accessories and pet companions, free character basics for everyone, a redesigned Wardrobe, and new ways to find it from the focus-room flow.

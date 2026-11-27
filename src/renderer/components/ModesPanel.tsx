@@ -82,6 +82,7 @@ export const ModesPanel = () => {
         blockedActivities,
         modesState,
         activateMode,
+        setActiveModeDuration,
         updateModeApps,
         addCustomMode,
         deleteCustomMode,
@@ -328,7 +329,17 @@ export const ModesPanel = () => {
                                 <button
                                     key={preset.label}
                                     type="button"
-                                    onClick={() => setSelectedDuration(preset.minutes)}
+                                    onClick={async () => {
+                                        setSelectedDuration(preset.minutes);
+                                        if (isBlockingActive) {
+                                            await setActiveModeDuration(preset.minutes);
+                                            toast.success(
+                                                preset.minutes
+                                                    ? `Auto-Relax timer set to ${preset.minutes}m`
+                                                    : 'Session timer set to manual'
+                                            );
+                                        }
+                                    }}
                                     aria-pressed={selected}
                                     className="px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer"
                                     style={{

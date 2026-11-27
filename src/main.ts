@@ -32,6 +32,12 @@ import {
 } from "./lib/storeReview";
 import { registerExternalAIHandlers } from "./externalAI";
 import { markStartup, logStartupSummary, startPerfMetrics, stopPerfMetrics } from "./lib/perfStats";
+import {
+  buildMacBatchBlockScript,
+  doesProcessMatchBlockedName,
+  isProtectedBlockApp,
+  normalizeMacAppName,
+} from "./lib/blockUtils";
 
 app.setName("Produchive");
 app.name = "Produchive";
@@ -435,45 +441,6 @@ let isSuspended = false;
 const blockedActivities = new Map<string, any>();
 let blockEnforcementInterval: NodeJS.Timeout | null = null;
 
-const PROTECTED_BLOCK_APPS = new Set([
-  "produchive",
-  "electron",
-  "finder",
-  "explorer",
-  "system settings",
-  "system preferences",
-  "windowserver",
-  "loginwindow",
-  "dock",
-  "task manager",
-  "taskmgr",
-  "activity monitor",
-  "spotlight",
-  "control center",
-]);
-
-function isProtectedBlockApp(name: string): boolean {
-  const lower = (name || "").trim().toLowerCase();
-  if (!lower) return true;
-  return (
-    PROTECTED_BLOCK_APPS.has(lower) ||
-    PROTECTED_BLOCK_APPS.has(lower.replace(/\.(exe|app)$/i, ""))
-  );
-}
-
-function normalizeMacAppName(name: string): string {
-  const trimmed = (name || "").trim();
-  const lower = trimmed.toLowerCase();
-  if (lower === "chrome") return "Google Chrome";
-  if (lower === "brave") return "Brave Browser";
-  if (lower === "edge") return "Microsoft Edge";
-  return trimmed;
-}
-
-function escapeAppleScriptString(value: string): string {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n]/g, "");
-}
-
 function runOsaScript(script: string): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile("osascript", ["-e", script], (error, stdout, stderr) => {
@@ -492,21 +459,43 @@ function findBlockedActivityMatch(candidateName: string): any | null {
   if (blockedActivities.has(candidateName)) {
     return blockedActivities.get(candidateName);
   }
-  const candLower = candidateName.toLowerCase();
-  const candNorm = normalizeMacAppName(candidateName).toLowerCase();
   for (const [key, activity] of blockedActivities.entries()) {
-    const keyLower = key.toLowerCase();
-    const keyNorm = normalizeMacAppName(activity?.owner?.name || key).toLowerCase();
+    const blockedName = activity?.owner?.name || key;
     if (
-      candLower === keyLower ||
-      candLower === keyNorm ||
-      candNorm === keyLower ||
-      candNorm === keyNorm
+      doesProcessMatchBlockedName(candidateName, key) ||
+      doesProcessMatchBlockedName(candidateName, blockedName)
     ) {
       return activity;
     }
   }
   return null;
+}
+
+async function applyBatchBlockMode(activitiesList: any[], block: boolean) {
+  if (!activitiesList || activitiesList.length === 0) return;
+  const isMac = process.platform === "darwin";
+  const isWin = process.platform === "win32";
+  if (!isMac && !isWin) return;
+
+  if (isMac) {
+    const names = activitiesList
+      .map((a) => a?.owner?.name)
+      .filter((n): n is string => Boolean(n) && (!block || !isProtectedBlockApp(n)));
+    const script = buildMacBatchBlockScript(names, block);
+    if (!script) return;
+    try {
+      const affected = (await runOsaScript(script)).trim();
+      logger.info(
+        `[BlockMode] Batch ${block ? "BLOCK" : "UNBLOCK"} (${names.length} rules)${affected ? ` -> affected: ${affected}` : " -> none running"}`
+      );
+    } catch (e: any) {
+      logger.error(`[BlockMode] Batch ${block ? "hide" : "show"} failed:`, e?.message);
+    }
+  } else if (isWin) {
+    for (const act of activitiesList) {
+      await applyBlockMode(act, block);
+    }
+  }
 }
 
 function execAsync(script: string): Promise<string> {
@@ -560,27 +549,10 @@ async function applyBlockMode(activity: any, block: boolean) {
 
   try {
     if (isMac) {
-      const safeAppName = escapeAppleScriptString(appName);
-      if (block) {
-        // Two-step hide: set visible to false AND push to back
-        const script = `
-          tell application "System Events"
-            if exists process "${safeAppName}" then
-              set visible of process "${safeAppName}" to false
-              set frontmost of process "${safeAppName}" to false
-            end if
-          end tell`;
+      const script = buildMacBatchBlockScript([appName], block);
+      if (script) {
         await runOsaScript(script);
-        logger.info(`[BlockMode] Successfully hidden: ${appName}`);
-      } else {
-        const script = `
-          tell application "System Events"
-            if exists process "${safeAppName}" then
-              set visible of process "${safeAppName}" to true
-            end if
-          end tell`;
-        await runOsaScript(script);
-        logger.info(`[BlockMode] Successfully shown: ${appName}`);
+        logger.info(`[BlockMode] Successfully ${block ? "hidden" : "shown"}: ${appName}`);
       }
     } else if (isWin) {
       const ps = getPowerShell();
@@ -1262,20 +1234,25 @@ function registerIpcHandlers() {
       stopBlockEnforcement();
     }
 
-    for (const act of toUnblock) {
-      await applyBlockMode(act, false);
+    if (toUnblock.length > 0) {
+      await applyBatchBlockMode(toUnblock, false);
     }
 
     // 2. Block newly added apps
     const existingLowerKeys = new Set(
       Array.from(blockedActivities.keys()).map((k) => k.toLowerCase())
     );
+    const toBlock: any[] = [];
     for (const [lowerKey, act] of targetByLower.entries()) {
       const name = act.owner.name;
       if (!existingLowerKeys.has(lowerKey)) {
         blockedActivities.set(name, act);
-        await applyBlockMode(act, true);
+        toBlock.push(act);
       }
+    }
+
+    if (toBlock.length > 0) {
+      await applyBatchBlockMode(toBlock, true);
     }
 
     updateBlockEnforcement();
@@ -2267,22 +2244,31 @@ app.on("before-quit", () => {
 
   logger.info("Restoring blocked activities before quit...");
   stopBlockEnforcement();
-  for (const activity of blockedActivities.values()) {
+  if (process.platform === "darwin" && blockedActivities.size > 0) {
     try {
-      let appName = activity.owner.name;
-      if (process.platform === "darwin") {
-        appName = normalizeMacAppName(appName);
-        const safeAppName = escapeAppleScriptString(appName);
-        execSync(`osascript -e 'tell application "System Events" to if exists process "${safeAppName}" then set visible of process "${safeAppName}" to true'`);
-        logger.info(`[BlockMode] Restored on quit: ${appName}`);
-      } else if (process.platform === "win32") {
+      const names = Array.from(blockedActivities.values())
+        .map((a) => a?.owner?.name)
+        .filter((n): n is string => Boolean(n));
+      const restoreScript = buildMacBatchBlockScript(names, false);
+      if (restoreScript) {
+        const { execFileSync } = require("node:child_process");
+        execFileSync("osascript", ["-e", restoreScript]);
+        logger.info(`[BlockMode] Restored ${names.length} blocked apps on quit`);
+      }
+    } catch {
+      // Best effort — don't block quit
+    }
+  } else if (process.platform === "win32") {
+    for (const activity of blockedActivities.values()) {
+      try {
+        const appName = activity.owner.name;
         const safeAppName = appName.replace(/'/g, "''");
         const script = `Add-Type -TypeDefinition "using System; using System.Runtime.InteropServices; public class Win { [DllImport(\\"user32.dll\\")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); }"; $p = Get-Process -Name '${safeAppName}' -ErrorAction SilentlyContinue; if (-not $p) { $p = Get-Process -ErrorAction SilentlyContinue | ? { $_.Description -match '${safeAppName}' } }; if ($p) { foreach ($x in $p) { if ($x.MainWindowHandle -ne 0) { [Win]::ShowWindow($x.MainWindowHandle, 9) } } }`;
         execSync(`powershell.exe -WindowStyle Hidden -NoProfile -NonInteractive -Command "${script}"`);
         logger.info(`[BlockMode] Restored on quit: ${appName}`);
+      } catch {
+        // Best effort — don't block quit
       }
-    } catch(e) {
-      // Best effort — don't block quit
     }
   }
   blockedActivities.clear();

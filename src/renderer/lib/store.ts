@@ -61,6 +61,7 @@ interface Store {
     modesState: ModesPersistedState;
     loadModesState: () => Promise<void>;
     activateMode: (modeId: string, durationMinutes?: number | null) => Promise<AppMode | null>;
+    setActiveModeDuration: (durationMinutes: number | null) => Promise<void>;
     updateModeApps: (modeId: string, blockedApps: string[]) => Promise<void>;
     addCustomMode: (input: CreateCustomModeInput) => Promise<AppMode>;
     deleteCustomMode: (modeId: string) => Promise<void>;
@@ -455,11 +456,11 @@ export const useStore = create<Store>((set, get) => ({
 
             set({ modesState: resolved });
 
-            // Re-sync OS blocking state with persisted active mode
+            // Re-sync OS blocking state with persisted active mode (including clearing stale blocks if Relax)
             const activeMode = resolved.modes.find((m) => m.id === resolved.activeModeId);
             if (activeMode && window.electronAPI?.setBlockedActivities) {
                 const targets = buildTargetBlockedActivities(activeMode, get().activities);
-                if (targets.length > 0) {
+                if (targets.length > 0 || get().blockedActivities.length > 0) {
                     const blockedActivities = await window.electronAPI.setBlockedActivities(targets);
                     set({ blockedActivities });
                 }
@@ -490,6 +491,26 @@ export const useStore = create<Store>((set, get) => ({
         }
 
         return targetMode;
+    },
+    setActiveModeDuration: async (durationMinutes: number | null) => {
+        const current = get().modesState;
+        const activeMode = current.modes.find((m) => m.id === current.activeModeId);
+        if (!activeMode || activeMode.behavior === 'unblock_all') return;
+
+        const autoRelaxAt =
+            durationMinutes && durationMinutes > 0
+                ? Date.now() + Math.round(durationMinutes * 60 * 1000)
+                : null;
+
+        const nextState: ModesPersistedState = {
+            ...current,
+            autoRelaxAt,
+        };
+        set({ modesState: nextState });
+        writeModesStateToLocalStorage(nextState);
+        window.electronAPI?.saveModesState?.(nextState).catch((err) => {
+            console.error('[Modes] Failed to persist timer update to disk:', err);
+        });
     },
     updateModeApps: async (modeId: string, blockedApps: string[]) => {
         const current = get().modesState;

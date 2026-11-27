@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
     DEFAULT_MODES,
     MAX_MODE_HISTORY,
@@ -11,6 +11,14 @@ import {
     isProtectedSystemApp,
     sanitizeBlockedAppsList,
 } from '../renderer/lib/modes';
+import {
+    buildMacBatchBlockScript,
+    doesProcessMatchBlockedName,
+    escapeAppleScriptString,
+    getMacProcessCandidates,
+    isProtectedBlockApp,
+} from '../lib/blockUtils';
+import { useStore } from '../renderer/lib/store';
 import type { Activity } from '../renderer/global';
 
 const makeTrackedActivity = (name: string, path = `/Applications/${name}.app`): Activity => ({
@@ -166,7 +174,6 @@ describe('Modes — Local Disk Hydration & Custom Modes', () => {
         expect(customMode.badge).toBe('custom');
         expect(customMode.blockedApps).toEqual(['Discord', 'Steam']);
 
-        // Simulate older persisted JSON that only had focus (edited) + custom mode
         const persisted = {
             version: 1,
             activeModeId: customMode.id,
@@ -192,14 +199,11 @@ describe('Modes — Local Disk Hydration & Custom Modes', () => {
 
         const hydrated = hydrateModesState(persisted);
         expect(hydrated.activeModeId).toBe(customMode.id);
-        // Focus kept user edits (minus protected Produchive)
         const focus = hydrated.modes.find((m) => m.id === 'focus')!;
         expect(focus.blockedApps).toEqual(['Twitter', 'Reddit']);
-        // Missing built-ins were restored automatically
         expect(hydrated.modes.some((m) => m.id === 'relax')).toBe(true);
         expect(hydrated.modes.some((m) => m.id === 'deep_work')).toBe(true);
         expect(hydrated.modes.some((m) => m.id === 'study')).toBe(true);
-        // Custom mode preserved
         expect(hydrated.modes.some((m) => m.id === customMode.id)).toBe(true);
     });
 
@@ -214,5 +218,196 @@ describe('Modes — Local Disk Hydration & Custom Modes', () => {
         expect(focusDefaults).toBeTruthy();
         expect(focusDefaults).toContain('Discord');
         expect(getDefaultBlockedAppsForMode('custom_xyz')).toBeNull();
+    });
+});
+
+describe('Block Engine (src/lib/blockUtils) — Aliases, Safety & Batch AppleScript', () => {
+    it('resolves macOS process aliases for Steam, Teams, Epic Games, Discord, and browsers', () => {
+        expect(getMacProcessCandidates('Steam')).toEqual(['Steam', 'steam_osx']);
+        expect(getMacProcessCandidates('Microsoft Teams')).toContain('MSTeams');
+        expect(getMacProcessCandidates('Epic Games Launcher')).toContain('EpicGamesLauncher');
+        expect(getMacProcessCandidates('Chrome')).toContain('Google Chrome');
+        expect(getMacProcessCandidates('Discord')).toContain('Discord PTB');
+        expect(getMacProcessCandidates('Produchive')).toEqual([]);
+        expect(isProtectedBlockApp('Finder')).toBe(true);
+    });
+
+    it('matches running macOS process names against blocked mode entries case-insensitively and via aliases', () => {
+        expect(doesProcessMatchBlockedName('steam_osx', 'Steam')).toBe(true);
+        expect(doesProcessMatchBlockedName('MSTeams', 'Microsoft Teams')).toBe(true);
+        expect(doesProcessMatchBlockedName('EpicGamesLauncher', 'Epic Games Launcher')).toBe(true);
+        expect(doesProcessMatchBlockedName('Google Chrome', 'chrome')).toBe(true);
+        expect(doesProcessMatchBlockedName('Discord PTB', 'Discord')).toBe(true);
+        expect(doesProcessMatchBlockedName('Spotify', 'spotify')).toBe(true);
+        expect(doesProcessMatchBlockedName('Slack', 'Discord')).toBe(false);
+    });
+
+    it('escapes quotes, backslashes, and newlines safely for AppleScript', () => {
+        expect(escapeAppleScriptString('My "App" \\ test\nline')).toBe('My \\"App\\" \\\\ testline');
+    });
+
+    it('builds a single batched AppleScript with try/end try isolation and strips protected apps', () => {
+        const hideScript = buildMacBatchBlockScript(['Discord', 'Steam', 'Produchive', 'Finder'], true);
+        expect(hideScript).toBeTruthy();
+        expect(hideScript).toContain('"Discord"');
+        expect(hideScript).toContain('"steam_osx"');
+        expect(hideScript).toContain('set visible of process (targetName as text) to false');
+        expect(hideScript).toContain('try');
+        expect(hideScript).not.toContain('Produchive');
+        expect(hideScript).not.toContain('Finder');
+
+        const showScript = buildMacBatchBlockScript(['Discord'], false);
+        expect(showScript).toContain('set visible of process (targetName as text) to true');
+
+        expect(buildMacBatchBlockScript(['Produchive', 'Finder'], true)).toBeNull();
+    });
+});
+
+describe('Store ↔ Electron IPC End-to-End Integration', () => {
+    let diskModesState: any = null;
+    let currentOsBlocked: Activity[] = [];
+    const saveModesStateMock = vi.fn(async (state: any) => {
+        diskModesState = JSON.parse(JSON.stringify(state));
+        return diskModesState;
+    });
+    const getModesStateMock = vi.fn(async () => diskModesState);
+    const setBlockedActivitiesMock = vi.fn(async (list: Activity[]) => {
+        currentOsBlocked = list;
+        return currentOsBlocked;
+    });
+
+    beforeEach(() => {
+        diskModesState = null;
+        currentOsBlocked = [];
+        saveModesStateMock.mockClear();
+        getModesStateMock.mockClear();
+        setBlockedActivitiesMock.mockClear();
+
+        (globalThis as any).window = {
+            electronAPI: {
+                getModesState: getModesStateMock,
+                saveModesState: saveModesStateMock,
+                setBlockedActivities: setBlockedActivitiesMock,
+                getBlockedActivities: vi.fn(async () => currentOsBlocked),
+            },
+        };
+
+        useStore.setState({
+            activities: [
+                makeTrackedActivity('Discord', '/Applications/Discord.app'),
+                makeTrackedActivity('Spotify', '/Applications/Spotify.app'),
+                makeTrackedActivity('VS Code', '/Applications/Visual Studio Code.app'),
+            ],
+            blockedActivities: [],
+            modesState: createDefaultModesState(),
+        });
+    });
+
+    it('activates Focus Mode -> persists to disk -> blocks distracting apps -> switches to Relax -> unblocks all', async () => {
+        const focus = await useStore.getState().activateMode('focus', 50);
+        expect(focus?.id).toBe('focus');
+        expect(saveModesStateMock).toHaveBeenCalledTimes(1);
+        expect(diskModesState.activeModeId).toBe('focus');
+        expect(diskModesState.autoRelaxAt).toBeTypeOf('number');
+
+        expect(setBlockedActivitiesMock).toHaveBeenCalledTimes(1);
+        expect(currentOsBlocked.length).toBe(focus!.blockedApps.length);
+        const discordEntry = currentOsBlocked.find((a) => a.owner.name === 'Discord');
+        expect(discordEntry?.owner.path).toBe('/Applications/Discord.app');
+        expect(useStore.getState().blockedActivities.length).toBe(focus!.blockedApps.length);
+
+        // Switch to Relax Mode -> passes [] to unblock all apps
+        await useStore.getState().activateMode('relax');
+        expect(diskModesState.activeModeId).toBe('relax');
+        expect(diskModesState.autoRelaxAt).toBeNull();
+        expect(setBlockedActivitiesMock).toHaveBeenLastCalledWith([]);
+        expect(useStore.getState().blockedActivities).toEqual([]);
+        expect(diskModesState.history).toHaveLength(2);
+        expect(diskModesState.history[0].endedAt).toBeTypeOf('number');
+    });
+
+    it('updates active mode timer on the fly via setActiveModeDuration and persists it', async () => {
+        await useStore.getState().activateMode('focus', null);
+        expect(useStore.getState().modesState.autoRelaxAt).toBeNull();
+
+        await useStore.getState().setActiveModeDuration(25);
+        expect(useStore.getState().modesState.autoRelaxAt).toBeTypeOf('number');
+        expect(diskModesState.autoRelaxAt).toBe(useStore.getState().modesState.autoRelaxAt);
+
+        await useStore.getState().setActiveModeDuration(null);
+        expect(useStore.getState().modesState.autoRelaxAt).toBeNull();
+        expect(diskModesState.autoRelaxAt).toBeNull();
+    });
+
+    it('re-syncs OS blocks immediately when editing apps of the currently active mode and when resetting defaults', async () => {
+        await useStore.getState().activateMode('focus');
+        setBlockedActivitiesMock.mockClear();
+
+        await useStore.getState().updateModeApps('focus', ['Discord', 'Notion', 'Produchive']);
+        expect(setBlockedActivitiesMock).toHaveBeenCalledTimes(1);
+        expect(useStore.getState().blockedActivities.map((a) => a.owner.name)).toEqual(['Discord', 'Notion']);
+
+        await useStore.getState().resetModeToDefault('focus');
+        expect(useStore.getState().blockedActivities.length).toBe(
+            getDefaultBlockedAppsForMode('focus')!.length
+        );
+    });
+
+    it('creates, activates, and deletes a custom mode cleanly (auto-reverting to Relax Mode on delete)', async () => {
+        const created = await useStore.getState().addCustomMode({
+            name: 'Exam Lock',
+            tagline: 'No games or chat',
+            blockedApps: ['Steam', 'Discord'],
+            icon: 'flame',
+        });
+        expect(diskModesState.modes.some((m: any) => m.id === created.id)).toBe(true);
+
+        await useStore.getState().activateMode(created.id);
+        expect(useStore.getState().modesState.activeModeId).toBe(created.id);
+        expect(useStore.getState().blockedActivities.map((a) => a.owner.name)).toEqual(['Steam', 'Discord']);
+
+        // Deleting active custom mode must switch to Relax & unblock everything
+        await useStore.getState().deleteCustomMode(created.id);
+        expect(useStore.getState().modesState.activeModeId).toBe('relax');
+        expect(useStore.getState().blockedActivities).toEqual([]);
+        expect(diskModesState.modes.some((m: any) => m.id === created.id)).toBe(false);
+    });
+
+    it('hydrates from local disk on startup and clears stale blocks if an auto-relax timer expired while closed', async () => {
+        // Simulate Focus Mode saved on disk with an already-expired timer
+        const saved = applyModeActivationToState(createDefaultModesState(), 'focus', {
+            durationMinutes: 25,
+            now: Date.now() - 60 * 60 * 1000, // 1 hour ago -> expired
+        }).nextState;
+        diskModesState = saved;
+
+        // Pretend stale blockedActivities existed before loadModesState
+        useStore.setState({
+            blockedActivities: [makeTrackedActivity('Discord')],
+            modesState: createDefaultModesState(),
+        });
+
+        await useStore.getState().loadModesState();
+
+        expect(useStore.getState().modesState.activeModeId).toBe('relax');
+        expect(setBlockedActivitiesMock).toHaveBeenCalledWith([]);
+        expect(useStore.getState().blockedActivities).toEqual([]);
+        expect(diskModesState.activeModeId).toBe('relax');
+    });
+
+    it('hydrates active Deep Work mode from local disk and re-enforces OS blocking on relaunch', async () => {
+        const saved = applyModeActivationToState(createDefaultModesState(), 'deep_work', {
+            durationMinutes: null,
+            now: Date.now() - 5000,
+        }).nextState;
+        diskModesState = saved;
+
+        await useStore.getState().loadModesState();
+
+        expect(useStore.getState().modesState.activeModeId).toBe('deep_work');
+        expect(setBlockedActivitiesMock).toHaveBeenCalledTimes(1);
+        expect(useStore.getState().blockedActivities.length).toBe(
+            DEFAULT_MODES.find((m) => m.id === 'deep_work')!.blockedApps.length
+        );
     });
 });

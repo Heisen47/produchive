@@ -52,16 +52,17 @@ export const ActivityMonitor = () => {
         return Object.values(appUsage).sort((a, b) => b.duration - a.duration);
     }, [activities]);
 
-    // Sort: blocked first, then by duration
+    // Sort: blocked first, then by duration (case-insensitive to stay in sync with Modes)
     const sortedApps = useMemo(() => {
-        const isAppBlocked = (name: string) => blockedActivities.some(a => a.owner.name === name);
+        const isAppBlocked = (name: string) =>
+            blockedActivities.some(a => a.owner.name.toLowerCase() === name.toLowerCase());
         const blocked = appSummary.filter(a => isAppBlocked(a.name));
         const unblocked = appSummary.filter(a => !isAppBlocked(a.name));
         return [...blocked, ...unblocked];
     }, [appSummary, blockedActivities]);
 
     const isBlocked = (appName: string) =>
-        blockedActivities.some(a => a.owner.name === appName);
+        blockedActivities.some(a => a.owner.name.toLowerCase() === appName.toLowerCase());
 
     const maxDuration = sortedApps.length > 0 ? Math.max(...sortedApps.map(a => a.duration)) : 1;
 

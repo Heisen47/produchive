@@ -20,7 +20,8 @@ Productivity Modes release: added customizable Focus, Relax, Deep Work, Study, M
 - **Modes Test Suite**: Added unit and integration tests covering built-in modes, protected system-app filtering, macOS process aliases, batch AppleScript blocking, target activity resolution, auto-relax timers, local hydration, and custom mode creation.
 
 ### Community Shoutout
-- **Special Thanks to Josue**: A huge thank you to Produchive user **Josue** for sharing valuable feedback and proposing the idea behind the Modes feature — your suggestion directly inspired this release.
+- **Special Thanks to Josue**: A huge thank you to **Josue** for sharing valuable feedback and proposing the idea behind **Modes** — your suggestion directly inspired this release and helped make Produchive better for everyone.
+- **Got a Feature Idea?**: Community feedback shapes what gets built next in Produchive. If you have an idea, suggestion, or request for a future release, share it here: [Suggest a Feature / Give Feedback](https://forms.gle/z9tUqZpfrDA8C3Di8).
 
 ---
 

@@ -17,7 +17,10 @@ Productivity Modes release: added customizable Focus, Relax, Deep Work, Study, M
 - **Design Alignment**: Added `DESIGN.md` documenting Produchive's Midnight Sakura Glass and Warm Parchment design system, and built the Modes master–detail workspace to match the app's translucent glass aesthetic.
 
 ### Validation
-- **Modes Test Suite**: Added unit tests covering built-in modes, protected system-app filtering, target activity resolution, auto-relax timers, local hydration, and custom mode creation.
+- **Modes Test Suite**: Added unit and integration tests covering built-in modes, protected system-app filtering, macOS process aliases, batch AppleScript blocking, target activity resolution, auto-relax timers, local hydration, and custom mode creation.
+
+### Community Shoutout
+- **Special Thanks to Josue**: A huge thank you to Produchive user **Josue** for sharing valuable feedback and proposing the idea behind the Modes feature — your suggestion directly inspired this release.
 
 ---
 

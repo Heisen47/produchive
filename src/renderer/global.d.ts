@@ -84,6 +84,11 @@ declare global {
       getBlockedActivities: () => Promise<Activity[]>;
       blockActivity: (activity: Activity) => Promise<Activity[]>;
       unblockActivity: (activity: Activity) => Promise<Activity[]>;
+      setBlockedActivities: (activities: Activity[]) => Promise<Activity[]>;
+
+      // Modes local persistence
+      getModesState: () => Promise<any>;
+      saveModesState: (state: any) => Promise<any>;
 
       // Debug and system info
       getSystemInfo: () => Promise<SystemInfo>;

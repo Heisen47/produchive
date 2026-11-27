@@ -15,7 +15,8 @@ import {
     Layers,
     ChevronDown,
     ChevronUp,
-    Loader2
+    Loader2,
+    Sliders
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useStore } from '../lib/store';
@@ -164,7 +165,7 @@ export const Dashboard = ({
     engineProgress,
     downloadedModelName,
 }: DashboardProps) => {
-    const { activities, isMonitoring, setMonitoring, stats: userStats, analytics, setAnalytics, routines, toggleRoutineComplete, ratings, addRating, goals, selectedRole, customPrompt } = useStore();
+    const { activities, isMonitoring, setMonitoring, stats: userStats, analytics, setAnalytics, routines, toggleRoutineComplete, ratings, addRating, goals, selectedRole, customPrompt, modesState } = useStore();
     const { isDark } = useTheme();
 
     const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -306,6 +307,16 @@ export const Dashboard = ({
         if (onNavigate) onNavigate('analytics');
         window.dispatchEvent(new CustomEvent('produchive_open_live_monitor'));
     };
+
+    const openModes = () => {
+        sessionStorage.setItem('analytics_initial_period', 'modes');
+        if (onNavigate) onNavigate('analytics');
+        window.dispatchEvent(new CustomEvent('produchive_open_modes'));
+    };
+
+    const activeMode = useMemo(() => {
+        return modesState.modes.find((m) => m.id === modesState.activeModeId) || modesState.modes[0];
+    }, [modesState.modes, modesState.activeModeId]);
 
     const usageStats = useMemo(() => {
         const appUsage: Record<string, number> = {};
@@ -535,9 +546,66 @@ export const Dashboard = ({
                     <span className="text-sm italic opacity-80" style={{ color: 'var(--text-secondary)' }}>Let's make today count together</span>
                 </div>
 
-                {/* Streak Card */}
-                <div data-tour="streak-card" className="animate-fade-in" style={{ animationDelay: '0.2s' }}>
-                    <StreakCard streak={userStats?.streak || 1} />
+                {/* Modes Button & Streak Card */}
+                <div className="flex items-center gap-3 animate-fade-in" style={{ animationDelay: '0.2s' }}>
+                    <button
+                        type="button"
+                        data-tour="modes-button"
+                        onClick={openModes}
+                        className="px-3.5 py-2 rounded-xl text-sm font-medium flex items-center gap-2 transition-all duration-300 hover:scale-[1.03] active:scale-95 cursor-pointer group"
+                        style={{
+                            background:
+                                activeMode && activeMode.behavior !== 'unblock_all'
+                                    ? 'rgba(59, 130, 246, 0.12)'
+                                    : 'var(--bg-card)',
+                            color: 'var(--text-primary)',
+                            border: `1px solid ${
+                                activeMode && activeMode.behavior !== 'unblock_all'
+                                    ? 'rgba(59, 130, 246, 0.3)'
+                                    : 'var(--border-card)'
+                            }`,
+                            backdropFilter: 'blur(16px)',
+                        }}
+                        title="Open Modes in Analytics (Focus, Relax, Deep Work, Study & more)"
+                    >
+                        <Sliders size={15} style={{ color: 'var(--accent)' }} />
+                        <span>Modes</span>
+                        {activeMode && (
+                            <span
+                                className="text-[11px] font-medium px-2 py-0.5 rounded-full flex items-center gap-1.5"
+                                style={{
+                                    background:
+                                        activeMode.behavior !== 'unblock_all'
+                                            ? 'rgba(59, 130, 246, 0.15)'
+                                            : 'rgba(34, 197, 94, 0.10)',
+                                    color:
+                                        activeMode.behavior !== 'unblock_all'
+                                            ? '#60a5fa'
+                                            : '#4ade80',
+                                }}
+                            >
+                                <span
+                                    className={`w-1.5 h-1.5 rounded-full ${activeMode.behavior !== 'unblock_all' ? 'animate-pulse' : ''}`}
+                                    style={{
+                                        background:
+                                            activeMode.behavior !== 'unblock_all'
+                                                ? '#60a5fa'
+                                                : '#4ade80',
+                                    }}
+                                />
+                                {activeMode.name.replace(/ Mode$/i, '')}
+                            </span>
+                        )}
+                        <ArrowRight
+                            size={13}
+                            className="opacity-50 transition-transform group-hover:translate-x-0.5 group-hover:opacity-100"
+                            style={{ color: 'var(--text-secondary)' }}
+                        />
+                    </button>
+
+                    <div data-tour="streak-card">
+                        <StreakCard streak={userStats?.streak || 1} />
+                    </div>
                 </div>
             </div>
 

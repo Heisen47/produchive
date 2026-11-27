@@ -16,6 +16,7 @@ import { Activity } from '../global';
 import { TotoroSceneBg } from './TotoroSceneBg';
 import { ActivityMonitor } from './ActivityMonitor';
 import { SystemLog } from './SystemLog';
+import { ModesPanel } from './ModesPanel';
 
 // ─── Color palette ───
 const CHART_COLORS = [
@@ -24,7 +25,7 @@ const CHART_COLORS = [
     '#e11d48', '#0ea5e9',
 ];
 
-type TimePeriod = 'today' | 'yesterday' | '7days' | '30days' | 'live';
+type TimePeriod = 'today' | 'yesterday' | '7days' | '30days' | 'live' | 'modes';
 
 const PERIOD_LABELS: Record<TimePeriod, string> = {
     today: 'Today',
@@ -32,6 +33,7 @@ const PERIOD_LABELS: Record<TimePeriod, string> = {
     '7days': 'Last 7 Days',
     '30days': 'Last 30 Days',
     live: 'Live Monitor',
+    modes: 'Modes',
 };
 
 // ─── Helpers ───
@@ -194,11 +196,18 @@ const getRatingColor = (rating: number) => {
 // MAIN COMPONENT
 // ═══════════════════════════════════════
 export const UsageCharts = () => {
-    const { activities, ratings, routines } = useStore();
+    const { activities, ratings, routines, modesState } = useStore();
     const { isDark } = useTheme();
     const [period, setPeriod] = useState<TimePeriod>(() => {
         const initial = sessionStorage.getItem('analytics_initial_period');
-        if (initial === 'live' || initial === 'today' || initial === 'yesterday' || initial === '7days' || initial === '30days') {
+        if (
+            initial === 'live' ||
+            initial === 'modes' ||
+            initial === 'today' ||
+            initial === 'yesterday' ||
+            initial === '7days' ||
+            initial === '30days'
+        ) {
             sessionStorage.removeItem('analytics_initial_period');
             return initial as TimePeriod;
         }
@@ -207,8 +216,13 @@ export const UsageCharts = () => {
 
     useEffect(() => {
         const handleOpenLive = () => setPeriod('live');
+        const handleOpenModes = () => setPeriod('modes');
         window.addEventListener('produchive_open_live_monitor', handleOpenLive);
-        return () => window.removeEventListener('produchive_open_live_monitor', handleOpenLive);
+        window.addEventListener('produchive_open_modes', handleOpenModes);
+        return () => {
+            window.removeEventListener('produchive_open_live_monitor', handleOpenLive);
+            window.removeEventListener('produchive_open_modes', handleOpenModes);
+        };
     }, []);
 
     const [rangeData, setRangeData] = useState<Record<string, { activities: Activity[] }>>({});
@@ -264,7 +278,7 @@ export const UsageCharts = () => {
 
     // ─── Fetch data for the selected period ───
     const fetchData = useCallback(async (p: TimePeriod) => {
-        if (p === 'today' || p === 'live') return;
+        if (p === 'today' || p === 'live' || p === 'modes') return;
         setLoading(true);
         try {
             const endDate = p === 'yesterday' ? getDateStr(1) : getDateStr(0);
@@ -399,28 +413,43 @@ export const UsageCharts = () => {
     return (
         <div data-tour="analytics-charts" className="space-y-8">
             {/* Period Tabs */}
-            <div className="flex items-center gap-2 animate-fade-in-up">
-                {(Object.keys(PERIOD_LABELS) as TimePeriod[]).map((p) => (
-                    <button
-                        key={p}
-                        onClick={() => setPeriod(p)}
-                        className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105"
-                        style={{
-                            background: period === p
-                                ? 'linear-gradient(135deg, var(--accent), var(--accent-dark))'
-                                : 'var(--bg-elevated)',
-                            color: period === p ? '#fff' : 'var(--text-secondary)',
-                            border: `1px solid ${period === p ? 'transparent' : 'var(--border-secondary)'}`,
-                            boxShadow: period === p ? '0 4px 15px var(--accent-glow)' : 'none',
-                        }}
-                    >
-                        {PERIOD_LABELS[p]}
-                    </button>
-                ))}
+            <div className="flex flex-wrap items-center gap-2 animate-fade-in-up" role="tablist" aria-label="Analytics sections">
+                {(Object.keys(PERIOD_LABELS) as TimePeriod[]).map((p) => {
+                    const activeMode = modesState.modes.find((m) => m.id === modesState.activeModeId);
+                    const isBlockingMode = p === 'modes' && activeMode && activeMode.behavior !== 'unblock_all';
+                    return (
+                        <button
+                            key={p}
+                            role="tab"
+                            aria-selected={period === p}
+                            onClick={() => setPeriod(p)}
+                            className="px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 hover:scale-105 flex items-center gap-2 cursor-pointer"
+                            style={{
+                                background: period === p
+                                    ? 'linear-gradient(135deg, var(--accent), var(--accent-dark))'
+                                    : 'var(--bg-elevated)',
+                                color: period === p ? '#fff' : 'var(--text-secondary)',
+                                border: `1px solid ${period === p ? 'transparent' : isBlockingMode ? 'rgba(59, 130, 246, 0.3)' : 'var(--border-secondary)'}`,
+                                boxShadow: period === p ? '0 4px 15px var(--accent-glow)' : 'none',
+                            }}
+                        >
+                            <span>{PERIOD_LABELS[p]}</span>
+                            {isBlockingMode && (
+                                <span
+                                    className="w-1.5 h-1.5 rounded-full animate-pulse"
+                                    style={{ background: period === p ? '#fff' : '#60a5fa' }}
+                                    title={`${activeMode.name} active`}
+                                />
+                            )}
+                        </button>
+                    );
+                })}
             </div>
 
-            {/* Live Monitor Tab Content */}
-            {period === 'live' ? (
+            {/* Modes / Live Monitor Tab Content */}
+            {period === 'modes' ? (
+                <ModesPanel />
+            ) : period === 'live' ? (
                 <div className="space-y-6 animate-fade-in-up">
                     <ActivityMonitor />
                     <SystemLog />

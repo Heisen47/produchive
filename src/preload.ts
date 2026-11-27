@@ -23,6 +23,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getBlockedActivities: () => ipcRenderer.invoke("get-blocked-activities"),
   blockActivity: (activity: any) => ipcRenderer.invoke("block-activity", activity),
   unblockActivity: (activity: any) => ipcRenderer.invoke("unblock-activity", activity),
+  setBlockedActivities: (activities: any[]) => ipcRenderer.invoke("set-blocked-activities", activities),
+
+  // Modes local persistence
+  getModesState: () => ipcRenderer.invoke("get-modes-state"),
+  saveModesState: (state: any) => ipcRenderer.invoke("save-modes-state", state),
 
   // Debug and system info
   getSystemInfo: () => ipcRenderer.invoke("get-system-info"),

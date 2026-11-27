@@ -381,6 +381,27 @@ const AppContent = () => {
 
     const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
+    // Auto-relax timer: switch back to Relax Mode when a timed focus/blocking mode finishes
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const { modesState, activateMode } = useStore.getState();
+            if (
+                modesState.activeModeId !== 'relax' &&
+                modesState.autoRelaxAt &&
+                Date.now() >= modesState.autoRelaxAt
+            ) {
+                activateMode('relax').then(() => {
+                    toast.success('Timer finished — switched to Relax Mode. All apps unlocked!');
+                    window.electronAPI?.showNotification?.({
+                        title: 'Produchive — Relax Mode',
+                        body: 'Your session timer finished. All distracting apps are enabled again.',
+                    }).catch(() => {});
+                }).catch(() => {});
+            }
+        }, 2000);
+        return () => clearInterval(interval);
+    }, []);
+
     // Track active usage time & prompt for feedback after 1 hour threshold
     useEffect(() => {
         const checkPrompt = () => {

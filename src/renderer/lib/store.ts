@@ -3,6 +3,19 @@ import { Task, Activity } from '../global';
 import { PlannedRoutineItem } from '../types/routine';
 import { DEFAULT_PROMPT, isLegacyDefaultPrompt } from './ai';
 import { syncTaskToRoutineCalendar, syncMultipleGoalsToRoutineCalendar } from './routineSync';
+import {
+    AppMode,
+    CreateCustomModeInput,
+    ModesPersistedState,
+    applyModeActivationToState,
+    buildTargetBlockedActivities,
+    createCustomModeRecord,
+    getDefaultBlockedAppsForMode,
+    hydrateModesState,
+    readModesStateFromLocalStorage,
+    sanitizeBlockedAppsList,
+    writeModesStateToLocalStorage,
+} from './modes';
 
 interface Store {
     tasks: Task[];
@@ -43,6 +56,16 @@ interface Store {
     loadBlockedActivities: () => Promise<void>;
     blockActivity: (activity: Activity) => Promise<void>;
     unblockActivity: (activity: Activity) => Promise<void>;
+
+    // Modes (Focus, Relax, Deep Work, Study, Meeting, Creative, Custom)
+    modesState: ModesPersistedState;
+    loadModesState: () => Promise<void>;
+    activateMode: (modeId: string, durationMinutes?: number | null) => Promise<AppMode | null>;
+    updateModeApps: (modeId: string, blockedApps: string[]) => Promise<void>;
+    addCustomMode: (input: CreateCustomModeInput) => Promise<AppMode>;
+    deleteCustomMode: (modeId: string) => Promise<void>;
+    resetModeToDefault: (modeId: string) => Promise<void>;
+    clearModeHistory: () => Promise<void>;
 
     // Debug / Testing
     setStreak: (streak: number) => void;
@@ -266,7 +289,8 @@ export const useStore = create<Store>((set, get) => ({
             selectedRole: settings.selectedRole || 'Software Engineer' // Default if not set
         });
         get().loadRoutines();
-        get().loadBlockedActivities();
+        await get().loadBlockedActivities();
+        await get().loadModesState();
     },
     addTask: async (text: string) => {
         const newTask: Task = {
@@ -401,6 +425,143 @@ export const useStore = create<Store>((set, get) => ({
     unblockActivity: async (activity: Activity) => {
         const blockedActivities = await window.electronAPI.unblockActivity(activity);
         set({ blockedActivities });
+    },
+
+    modesState: readModesStateFromLocalStorage(),
+    loadModesState: async () => {
+        try {
+            let persisted: any = null;
+            if (window.electronAPI?.getModesState) {
+                persisted = await window.electronAPI.getModesState();
+            }
+            const hydrated = persisted
+                ? hydrateModesState(persisted)
+                : readModesStateFromLocalStorage();
+
+            // If an auto-relax timer already expired while the app was closed, fall back to relax mode
+            let resolved = hydrated;
+            if (
+                hydrated.activeModeId !== 'relax' &&
+                hydrated.autoRelaxAt &&
+                Date.now() >= hydrated.autoRelaxAt
+            ) {
+                const { nextState } = applyModeActivationToState(hydrated, 'relax');
+                resolved = nextState;
+                writeModesStateToLocalStorage(resolved);
+                window.electronAPI?.saveModesState?.(resolved).catch(() => {});
+            } else {
+                writeModesStateToLocalStorage(resolved);
+            }
+
+            set({ modesState: resolved });
+
+            // Re-sync OS blocking state with persisted active mode
+            const activeMode = resolved.modes.find((m) => m.id === resolved.activeModeId);
+            if (activeMode && window.electronAPI?.setBlockedActivities) {
+                const targets = buildTargetBlockedActivities(activeMode, get().activities);
+                if (targets.length > 0) {
+                    const blockedActivities = await window.electronAPI.setBlockedActivities(targets);
+                    set({ blockedActivities });
+                }
+            }
+        } catch (err) {
+            console.error('[Modes] Failed to load local modes state:', err);
+        }
+    },
+    activateMode: async (modeId: string, durationMinutes?: number | null) => {
+        const current = get().modesState;
+        const { nextState, targetMode } = applyModeActivationToState(current, modeId, {
+            durationMinutes,
+        });
+        if (!targetMode) return null;
+
+        set({ modesState: nextState });
+        writeModesStateToLocalStorage(nextState);
+        window.electronAPI?.saveModesState?.(nextState).catch((err) => {
+            console.error('[Modes] Failed to persist modes state to disk:', err);
+        });
+
+        const targets = buildTargetBlockedActivities(targetMode, get().activities);
+        if (window.electronAPI?.setBlockedActivities) {
+            const blockedActivities = await window.electronAPI.setBlockedActivities(targets);
+            set({ blockedActivities });
+        } else {
+            set({ blockedActivities: targets });
+        }
+
+        return targetMode;
+    },
+    updateModeApps: async (modeId: string, blockedApps: string[]) => {
+        const current = get().modesState;
+        const sanitized = sanitizeBlockedAppsList(blockedApps);
+        const updatedModes = current.modes.map((m) =>
+            m.id === modeId && m.behavior !== 'unblock_all'
+                ? { ...m, blockedApps: sanitized }
+                : m
+        );
+        const nextState: ModesPersistedState = {
+            ...current,
+            modes: updatedModes,
+        };
+        set({ modesState: nextState });
+        writeModesStateToLocalStorage(nextState);
+        window.electronAPI?.saveModesState?.(nextState).catch(() => {});
+
+        // If this mode is currently active, immediately re-apply OS blocks
+        if (current.activeModeId === modeId) {
+            const activeMode = updatedModes.find((m) => m.id === modeId);
+            if (activeMode && window.electronAPI?.setBlockedActivities) {
+                const targets = buildTargetBlockedActivities(activeMode, get().activities);
+                const blockedActivities = await window.electronAPI.setBlockedActivities(targets);
+                set({ blockedActivities });
+            }
+        }
+    },
+    addCustomMode: async (input: CreateCustomModeInput) => {
+        const newMode = createCustomModeRecord(input);
+        const current = get().modesState;
+        const nextState: ModesPersistedState = {
+            ...current,
+            modes: [...current.modes, newMode],
+        };
+        set({ modesState: nextState });
+        writeModesStateToLocalStorage(nextState);
+        window.electronAPI?.saveModesState?.(nextState).catch(() => {});
+        return newMode;
+    },
+    deleteCustomMode: async (modeId: string) => {
+        const current = get().modesState;
+        const target = current.modes.find((m) => m.id === modeId);
+        if (!target || target.isBuiltIn) return;
+
+        // If deleting the active custom mode, switch back to relax mode first
+        if (current.activeModeId === modeId) {
+            await get().activateMode('relax');
+        }
+
+        const latest = get().modesState;
+        const nextState: ModesPersistedState = {
+            ...latest,
+            modes: latest.modes.filter((m) => m.id !== modeId),
+        };
+        set({ modesState: nextState });
+        writeModesStateToLocalStorage(nextState);
+        window.electronAPI?.saveModesState?.(nextState).catch(() => {});
+    },
+    resetModeToDefault: async (modeId: string) => {
+        const defaults = getDefaultBlockedAppsForMode(modeId);
+        if (defaults === null) return;
+        await get().updateModeApps(modeId, defaults);
+    },
+    clearModeHistory: async () => {
+        const current = get().modesState;
+        const nextState: ModesPersistedState = {
+            ...current,
+            history: [],
+        };
+        set({ modesState: nextState });
+        writeModesStateToLocalStorage(nextState);
+        window.electronAPI?.saveModesState?.(nextState).catch(() => {});
     },
 }));
 

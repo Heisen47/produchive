@@ -18,7 +18,7 @@ import { createLogger, getLogPath } from "./lib/logger";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { execSync, exec } from "node:child_process";
+import { execSync, exec, execFile } from "node:child_process";
 import { getAutoUpdater } from "./lib/autoUpdater";
 import { runMsixStartupTask } from "./lib/msixStartupTask";
 import {
@@ -185,6 +185,9 @@ async function initDB() {
     db.data.ratings ||= [];
     db.data.focusSessions ||= [];
     db.data.activityFeedbacks ||= [];
+    if (typeof db.data.modesState === "undefined") {
+      db.data.modesState = null;
+    }
 
     db.data.ratings ||= [];
     await db.write();
@@ -432,6 +435,80 @@ let isSuspended = false;
 const blockedActivities = new Map<string, any>();
 let blockEnforcementInterval: NodeJS.Timeout | null = null;
 
+const PROTECTED_BLOCK_APPS = new Set([
+  "produchive",
+  "electron",
+  "finder",
+  "explorer",
+  "system settings",
+  "system preferences",
+  "windowserver",
+  "loginwindow",
+  "dock",
+  "task manager",
+  "taskmgr",
+  "activity monitor",
+  "spotlight",
+  "control center",
+]);
+
+function isProtectedBlockApp(name: string): boolean {
+  const lower = (name || "").trim().toLowerCase();
+  if (!lower) return true;
+  return (
+    PROTECTED_BLOCK_APPS.has(lower) ||
+    PROTECTED_BLOCK_APPS.has(lower.replace(/\.(exe|app)$/i, ""))
+  );
+}
+
+function normalizeMacAppName(name: string): string {
+  const trimmed = (name || "").trim();
+  const lower = trimmed.toLowerCase();
+  if (lower === "chrome") return "Google Chrome";
+  if (lower === "brave") return "Brave Browser";
+  if (lower === "edge") return "Microsoft Edge";
+  return trimmed;
+}
+
+function escapeAppleScriptString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/[\r\n]/g, "");
+}
+
+function runOsaScript(script: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile("osascript", ["-e", script], (error, stdout, stderr) => {
+      if (error) {
+        logger.error(`[BlockMode] AppleScript error: ${error.message}`, stderr);
+        reject(error);
+      } else {
+        resolve(stdout);
+      }
+    });
+  });
+}
+
+function findBlockedActivityMatch(candidateName: string): any | null {
+  if (!candidateName) return null;
+  if (blockedActivities.has(candidateName)) {
+    return blockedActivities.get(candidateName);
+  }
+  const candLower = candidateName.toLowerCase();
+  const candNorm = normalizeMacAppName(candidateName).toLowerCase();
+  for (const [key, activity] of blockedActivities.entries()) {
+    const keyLower = key.toLowerCase();
+    const keyNorm = normalizeMacAppName(activity?.owner?.name || key).toLowerCase();
+    if (
+      candLower === keyLower ||
+      candLower === keyNorm ||
+      candNorm === keyLower ||
+      candNorm === keyNorm
+    ) {
+      return activity;
+    }
+  }
+  return null;
+}
+
 function execAsync(script: string): Promise<string> {
   return new Promise((resolve, reject) => {
     exec(script, (error, stdout, stderr) => {
@@ -470,12 +547,11 @@ async function applyBlockMode(activity: any, block: boolean) {
   const isWin = process.platform === "win32";
   if (!isMac && !isWin) return;
 
-  let appName = activity.owner.name;
+  let appName = activity?.owner?.name;
+  if (!appName || (block && isProtectedBlockApp(appName))) return;
 
   if (isMac) {
-    if (appName === "Chrome") appName = "Google Chrome";
-    if (appName === "Brave") appName = "Brave Browser";
-    if (appName === "Edge") appName = "Microsoft Edge";
+    appName = normalizeMacAppName(appName);
   }
 
   logger.info(
@@ -484,25 +560,26 @@ async function applyBlockMode(activity: any, block: boolean) {
 
   try {
     if (isMac) {
+      const safeAppName = escapeAppleScriptString(appName);
       if (block) {
         // Two-step hide: set visible to false AND push to back
-        const script = `osascript -e '
+        const script = `
           tell application "System Events"
-            if exists process "${appName}" then
-              set visible of process "${appName}" to false
-              set frontmost of process "${appName}" to false
+            if exists process "${safeAppName}" then
+              set visible of process "${safeAppName}" to false
+              set frontmost of process "${safeAppName}" to false
             end if
-          end tell'`;
-        await execAsync(script);
+          end tell`;
+        await runOsaScript(script);
         logger.info(`[BlockMode] Successfully hidden: ${appName}`);
       } else {
-        const script = `osascript -e '
+        const script = `
           tell application "System Events"
-            if exists process "${appName}" then
-              set visible of process "${appName}" to true
+            if exists process "${safeAppName}" then
+              set visible of process "${safeAppName}" to true
             end if
-          end tell'`;
-        await execAsync(script);
+          end tell`;
+        await runOsaScript(script);
         logger.info(`[BlockMode] Successfully shown: ${appName}`);
       }
     } else if (isWin) {
@@ -567,25 +644,15 @@ async function runBlockEnforcementTick() {
     if (isMac) {
       // Query frontmost app in one fast call instead of spawning separate child processes for every app
       const frontAppName = (
-        await execAsync(
-          `osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true'`
+        await runOsaScript(
+          'tell application "System Events" to get name of first application process whose frontmost is true'
         ).catch(() => "")
       ).trim();
 
       if (frontAppName) {
-        for (const [key, activity] of blockedActivities.entries()) {
-          let appName = activity.owner.name;
-          if (appName === "Chrome") appName = "Google Chrome";
-          if (appName === "Brave") appName = "Brave Browser";
-          if (appName === "Edge") appName = "Microsoft Edge";
-
-          if (
-            frontAppName.toLowerCase() === appName.toLowerCase() ||
-            frontAppName.toLowerCase() === key.toLowerCase()
-          ) {
-            await applyBlockMode(activity, true);
-            break;
-          }
+        const matched = findBlockedActivityMatch(frontAppName);
+        if (matched) {
+          await applyBlockMode(matched, true);
         }
       }
     } else if (isWin) {
@@ -894,7 +961,7 @@ async function pollTick() {
         }
 
         // Enforce blocking if this app is blocked
-        if (blockedActivities.has(result.owner.name)) {
+        if (findBlockedActivityMatch(result.owner.name)) {
           applyBlockMode(result, true);
         }
 
@@ -1144,7 +1211,10 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("block-activity", async (event, activity) => {
-    const key = activity.owner.name;
+    const key = activity?.owner?.name;
+    if (!key || isProtectedBlockApp(key)) {
+      return Array.from(blockedActivities.values());
+    }
     blockedActivities.set(key, activity);
     await applyBlockMode(activity, true);
     updateBlockEnforcement();
@@ -1153,12 +1223,80 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle("unblock-activity", async (event, activity) => {
-    const key = activity.owner.name;
-    blockedActivities.delete(key);
-    updateBlockEnforcement(); // Stop loop first if no more blocked apps
-    await applyBlockMode(activity, false);
-    logger.info(`[BlockMode] Unblocked app: ${key}. Total blocked: ${blockedActivities.size}`);
+    const key = activity?.owner?.name;
+    if (key) {
+      // Remove exact or case-insensitive match
+      for (const existingKey of Array.from(blockedActivities.keys())) {
+        if (existingKey.toLowerCase() === key.toLowerCase()) {
+          blockedActivities.delete(existingKey);
+        }
+      }
+      updateBlockEnforcement(); // Stop loop first if no more blocked apps
+      await applyBlockMode(activity, false);
+      logger.info(`[BlockMode] Unblocked app: ${key}. Total blocked: ${blockedActivities.size}`);
+    }
     return Array.from(blockedActivities.values());
+  });
+
+  ipcMain.handle("set-blocked-activities", async (_event, activitiesList: any[]) => {
+    const incoming = Array.isArray(activitiesList) ? activitiesList : [];
+    const targetByLower = new Map<string, any>();
+
+    for (const act of incoming) {
+      const name = act?.owner?.name;
+      if (!name || isProtectedBlockApp(name)) continue;
+      targetByLower.set(name.toLowerCase(), act);
+    }
+
+    // 1. Unblock apps that are no longer in the target list (e.g. Relax Mode passes [])
+    const toUnblock: any[] = [];
+    for (const [existingKey, existingAct] of Array.from(blockedActivities.entries())) {
+      if (!targetByLower.has(existingKey.toLowerCase())) {
+        blockedActivities.delete(existingKey);
+        toUnblock.push(existingAct);
+      }
+    }
+
+    // Stop enforcement loop before restoring windows if target list is empty
+    if (targetByLower.size === 0) {
+      stopBlockEnforcement();
+    }
+
+    for (const act of toUnblock) {
+      await applyBlockMode(act, false);
+    }
+
+    // 2. Block newly added apps
+    const existingLowerKeys = new Set(
+      Array.from(blockedActivities.keys()).map((k) => k.toLowerCase())
+    );
+    for (const [lowerKey, act] of targetByLower.entries()) {
+      const name = act.owner.name;
+      if (!existingLowerKeys.has(lowerKey)) {
+        blockedActivities.set(name, act);
+        await applyBlockMode(act, true);
+      }
+    }
+
+    updateBlockEnforcement();
+    logger.info(
+      `[BlockMode] Applied batch block set: ${blockedActivities.size} blocked, ${toUnblock.length} restored`
+    );
+    return Array.from(blockedActivities.values());
+  });
+
+  // Local Modes persistence (stored in userData/db.json)
+  ipcMain.handle("get-modes-state", async () => {
+    return db.data.modesState || null;
+  });
+
+  ipcMain.handle("save-modes-state", async (_event, modesState: any) => {
+    db.data.modesState = modesState;
+    await db.write();
+    logger.info(
+      `[Modes] Saved local modes state (active=${modesState?.activeModeId || "relax"}, modes=${modesState?.modes?.length || 0})`
+    );
+    return db.data.modesState;
   });
 
   // Task management handlers
@@ -2133,11 +2271,9 @@ app.on("before-quit", () => {
     try {
       let appName = activity.owner.name;
       if (process.platform === "darwin") {
-        if (appName === "Chrome") appName = "Google Chrome";
-        if (appName === "Brave") appName = "Brave Browser";
-        if (appName === "Edge") appName = "Microsoft Edge";
-        const script = `osascript -e 'tell application "System Events" to set visible of process "${appName}" to true'`;
-        execSync(script);
+        appName = normalizeMacAppName(appName);
+        const safeAppName = escapeAppleScriptString(appName);
+        execSync(`osascript -e 'tell application "System Events" to if exists process "${safeAppName}" then set visible of process "${safeAppName}" to true'`);
         logger.info(`[BlockMode] Restored on quit: ${appName}`);
       } else if (process.platform === "win32") {
         const safeAppName = appName.replace(/'/g, "''");

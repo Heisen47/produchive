@@ -2,6 +2,25 @@
 
 ---
 
+## Produchive v3.3.3
+
+Productivity Modes release: added customizable Focus, Relax, Deep Work, Study, Meeting, and Creative Flow modes with one-click distracting app blocking, local-first storage, optional auto-relax session timers, and a refreshed glassmorphic UI.
+
+### Productivity Modes & App Blocking
+- **Homepage Modes Shortcut**: Added a `Modes` button on the Dashboard showing the active mode status and jumping directly to the `Modes` tab in Analytics.
+- **Built-in & Custom Modes**: Added **Focus Mode** (blocks distracting apps), **Relax Mode** (immediately restores all hidden apps), plus suggested presets (**Deep Work**, **Study Mode**, **Meeting Mode**, **Creative Flow**) and support for creating custom modes.
+- **Batch OS App Blocking & Safeguards**: Added atomic batch blocking/unblocking in the main process with protected system-app safeguards (preventing accidental self-lockout or OS disruption) and safer AppleScript handling.
+- **Optional Auto-Relax Timer**: Added `Manual`, `25m`, `50m`, and `90m` session timers that automatically switch back to Relax Mode and unlock all apps when finished.
+
+### Local-First Persistence & Design System
+- **Local Storage**: Modes, per-mode distracting app lists, custom presets, and switch history are saved locally on the user's device in `userData/db.json` with quick access to the local data folder.
+- **Design Alignment**: Added `DESIGN.md` documenting Produchive's Midnight Sakura Glass and Warm Parchment design system, and built the Modes master–detail workspace to match the app's translucent glass aesthetic.
+
+### Validation
+- **Modes Test Suite**: Added unit tests covering built-in modes, protected system-app filtering, target activity resolution, auto-relax timers, local hydration, and custom mode creation.
+
+---
+
 ## Produchive v3.3.2
 
 Onboarding and feedback polish release: added a guided tour overlay for the app and page-level help, plus a store-review prompt that appears only after meaningful real-world use on Microsoft Store installs.
